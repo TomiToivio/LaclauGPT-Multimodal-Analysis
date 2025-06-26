@@ -9,7 +9,7 @@ LaclauGPT is developed by [Tomi Toivio](mailto:tomi.toivio@helsinki.fi) for thre
 
 The pipeline was used to collect and analyze multimodal social media data related to the 2024 European parliament elections. Data was collected from TikTok and Instagram. Data collection started in 1st of May 2024 and continued until the election day in 9th of June 2024. Collection was based on usernames of official election candidates as well as hashtags and search queries related to the elections. Election data was collected for Bulgaria, Croatia, Finland, France, Germany, Hungary, Portugal, Spain and Sweden. Collected and analyzed data cannot be released yet due to GDPR. This open source version uses dummy data. 
 
-## Multimodal Data Analysis
+## LaclauGPT Multimodal Data Analysis
 
 These data analysis scripts are published for research documentation. You cannot use these without modification.
 
