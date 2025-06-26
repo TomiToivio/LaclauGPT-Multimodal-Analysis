@@ -13,8 +13,16 @@ The pipeline was used to collect and analyze multimodal social media data relate
 
 ## Multimodal Data Analysis
 
-These data analysis scripts are published for research documentation. Do not attempt to use these without modification.
+These data analysis scripts are published for research documentation. You cannot use these without modification.
 
 These are used with [Ollama](https://ollama.com/) running on [CSC Puhti](https://docs.csc.fi/computing/systems-puhti/) supercomputer.
+
+The scripts are submitted as [batch jobs](https://docs.csc.fi/computing/running/creating-job-scripts-puhti/) in a sequence:
+
+1. puhti_preprocess.py - This extracts video frames with OpenCV, processes the with EasyOCR and extracts a Whisper transcript of the audio.
+
+2. puhti_frame.py - This uses Llama to create a multimodal analysis of 1-6 extracted frames.
+
+3. puhti_summary.py - This creates a Llama summary analysis based on the metadata, Whisper transcript and Llama multimodal analysis results.
 
 Code for the [TikTok Scraper](https://github.com/TomiToivio/LaclauGPT-TikTok-Scraper) used to collect EP2024 data is also available.
