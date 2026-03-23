@@ -2,7 +2,7 @@
 
 LaclauGPT is a political science multimodal data collection and analysis pipeline. It is called LaclauGPT as a tribute to [Ernesto Laclau](https://en.wikipedia.org/wiki/Ernesto_Laclau).
 
-LaclauGPT is developed by [Tomi Toivio](mailto:tomi.toivio@helsinki.fi) for three [Helsinki Hub on Emotions, Populism and Polarisation](https://www.helsinki.fi/en/researchgroups/emotions-populism-and-polarisation) research projects funded by the European Union:
+LaclauGPT is developed by [Tomi Toivio](mailto:tomi.toivio@helsinki.fi) for three [Helsinki Hub on Emotions, Populism and Polarisation](https://www.helsinki.fi/en/researchgroups/emotions-populism-and-polarisation) research projects funded by the European Union and the Research Council of Finland:
 * [CO3](https://www.co3socialcontract.eu/) researches the social contract. 
 * [ENDURE](https://www.endure-project.org/) researches the world after the pandemic. 
 * [PLEDGE](https://www.pledgeproject.eu/) researches grievance politics.
