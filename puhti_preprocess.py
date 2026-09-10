@@ -81,7 +81,7 @@ def get_transcript(video_id, author_username, scrapedCountry):
     whisper_translated = ''
     try:
         result = model.transcribe(video_filename, temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-        whisper_transcript = str(result['text'])
+        whisper_transcript = ' '.join(result['text']) if isinstance(result['text'], list) else str(result['text'])
         whisper_language = result['language']
         whisper_translated = GoogleTranslator(source=whisper_language, target='en').translate(whisper_transcript[:3000])
     except Exception as e:

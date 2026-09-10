@@ -8,7 +8,6 @@ from datetime import datetime
 from pydantic import BaseModel
 from logging.handlers import RotatingFileHandler
 
-from streamlit import video
 logger = logging.getLogger(__name__)
 logging.basicConfig(handlers=[RotatingFileHandler('formula.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')

@@ -67,16 +67,17 @@ def get_analysis(frame_file):
     user_prompt = f'''
     Analyze the provided video frame based on the categories outlined in the system prompt. Provide a detailed description of the visual elements, activities, and subjects present in the frame. Focus on how these elements contribute to the overall message or framing of the video content.
     '''
+    frame_analysis = ''
     logger.debug(f'Processing image: {frame_file}')
     images = []
     with open(frame_file, 'rb') as f:
         raw = f.read()
         raw = base64.b64encode(raw)
-        images.append(raw)
+        images.append(raw.decode('utf-8'))
     # Temperature 0.0 was found to be the best for this task
     options={"repeat_last_n": 64,
              "repeat_penalty": 1.1,
-             "num_ctx": 8096,
+             "num_ctx": 8192,
              "top_p": 0.9,
              "top_k": 40,
              "min_p": 0.0,

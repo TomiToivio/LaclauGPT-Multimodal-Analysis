@@ -114,7 +114,7 @@ def get_response(user_prompt, system_prompt):
     return llama_response
 
 
-def analyze_responses():
+def analyze_responses(country):
     filename = f'ep24_{country}.csv'
     df = pd.read_csv(filename)
     df["entities"] = ""
@@ -167,14 +167,6 @@ def analyze_responses():
         except Exception as e:
             print(f'Error processing row {index}: {e}')
             logger.error(f'Error processing row {index}: {e}')
-        try:
-            # Dataframe to string
-            df = df.astype(str)
-            new_filename = f'finland_mobile_fixed.csv'
-            df.to_csv(new_filename, index=False)
-        except Exception as e:
-            print(f'Error saving dataframe: {e}')
-            logger.error(f'Error saving dataframe: {e}')
     # Dataframe to string
     df = df.astype(str)
     new_filename = f'ep24_{country}.csv'
@@ -182,4 +174,5 @@ def analyze_responses():
 
 
 countries = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr']
-analyze_responses()
+for country in countries:
+    analyze_responses(country)
