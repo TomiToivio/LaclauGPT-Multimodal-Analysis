@@ -85,9 +85,9 @@ def normalize_frame_files(value):
     return ','.join(cleaned)
 
 
-def best_transcript(transcript, translated):
-    """Prefer English translation while keeping the original as a fallback."""
-    for value in (translated, transcript):
+def best_transcript(legacy, transcript, translated):
+    """Preserve legacy transcript data, filling gaps from new Whisper output."""
+    for value in (legacy, transcript, translated):
         if value is not None:
             text = str(value).strip()
             if text and text.lower() != 'nan':
@@ -221,6 +221,7 @@ def analyze_videos(language):
         author_username = row['authorUniqueId']
         video_id = row['videoId']
         scraped_country = row['scrapedCountry']
+        legacy_whisper_result = row.get('whisperResult', '')
         video_path = (
             f'./Allas/Scraper/TikTok/Videos/{scraped_country}/'
             f'{author_username}/{video_id}.mp4'
@@ -260,6 +261,7 @@ def analyze_videos(language):
             df.at[index, 'whisper_language'] = str(whisper_language or '')
             df.at[index, 'whisper_translated'] = str(whisper_translated or '')
             df.at[index, 'whisperResult'] = best_transcript(
+                legacy_whisper_result,
                 whisper_transcript,
                 whisper_translated,
             )
@@ -308,6 +310,7 @@ def analyze_videos(language):
             df.at[index, 'whisper_language'] = str(whisper_language)
             df.at[index, 'whisper_translated'] = str(whisper_translated)
             df.at[index, 'whisperResult'] = best_transcript(
+                legacy_whisper_result,
                 whisper_transcript,
                 whisper_translated,
             )
