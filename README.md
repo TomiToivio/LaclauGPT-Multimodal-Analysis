@@ -1,6 +1,6 @@
 # LaclauGPT 
 
-> **Legacy repository:** This repository is preserved for academic research documentation. Active development continues in [LaclauGPT-Discourse-Analysis](https://github.com/TomiToivio/LaclauGPT-Discourse-Analysis).
+> **Legacy repository:** This repository is preserved for academic research documentation. Active development continues in [LaclauGPT](https://github.com/TomiToivio/LaclauGPT).
 
 LaclauGPT is a political science multimodal data collection and analysis pipeline. It is called LaclauGPT as a tribute to [Ernesto Laclau](https://en.wikipedia.org/wiki/Ernesto_Laclau).
 
