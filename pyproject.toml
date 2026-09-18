@@ -1,0 +1,36 @@
+[project]
+name = "laclaungpt-multimodal-analysis"
+version = "0.1.0"
+description = "Legacy multimodal analysis scripts for EP2024 social media video research."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "CC0-1.0" }
+authors = [{ name = "Tomi Toivio" }]
+dependencies = [
+  "deep-translator>=1.11,<2",
+  "easyocr>=1.7,<2",
+  "ollama>=0.4,<1",
+  "opencv-python-headless>=4.10,<5",
+  "openai-whisper>=20240930",
+  "pandas>=2.2,<3",
+  "pydantic>=2.9,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff>=0.11,<1",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["Keyframes", "Allas", "database", "logs", "whisper"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
