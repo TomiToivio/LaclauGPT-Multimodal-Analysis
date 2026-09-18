@@ -94,3 +94,26 @@ AI26 can simplify or reorganize storage and interfaces, but this ordering is a u
 ### Phase 0 rule
 
 Use this repository for **legacy archaeology**: copy semantics and proven stage behavior only where they still fit the AI26 Phase 0 contract. Prefer hand-porting into LaclauGPT-Data-Analysis over importing these scripts wholesale. Keep this repository stable as a reference unless a later issue explicitly requests implementation work here.
+
+
+## Python development standards
+
+This legacy repository keeps the historical batch-script architecture, but follows a modern Python development baseline:
+
+- Python 3.11 or newer.
+- Project metadata and tool configuration live in `pyproject.toml`.
+- Ruff provides linting and import/style checks.
+- GitHub Actions checks Python syntax and Ruff on every pull request and push to `main`.
+- `.editorconfig` defines consistent UTF-8, LF, whitespace, and four-space Python indentation.
+- Runtime outputs such as `logs/`, `database/`, `csv/`, `Keyframes/`, `Allas/`, and Whisper model data are ignored by Git.
+
+For local quality checks:
+
+```bash
+python -m pip install -r requirements-dev.txt
+ruff check puhti_*.py
+ruff format --check puhti_*.py
+python -m compileall -q puhti_*.py
+```
+
+The scripts remain research/HPC batch programs rather than an installable Python library. Refactoring them into a package would change the historical reference architecture and is intentionally out of scope here.
