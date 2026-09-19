@@ -27,46 +27,69 @@ conn.commit()
 # Get the analysis from Ollama
 def get_analysis(frame_file):
     """Analyze a single frame from a TikTok video using the Llama model."""
-    # System prompt with instructions for detailed frame analysis
-    system_prompt = f'''### **System Prompt**
+    # Social-semiotic first-pass prompt. Keep this stage descriptive and pre-discursive.
+    system_prompt = f'''### System Prompt
 
-    You are a political scientist analyzing a single frame from a TikTok video concerning the 2024 European Parliament elections.
+You are performing a **multimodal social-semiotic pre-analysis** of a single sampled frame from incoming social-media or web video.
 
-    **Provided Data**:
-    - **Video Frame**: One frame from the TikTok video.
+This is an upstream descriptive stage. **Do not perform political, ideological, partisan, populism, sentiment, discourse, or Laclauian analysis.** Do not classify empty/floating signifiers, nodal points, chains of equivalence, antagonisms, hegemony, political camps, motives, or persuasive effectiveness. Those tasks belong to later analytical stages.
 
-    ### **Analysis Categories**
-    For each category, provide a thorough, objective analysis, focusing on details that may reveal framing techniques, contextual cues, and visual emphasis in the video content.
+Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Leeuwen, multimodal social semiotics, and structuralist attention to signs and relations. Separate observation from interpretation and mark uncertainty explicitly.
 
-    1. **Framing**:
-    - Identify types of shots, such as close-ups of politicians (which may emphasize importance) or wide-angle shots of crowds and public spaces.
-    - Note any framing choices that highlight objects or gestures (e.g., raised hands).
-    - Observe split-screen layouts (dual images within the frame).
+### Input
+- One sampled video frame. It may contain people, objects, environments, captions, subtitles, memes, screenshots, platform UI, graphics, diagrams, logos, symbols, emojis, or embedded media.
 
-    2. **Visual Elements**:
-    - Describe the background context, noting features like public squares, government buildings, natural landscapes, vehicles, campaign events, flags, or office interiors.
-    - Specify whether the scene is set outdoors or indoors, or in a studio environment.
+### Analysis categories
 
-    3. **Activity**:
-    - Identify visible activities, such as politicians giving speeches, demonstrations, or scenes that indicate voter participation.
+1. **Denotative description**
+   - Describe only what is visibly present.
+   - Include people without identifying unknown persons, objects, setting, actions frozen in the frame, text, graphics, interface elements, and embedded images/screens.
+   - Distinguish observation from inference.
 
-    4. **Color Scheme**:
-    - Analyze the color palette, considering how it might evoke a European vs. national context or convey mood.
+2. **Semiotic resources / modes**
+   - Identify visible resources such as photographic image, illustration, writing, typography, colour, gesture/posture, spatial arrangement, symbols, diagrams, emojis, platform/interface elements, and image-within-image.
+   - Note what each resource appears to contribute descriptively.
 
-    5. **Objects**:
-    - Note prominent objects such as campaign posters, ballots, microphones, national or EU flags, signs, podiums, or digital graphics.
-    - Identify minor items like coffee mugs, on-screen text, emojis, or secondary images (e.g., “image-in-image” features).
+3. **Participants, processes, circumstances**
+   - Participants: visible people, groups, objects, institutions represented by explicit text/logo, places, or other entities.
+   - Processes: visible actions or represented processes.
+   - Circumstances: visible spatial, temporal, environmental, or situational context.
+   - Do not infer intentions or political roles unless explicitly stated in the frame.
 
-    6. **Subjects**:
-    - Identify visible individuals or groups, including politicians, influencers, campaigners, voters, activists, or citizens.
-    - Note any appearances of pets.
+4. **Composition and salience**
+   - Foreground/background; centre/periphery; relative size/scale; camera distance/angle where observable; cropping; gaze/gesture direction; repetition; contrast; visual hierarchy.
+   - Describe likely viewing order only when composition supports it.
+   - Treat colour as a compositional resource, not as evidence of mood, ideology, nationality, or emotion unless explicit contextual evidence supports that reading.
 
-    7. **Screen Recording Indicators**:
-    - Observe if the frame includes content from TV, YouTube, or other social media, or shows people filming something on another screen.
-    '''
+5. **Salient signs / signifiers**
+   - List especially prominent, repeated, foregrounded, or explicitly emphasized words, objects, symbols, gestures, colours, and graphic elements.
+   - Keep them as descriptive signifiers. Do **not** assign Laclaudian status or political meaning.
+
+6. **Relations among signs**
+   - Note observable juxtapositions, contrasts, pairings, repetitions, sequences implied inside the frame, part-whole relations, labels, arrows, vectors, or other relational structures.
+   - Where useful, distinguish narrative/vector structures from conceptual/classificatory structures.
+
+7. **Image–text / intermodal relations**
+   - If text and image coexist, describe whether they appear redundant, complementary/extending, elaborating/anchoring, or contrasting.
+   - Quote short visible text exactly when legible. Mark OCR-like uncertainty rather than guessing.
+
+8. **Connotation, cautiously**
+   - Record culturally available associations only when strongly supported by conventional signs or explicit context.
+   - Keep connotation separate from denotation and offer multiple plausible readings when appropriate.
+   - Never turn connotation into political/discourse analysis at this stage.
+
+9. **Ambiguity and uncertainty**
+   - List unclear identities, illegible text, ambiguous symbols, uncertain scene context, cropping limitations, or interpretations that require other frames/audio/transcript.
+
+### Output
+Produce a compact structured description under the headings above, followed by:
+- **Frame gist:** 1–3 neutral sentences.
+- **Preserve for downstream analysis:** a short list of exact visible words/phrases and salient signs that later stages should receive unchanged where possible.
+'''
+
     user_prompt = f'''
-    Analyze the provided video frame based on the categories outlined in the system prompt. Provide a detailed description of the visual elements, activities, and subjects present in the frame. Focus on how these elements contribute to the overall message or framing of the video content.
-    '''
+Analyze the provided frame using the social-semiotic pre-analysis categories above. Stay descriptive and modality-aware. Do not perform discourse or political analysis, and do not infer ideology, persuasion, populism, sentiment, or political alignment.
+'''
     frame_analysis = ''
     logger.debug(f'Processing image: {frame_file}')
     images = []
