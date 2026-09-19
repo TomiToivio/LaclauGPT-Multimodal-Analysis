@@ -1,75 +1,31 @@
 # Phase branch workflow
 
-This repository participates in the shared LaclauGPT phase-branch model.
+This repository uses persistent `phase-0` through `phase-4` branches.
 
-## Persistent branches
+As of 2026-09-19, **Phase 0 is active**, so `main` and `phase-0` must represent the same current stable baseline. Future-phase branches may advance independently.
 
-| Branch | Purpose |
-| --- | --- |
-| `phase-0` | Current stable operational baseline. **Active now.** |
-| `phase-1` | Phase-1 development and restoration work. May advance without changing Phase 0. |
-| `phase-2` | Phase-2 theoretical/methodological/technical work. |
-| `phase-3` | Phase-3 preliminary-results/integration work. |
-| `phase-4` | Phase-4 final-results/finalization work. |
-| `main` | Mirror/integration branch for the **currently active phase**. It is not a catch-all branch for future-phase work. |
+## Rules
 
-As of 2026-09-19, the active phase is **Phase 0**, so `main` and `phase-0` must describe the same current stable project state.
+1. Determine an issue's phase from its title/body, labels, milestone, linked roadmap, or explicit instruction.
+2. Start work from the matching `phase-N` branch.
+3. Prefer an issue branch from that phase branch and PR back to the same `phase-N`.
+4. Do not target `main` with Phase-1/2/3/4 work while Phase 0 is active.
+5. Phase-0 work lands in `phase-0`, is validated there, then `main` is synchronized.
+6. Unphased issues default to the active phase, currently Phase 0.
+7. For cross-repository work, use the same phase branch in every affected LaclauGPT repo unless explicitly documented otherwise.
+8. Backport minimal fixes between phases when required; never merge an entire future phase into the stable phase just to obtain one fix.
 
-## Issue workflow
-
-For every issue:
-
-1. Determine the intended phase from the issue title/body, labels, milestone, linked roadmap, or explicit user instruction.
-2. Start from that persistent phase branch.
-3. Create a short-lived implementation branch from it when practical.
-4. Open/merge the PR back into the same persistent phase branch.
-5. Do not target `main` for Phase-1/2/3/4 work while Phase 0 is active.
-6. For Phase-0 work, merge to `phase-0`, validate it, then synchronize `main` with `phase-0`.
-7. If the issue is unphased, default to the current active phase. Currently: Phase 0.
-
-Example:
-
-```text
-Phase-1 issue
-    |
-    v
-phase-1
-    |
-    +--> issue-123-some-feature
-              |
-              +--> PR -> phase-1
-
-main / phase-0 remain stable
-```
-
-## Main branch invariant
-
-`main` means "the current released/development phase", not "everything newest anywhere".
+`main` means the current active phase, not the globally newest code.
 
 Current invariant:
 
 ```text
-main == current Phase-0 baseline
-phase-0 == current Phase-0 baseline
-phase-1..phase-4 may contain future work independently
+main == phase-0 stable baseline
+phase-1..phase-4 = isolated future work
 ```
 
-When the project moves to Phase 1, the human maintainer explicitly promotes/synchronizes `phase-1` into `main`. The same rule applies for later phases.
-
-Do not automatically promote a future phase because it has newer commits.
-
-## Cross-repository work
-
-For changes spanning multiple LaclauGPT repositories, use the same phase in each participating repository unless the task explicitly defines a cross-phase dependency. A Phase-1 feature should therefore use the `phase-1` branch of each affected repository.
+When the project advances to a later phase, promotion into `main` requires explicit human approval.
 
 Repository: `TomiToivio/LaclauGPT-Multimodal-Analysis`.
 
-## Stability and backports
-
-If a fix developed in a later phase is also required in the current stable phase, backport/cherry-pick the minimal fix into `phase-0` separately and validate it there. Do not merge the entire later phase into the current phase just to obtain one fix.
-
-If Phase-0 receives a fix after future branches have diverged, forward-port it to affected future phase branches when relevant, without erasing their phase-specific work.
-
-## Agent rule
-
-Agents must read `AGENTS.md` and this file before issue-driven repository changes. Branch selection is part of correctness: code that solves the issue on the wrong phase branch is not considered complete.
+Agents must read `AGENTS.md` and this file before issue-driven changes. Working on the wrong phase branch is an incorrect implementation.
