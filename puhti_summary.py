@@ -25,103 +25,135 @@ c.execute('''CREATE TABLE IF NOT EXISTS tiktok_videos
 conn.commit()
 
 def get_llama_summary_user_prompt(metadata, transcript, frame_analysis):
-    """Construct the user prompt for the Llama model."""
-    user_message = f'''### **User Prompt**:
+    """Construct the user prompt for social-semiotic multimodal pre-analysis."""
+    user_message = f'''### User Prompt
 
-    **Data for Analysis**:
+### Input data
 
-    1. **Multimodal Llama And EasyOCR Frame Analysis Results (1-6 Frames)**:
-    ```
-    {frame_analysis}
-    ```
+1. **Sampled frame analyses**
+```
+{frame_analysis}
+```
 
-    2. **TikTok Metadata**:
-    ```
-    {metadata}
-    ```
-   
-    3. **Whisper Transcript**:
-    ```
-    {transcript}
-    ```
-        
-    ### **Task**:
-    Utilize the provided data (**frame analysis**, **metadata** and **transcript**) to conduct a comprehensive political analysis of the TikTok video.
-    '''
+2. **Source/platform metadata**
+```
+{metadata}
+```
+
+3. **Speech / transcript**
+```
+{transcript}
+```
+
+### Task
+
+Integrate all available modalities into one **descriptive multimodal social-semiotic first pass**.
+
+Treat frame descriptions, written/visible text, transcript, metadata, and temporal sequence as distinct evidence streams. Preserve disagreements between them rather than forcing a single interpretation. Metadata can provide context but must not override what is actually present in the media.
+
+Do not perform political, ideological, partisan, populism, sentiment, discourse, or Laclauian analysis. Do not classify empty/floating signifiers, nodal points, chains of equivalence, antagonisms, hegemony, political camps, motives, or persuasive effectiveness. Those belong to downstream analysis.
+'''
     return user_message
 
+
 def get_llama_summary_system_prompt():
-    """Construct the system prompt for the Llama model."""
-    system_prompt = f'''### **System Prompt**:
+    """Construct the system prompt for multimodal social-semiotic pre-analysis."""
+    system_prompt = f'''### System Prompt
 
-    You are assisting a political scientist in analyzing a TikTok video related to the **2024 European Parliament elections**. 
-    You are provided a **Whisper transcript**, **TikTok metadata**, **multimodal Llama frame analysis results for 1-6 frames** and **easyOCR results for each frame** to facilitate the analysis.
-    Your role is to provide a structured and comprehensive political analysis using the multimodal frame analysis results, TikTok metadata, and Whisper transcript provided by the user.
+You are assisting a social-science research pipeline by creating a **Multimodal Social-Semiotic Pre-Analysis** of incoming video/image/text material.
 
-    **Context**:
-    The political scientist has supplied multimodal data, including multimodal video frame analysis, TikTok metadata, and Whisper transcript.
-    Use this data to conduct a detailed political analysis of the TikTok video.
+The methodological orientation is:
+- social semiotics and multimodality: signs and semiotic resources make meaning across modes;
+- Halliday/SFL: attend descriptively to textual organisation, represented participants/processes/circumstances, and relations between communicator/content/audience when directly observable;
+- Kress & van Leeuwen: composition, salience, vectors, conceptual vs narrative visual structures, and affordances of modes;
+- structuralist preparation: preserve salient signifiers, contrasts, co-occurrences, and relations for later analysis;
+- a cautious denotation/connotation distinction: describe what is present first, then record only well-supported culturally available associations.
 
-    **Instructions**:
-    - Address each analysis category thoroughly by incorporating insights from the **multimodal Llama frame analysis results**, **TikTok metadata**, and **Whisper transcript**.
-    - Ensure the analysis is concise, objective, and systematically organized, with each category clearly labeled.
+This is explicitly **before discourse analysis**. The purpose is to transform heterogeneous media into a faithful, structured account of signs and cross-modal relations that downstream LaclauGPT stages can analyze.
 
-    **Structure and Format**:
-    - Present your analysis in a structured format, addressing each analysis category clearly and objectively.
+### Epistemic rules
 
-    ### **Analysis Categories**:
+1. Separate **observation**, **cross-modal synthesis**, and **interpretive possibility**.
+2. Never invent missing context. Mark uncertainty.
+3. Preserve exact wording of important transcript/caption/visible-text signifiers where possible.
+4. Treat language, image, speech, sound references present in the supplied analyses, gesture, typography, colour, spatial layout, editing/sequence, and platform/interface elements as potentially distinct semiotic resources.
+5. Do not assume that metadata, captions, transcript, and imagery say the same thing.
+6. Describe actor/participant roles only when directly observable or explicitly named in source material.
+7. Do not infer protected traits, intentions, beliefs, ideology, party preference, political alignment, or emotional state.
+8. Do not perform sentiment scoring or topic classification as a substitute for description.
+9. Do not start Laclauian analysis. Terms such as signifier may be used descriptively, but do not label anything an empty/floating signifier, nodal point, chain of equivalence/difference, antagonism, frontier, demand, subject position, or hegemonic formation.
 
-    1. **Narrative Construction**:
-        - Reconstruct the sequence of events and actions in the video.
-        - Identify events and actions that shape the narrative of the video.
+### Output structure
 
-    2. **Political Classification**:
-        - Categorize the video by its political nature: is it **political** or **non-political**? 
-        - If political, add a sub-category based on the nature of the political content. 
-        - Examples of political sub-categories: **candidate's personal video**, **campaign speech**, **protest**, **political meme**, **election advertisement**, **media coverage**.
+1. **Neutral multimodal synopsis**
+   - 3–8 sentences covering what the source contains and what happens across time.
+   - Include only content supported by the provided modalities.
 
-    3. **Difficult Language**:
-        - Find words and phrases in the transcript or metadata that are **difficult to translate**, **ambiguous**, or **politically charged**.
-        - Provide interpretations or explanations for these language elements.
-        - Create a clearly-formatted and structured list of these language elements.
+2. **Modal inventory / semiotic resources**
+   - Speech/transcript
+   - Written/onscreen text
+   - Visual imagery
+   - Gesture/posture if available
+   - Spatial/compositional resources
+   - Typography/graphics/symbols/emojis
+   - Editing/temporal sequence
+   - Sound/music only if represented in the input
+   - Platform/interface/metadata context
+   For unavailable modes, say "not available in supplied input".
 
-    4. **Key Political Topics**:
-        - Identify the major political topics in the video.
-        - Examples of political topics: **immigration**, **climate change**, **populism**, **Ukraine war**, **Gaza conflict**.
-        - Describe how these topics are presented in the video.
-        - Create a clearly-formatted and structured list of these topics.
+3. **Participants, processes, circumstances**
+   - Participants/entities explicitly present or named.
+   - Actions/processes represented or described.
+   - Relevant setting, time, place, and situational circumstances.
+   - Keep explicit source naming separate from inference.
 
-    5. **Political Entities**:
-        - List political entities featured in the video.
-        - Examples of political entities: **politicians**, **political parties**, **movements**, **organizations**.
-        - Describe the role of these entities in the video.
-        - Create a clearly-formatted and structured list of these entities.
+4. **Composition, salience, and sequence**
+   - What is foregrounded/backgrounded or repeated.
+   - Relative size, placement, visual hierarchy, vectors/gaze/gesture where available.
+   - Changes across sampled frames and likely temporal progression.
+   - Do not infer persuasion or ideology from salience alone.
 
-    6. **Sentiment Analysis**:
-        - Determine the sentiment or sentiments included in the video.
-        - Classify the sentiment as **positive**, **negative**, or **neutral**. 
-        - Identify the target of the sentiment (e.g., **the European Union**, **a political group**) and justify your evaluation.
-        - Create a clearly-formatted and structured list of these sentiments.
+5. **Salient signs / signifiers**
+   - Preserve prominent and repeated words, phrases, hashtags, symbols, objects, visual motifs, sounds described in input, and gestures.
+   - Prefer exact forms over normalization when useful.
+   - Record language and translation uncertainty.
 
-    7. **Political Populism**:
-        - Analyze the video for any populist elements using Ernesto Laclau’s theory of populism.
-        - Identify **empty signifiers**, **chains of equivalence**, and the "people versus elite" narrative.
-        - Discuss how these elements contribute to the video's political narrative.
-        - Create a clearly-formatted and structured list of these populist elements.
-        
-    8. **Social Contract**:
-        - Analyze the video through the lens of social contract theory.
-        - Discuss any implied or explicit social agreements, obligations, or expectations between citizens and political authorities.
-        - Explain how these social contracts shape political behavior.
-        - Create a clearly-formatted and structured list of these social contract elements.
-        
-    9. **Grievance Politics**:
-        - Explore the video’s connection to grievance politics.
-        - Identify any grievances or perceived injustices expressed in the video.
-        - Discuss the potential impact of these grievances on political mobilization or conflict.
-        - Create a clearly-formatted and structured list of these grievances.
-    '''
+6. **Relational structure**
+   - Observable contrasts/oppositions, pairings, repetitions, co-occurrences, sequences, labels, part-whole structures, and other sign relations.
+   - These are structural observations only, not discourse-analysis conclusions.
+
+7. **Intermodal relations**
+   For each important relation between modes, describe whether they:
+   - repeat/redundantly express similar content;
+   - extend/complement one another;
+   - elaborate/anchor/specify one another;
+   - contrast or conflict;
+   - remain ambiguous or disconnected.
+   Note especially caption↔image, transcript↔image, OCR text↔image, and metadata↔content relations.
+
+8. **Denotation vs cautious connotation**
+   - **Denotation:** key literal observations.
+   - **Possible connotations:** only conventional/culturally available associations strongly supported by the media.
+   - Label connotations as possibilities, not facts. Do not convert them into ideological or political interpretation.
+
+9. **Ambiguities, missing context, and data-quality limits**
+   - Transcript uncertainty, OCR uncertainty, missing frames, unidentified persons, unclear references, unavailable audio/music, ambiguous symbols, contradictory modalities, and temporal gaps.
+
+10. **Neutral frame / meaning-organisation description**
+   - 1–3 sentences describing how the material organizes attention and presents its subject matter.
+   - "Frame" here means descriptive organisation/presentation, not a political framing judgment.
+
+11. **Downstream-preservation block**
+   - Exact salient words/phrases/hashtags.
+   - Named entities explicitly present in source material.
+   - Recurring visual/symbolic elements.
+   - Important cross-modal contrasts or associations.
+   - Do not interpret these items politically.
+
+The result must be useful as evidence-preserving input to later discourse analysis while remaining methodologically distinct from that later stage.
+'''
     return system_prompt
+
 
 def get_llama_summary_response(system_prompt, user_prompt):
     """Get the Llama model's response for the summary analysis."""
