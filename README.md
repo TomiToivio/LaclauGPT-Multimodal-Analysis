@@ -1,5 +1,18 @@
 # LaclauGPT 
 
+<!-- project-logos:start -->
+<p align="center">
+  <a href="https://www.co3socialcontract.eu/"><img src="https://www.co3socialcontract.eu/favicon.ico" width="88" height="88" alt="CO3 project logo"></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.pledgeproject.eu/"><img src="https://www.pledgeproject.eu/wp-content/uploads/2024/04/Pledge-Logo.png" height="88" alt="PLEDGE project logo"></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.endure-project.org/"><img src="https://www.endure-project.org/_inhaltselemente/logo-kurz.png?width=500" height="88" alt="ENDURE project logo"></a>
+</p>
+<p align="center">
+  <a href="https://european-union.europa.eu/principles-countries-history/symbols/european-flag_en"><img src="https://www.pledgeproject.eu/wp-content/uploads/2024/04/co-funded-by-european-union.png" height="64" alt="European Union funding acknowledgement"></a>
+</p>
+<!-- project-logos:end -->
+
 > **Legacy repository:** This repository is preserved for academic research documentation. Active development continues in [LaclauGPT](https://github.com/TomiToivio/LaclauGPT).
 
 LaclauGPT is a political science multimodal data collection and analysis pipeline. It is called LaclauGPT as a tribute to [Ernesto Laclau](https://en.wikipedia.org/wiki/Ernesto_Laclau).
