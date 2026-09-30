@@ -1,5 +1,6 @@
 from os import name, system
 import pandas as pd
+import os
 import ollama
 import json
 import logging
@@ -300,7 +301,7 @@ def get_response(user_prompt, system_prompt):
                "num_predict": 2048}
     try:
         # llama3.3:70b or gemma3:27b or qwen3:32b or mistral-large:123b or llama4:latest
-        response = ollama.chat(model="gemma3:27b", messages=[
+        response = ollama.chat(model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"), messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ], options=options, format=FormulaOfPopulism.model_json_schema())
