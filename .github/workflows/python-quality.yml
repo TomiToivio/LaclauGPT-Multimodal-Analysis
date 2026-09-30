@@ -15,8 +15,11 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install development tooling
-        run: python -m pip install --upgrade pip ruff
+        run: python -m pip install --upgrade pip ruff pytest
       - name: Check syntax
         run: python -m compileall -q puhti_*.py
       - name: Ruff
         run: ruff check puhti_*.py
+
+      - name: Roihu baseline contract tests
+        run: pytest -q tests/test_roihu_baseline.py
