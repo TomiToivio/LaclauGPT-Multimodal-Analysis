@@ -102,3 +102,45 @@ Candidates only, not automatically ported:
 9. richer validation of actual image evidence.
 
 For each candidate, preserve the working Roihu baseline first, compare behavior explicitly, and implement only through a later narrow change.
+
+
+## Stage status on main
+
+| Stage | Roihu baseline status | Scientific behavior |
+|---|---|---|
+| preprocess | Wrapped by the private-root Roihu runner; real Roihu execution still pending | unchanged |
+| frame | Roihu runner + local Ollama path ready; model configurable, default `gemma4:12b`; real GH200 multimodal smoke pending | prompt/output logic unchanged |
+| summary | Roihu runner ready; model configurable, default `gemma4:12b`; real Roihu smoke pending | prompt/output logic unchanged |
+| postprocess | Roihu runner ready; model configurable, default `gemma4:12b`; real Roihu smoke pending | schema/output logic unchanged |
+| populism | Roihu runner ready; model configurable, default `gemma4:12b`; real Roihu smoke pending | Laclau/Palonen prompt/schema logic unchanged |
+
+### Exact blocker for the real Gemma4 test
+
+This repository work was performed through GitHub access. The agent does not have a
+CSC Roihu shell/scheduler session, the user's CSC allocation, or the restricted EP24
+runtime material from `LaclauGPT-Private` / CSC project storage. Therefore it cannot
+truthfully submit the GH200 job or claim that Gemma4 inference has run.
+
+The public smoke path is ready for the human-operated Roihu step:
+
+```bash
+export LACLAUGPT_MULTIMODAL_PRIVATE_ROOT='<private-runtime-root>'
+export LACLAUGPT_MULTIMODAL_MODEL='gemma4:12b'
+export LACLAUGPT_MULTIMODAL_STAGES='frame'
+sbatch --account="$CSC_ACCOUNT" scripts/roihu/multimodal_roihu.sbatch
+```
+
+If the frame-stage smoke succeeds, add `summary`, then `postprocess`, then
+`populism`; run `preprocess` separately after verifying EasyOCR/Whisper ARM64
+dependencies and private media layout.
+
+## Compatibility check
+
+Static comparison against the frozen `legacy` branch confirms that the four inference
+scripts changed only model selection (plus the required `os` import in
+`puhti_populism.py`). No prompt, Pydantic schema, CSV-field logic, SQLite schema,
+country/language list, or stage-order logic was changed for the Roihu baseline.
+
+Runtime output equivalence still requires the private Roihu smoke/full run because
+model outputs themselves necessarily differ when moving from the historical models to
+Gemma4.
