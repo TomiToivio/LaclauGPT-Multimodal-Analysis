@@ -107,7 +107,7 @@ Analyze the provided frame using the social-semiotic pre-analysis categories abo
              "temperature": 0.0,
              "num_predict": 2048}
     try:
-        response = ollama.chat(model='llama3.2-vision:11b', 
+        response = ollama.chat(model=os.getenv('LACLAUGPT_MULTIMODAL_MODEL', 'gemma4:12b'), 
                                messages=[
                                     {'role': 'system', 'content': system_prompt}, 
                                     {'role': 'user', 'content': user_prompt, 'images': images},
