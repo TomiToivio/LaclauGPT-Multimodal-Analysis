@@ -18,7 +18,9 @@
 <p align="center"><small>ENDURE: University of Helsinki research funded by the Research Council of Finland</small></p>
 <!-- project-logos:end -->
 
-> **Legacy repository:** This repository is preserved for academic research documentation. Active development continues in [LaclauGPT](https://github.com/TomiToivio/LaclauGPT).
+> **Branch status:** `legacy` is the frozen historical CSC Puhti / original EP24 implementation. `main` is the active CSC Roihu migration line. Active development of the broader LaclauGPT programme continues in [LaclauGPT](https://github.com/TomiToivio/LaclauGPT).
+
+The Roihu migration is intentionally conservative: the historical human-written pipeline is preserved and adapted step by step. See [docs/ROIHU_MIGRATION.md](docs/ROIHU_MIGRATION.md).
 
 LaclauGPT is a political science multimodal data collection and analysis pipeline. It is called LaclauGPT as a tribute to [Ernesto Laclau](https://en.wikipedia.org/wiki/Ernesto_Laclau).
 
@@ -33,7 +35,7 @@ The pipeline was used to collect and analyze multimodal social media data relate
 
 These data analysis scripts are published for research documentation. You probably cannot use these without some modification.
 
-These are used with [Ollama](https://ollama.com/) running on [CSC Puhti](https://docs.csc.fi/computing/systems-puhti/) supercomputer.
+Historically these scripts were used with [Ollama](https://ollama.com/) on CSC Puhti. That implementation is preserved unchanged on the [`legacy`](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/tree/legacy) branch. `main` now provides the incremental CSC Roihu adaptation.
 
 The scripts are submitted as [batch jobs](https://docs.csc.fi/computing/running/creating-job-scripts-puhti/) in a sequence:
 
