@@ -1,23 +1,87 @@
 # Agent rules
 
-<!-- PHASE-BRANCH-POLICY:v1 -->
+## Repository role
 
-## Mandatory phase-branch policy
+This repository has two intentionally different branches:
 
-LaclauGPT is developed on persistent phase branches: `phase-0`, `phase-1`, `phase-2`, `phase-3`, and `phase-4`.
+- `legacy`: frozen historical documentation of the original CSC Puhti / EP24 pipeline.
+- `main`: active, incremental CSC Roihu adaptation.
 
-**Current active/stable phase: Phase 0.** Therefore `main` must represent the current Phase-0 state and must stay synchronized with `phase-0`.
+The older phase-branch policy does not govern this repository's current migration.
+Do not synchronize `main` with a phase branch unless the human author explicitly asks.
 
-Before making any issue-driven change, an agent MUST determine the issue's intended phase from explicit issue text, title, labels, milestone, linked plan, or repository documentation. Then:
+## Legacy branch is immutable
 
-1. Work from the matching persistent phase branch, e.g. a Phase-1 issue starts from `phase-1`, not `main` and not `phase-0`.
-2. Prefer a short-lived issue branch created from that phase branch, such as `issue-123-description`, and target the pull request back to the same `phase-N` branch.
-3. Never merge later-phase work into `main` while an earlier phase is current. Phase-1 through Phase-4 may advance independently without destabilizing Phase 0.
-4. Phase-0 fixes target `phase-0`. After validation, keep `main` synchronized with `phase-0`.
-5. When the project officially advances phases, synchronize `main` to the newly active phase branch only after explicit human approval.
-6. If an issue has no phase information, treat it as belonging to the current phase unless the task or surrounding roadmap clearly says otherwise. Currently that means `phase-0`.
-7. Do not silently move work between phases. If implementation reveals that an issue belongs to another phase, update/document the issue or report the mismatch before merging.
-8. Preserve `TOMI-LOCKED`, privacy, public/private, runtime-data, scientific-method, and module-boundary rules on every phase branch.
+Never modify, merge into, rebase, force-push, clean up, reformat, modernize or
+backport changes to `legacy`.
 
-See `docs/PHASE_BRANCHING.md` for the repository-wide workflow.
+If historical code contains a bug or obsolete assumption, document it on
+`main`; do not repair the historical record.
 
+## Human code is authoritative
+
+Never replace human-written code merely because a rewrite appears cleaner.
+
+Before changing existing code:
+
+1. understand the current behavior;
+2. identify the smallest required change;
+3. preserve scientific and output behavior unless explicitly asked to change it;
+4. make a narrow reviewable commit;
+5. validate before the next change.
+
+Do not perform opportunistic refactors, broad formatting, renames, schema
+changes, prompt rewrites, or methodology changes while doing infrastructure work.
+
+When uncertain, preserve the human implementation.
+
+## Public/private boundary
+
+Public open-source code belongs here.
+
+Private material belongs in the private `TomiToivio/LaclauGPT-Private`
+repository or private CSC storage, including:
+
+- real research data;
+- researcher notes;
+- private codebooks;
+- private settings;
+- credentials and secrets;
+- restricted/unpublished research material;
+- machine-specific private configuration.
+
+Public code may define environment-variable/path contracts and dummy fixtures,
+but must never copy private content into this repository to make a job or test work.
+
+## Roihu migration sequence
+
+Work in this order:
+
+1. preserve and document the Puhti baseline;
+2. make the existing pipeline runnable on CSC Roihu;
+3. test improved Gemma4 models through configurable Ollama model selection;
+4. validate every historical stage and output contract;
+5. only then inspect LaclauGPT-Data-Analysis for candidate improvements;
+6. port improvements one at a time only when justified.
+
+Do not copy the newer Data-Analysis pipeline wholesale.
+
+## Scientific boundaries
+
+Infrastructure modernization is not permission to redesign the research method.
+
+Do not silently alter:
+
+- frame or summary prompts;
+- Laclau / Palonen analysis logic;
+- schemas or CSV field meanings;
+- codebooks;
+- researcher annotations;
+- stage order;
+- interpretation rules.
+
+Such changes require an explicit human task.
+
+## Development principle
+
+**Preserve history. Preserve human code. Change one thing at a time. Validate it. Then continue.**
