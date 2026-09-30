@@ -72,4 +72,4 @@ if ! ollama show "${MODEL}" >/dev/null 2>&1; then
 fi
 
 cd "${PRIVATE_ROOT}"
-srun --ntasks=1 "${PUBLIC_ROOT}/scripts/roihu/run_pipeline.sh"
+srun --ntasks=1 bash "${PUBLIC_ROOT}/scripts/roihu/run_pipeline.sh"
