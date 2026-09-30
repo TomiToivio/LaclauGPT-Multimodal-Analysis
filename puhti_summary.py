@@ -167,7 +167,7 @@ def get_llama_summary_response(system_prompt, user_prompt):
                "num_predict": 2048}
     logger.debug(f"System prompt: {system_prompt}")
     logger.debug(f"User prompt: {user_prompt}")
-    response = ollama.chat(model="llama3.2-vision:11b", messages=[
+    response = ollama.chat(model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"), messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
     ], options=options)
