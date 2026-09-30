@@ -65,7 +65,7 @@ def get_response(user_prompt, system_prompt):
     }
     try:
         response = ollama.chat(
-            model='gemma3:27b',
+            model=os.getenv('LACLAUGPT_MULTIMODAL_MODEL', 'gemma4:12b'),
             messages=[
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': user_prompt},
