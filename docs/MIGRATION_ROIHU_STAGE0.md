@@ -105,14 +105,18 @@ Two problems for Roihu:
 
 ### 3.2 Hard-coded model identifiers
 
+Two distinct identifiers at four call sites:
+
 ```
-llama3.2-vision:11b   -> puhti_frame.py (frame analysis), puhti_summary.py (summary)
-gemma3:27b            -> puhti_postprocess.py, puhti_populism.py
+llama3.2-vision:11b   -> puhti_frame.py:110, puhti_summary.py:170
+gemma3:27b            -> puhti_postprocess.py:68, puhti_populism.py:303
 ```
 
 These are literals inside `ollama.chat(...)` calls. Stage 2 requires a configurable
 Gemma4 target, so these must become configuration — that is the *only* change Stage 2
-sanctions to those lines.
+sanctions to those lines. Note `puhti_populism.py:302` carries a comment listing
+alternatives (`llama3.3:70b`, `qwen3:32b`, …), which is evidence that model choice was
+already treated as adjustable rather than fixed.
 
 ### 3.3 Ollama usage
 
@@ -182,7 +186,71 @@ without secrets.
 
 ## 5. Roihu environment — what is known, and what must be verified
 
-### Known from this organisation's existing Roihu work
+### 5.1 The sibling repository already runs EP24 on Roihu
+
+Stage 0 asks for `LaclauGPT-Data-Analysis` to be inspected "only for later
+compatibility/reference". That inspection produced the single most useful finding in
+this document, because **the same study (EP24 Finland/Poland) already has a working
+Roihu implementation there**:
+
+| Artefact | What it provides |
+|---|---|
+| `src/laclaugpt_data_analysis/ep24_roihu.py` | study-specific Roihu runner for EP24 multimodal Phase 2; `DEFAULT_MODEL = "gemma4:12b"` |
+| `scripts/ep24/ep24_roihu_reprocess.sbatch` | **complete EP24 Roihu batch script** — partitions, modules, ARM64 Ollama, private-root checks |
+| `requirements/roihu-ep24.txt` | dependency set already used for EP24 on Roihu |
+| `src/laclaugpt_data_analysis/hungary26_roihu.py` | reusable primitives: `ollama_chat()` (honours `OLLAMA_HOST`), `extract_keyframes()`, `sha256_file()`, `private_paths()`, `ensure_private_layout()` |
+| `scripts/roihu/reprocess_project.sbatch` | generic parameterised template with no project values baked in |
+
+The EP24 script resolves these known-answer questions that I would otherwise have had
+to send you:
+
+```bash
+#SBATCH --partition=gpumedium
+#SBATCH --gres=gpu:gh200:1
+#SBATCH --cpus-per-task=72
+#SBATCH --mem=120G
+#SBATCH --time=1-12:00:00
+
+module --force purge
+module load gcc/14.3.0
+module load python-pytorch/2.13
+module load ffmpeg
+```
+
+and the Ollama pattern (per-job port, private model cache, background serve with
+trap-based cleanup and a readiness loop):
+
+```bash
+OLLAMA_PORT=$((20000 + SLURM_JOB_ID % 20000))
+export OLLAMA_MODELS=${OLLAMA_MODELS:-${PRIVATE_ROOT}/.ollama/models}
+export OLLAMA_HOST="http://127.0.0.1:${OLLAMA_PORT}"
+export LLM_MODE=local
+export LLM_ALLOW_CLOUD_FALLBACK=0
+ollama serve >"${OLLAMA_LOG}" 2>&1 &
+OLLAMA_PID=$!
+trap 'kill "${OLLAMA_PID}" 2>/dev/null || true' EXIT INT TERM
+for _ in {1..60}; do ollama list >/dev/null 2>&1 && break; sleep 2; done
+```
+
+Also note the ARM64 reality is handled head-on there: the script refuses to install an
+Ollama build unless `uname -m` is `aarch64`/`arm64`, and pulls the ARM64 tarball. That
+matches CSC's statement that Roihu is ARM64.
+
+**Consequence for Stage 1:** the sbatch layer is no longer unwritten work to design
+from scratch — it is a template to adapt, and the adaptation is mostly a matter of
+mapping the five `puhti_*.py` stages onto this proven pattern rather than inventing
+cluster configuration. This should be treated as **deployment infrastructure to reuse**,
+not copied analysis code, and the issue is explicit that the whole Data-Analysis
+pipeline must not be copied over.
+
+**One difference to reconcile deliberately:** that pipeline uses `faster-whisper`,
+while this repository's `puhti_preprocess.py` uses `openai-whisper` with an explicit
+`./whisper/` model download root. Whether to keep `openai-whisper` (no behaviour
+change, larger ARM64 dependency risk) or switch to the already-proven `faster-whisper`
+is a Stage 1 decision that changes a dependency, not scientific logic. It is listed as
+an open question in §8 rather than decided here.
+
+### 5.2 Known from this organisation's existing Roihu work
 
 From `LaclauGPT-Data-Analysis` (`docs/RESTRICTED_ROIHU_REPROCESSING.md`,
 `scripts/ep24/ep24_roihu_reprocess.sbatch`), which already runs on Roihu:
@@ -239,8 +307,10 @@ Following the issue's required order. Each stage is a separate, reviewable step.
 1. Add a configuration surface for paths (input root, output root, scratch, model cache,
    Ollama endpoint, per-stage model ids). Environment variables with documented
    defaults; no personal paths in the public repo.
-2. Add sbatch templates — one per stage, or one parameterised script — using the
-   verified Roihu directives above.
+2. Add sbatch templates — one per stage, or one parameterised script — **adapted from
+   the proven `scripts/ep24/ep24_roihu_reprocess.sbatch` pattern in
+   `LaclauGPT-Data-Analysis`** rather than designed from scratch (§5.1). The directives
+   there are known-good for this organisation's Roihu allocation.
 3. Move the import-time `os.makedirs` calls behind the config so importing a module has
    no filesystem side effects.
 4. Keep every stage's scientific logic byte-identical.
@@ -285,11 +355,25 @@ justified, one at a time.
 1. **`legacy` pinning** — tag the frozen commit, or rely on the branch pointer as-is?
    (Nothing is lost either way today; the risk is future divergence.)
 2. **`fix/legacy-pipeline-bugs`** — its 3 commits are not on `main`. Carry them
-   forward, or leave them?
-3. **Scope of Stage 1** — is one parameterised sbatch script preferred, or one per
-   stage? This determines how the job sequencing in §3.6 is expressed.
-4. **Ollama on Roihu** — is there an existing arrangement for this project, or does
-   the sbatch script start a server itself? I will not guess.
-5. **Private path contract** — confirm the expected `LaclauGPT-Private` layout for
-   EP24 codebooks and settings so the public repo can document it without publishing
-   contents.
+   forward, or leave them? They are large (291 insertions in `puhti_preprocess.py`,
+   147 in `puhti_postprocess.py`), and one is titled *"Preserve existing legacy Whisper
+   results"* — which sounds like it prevents re-transcription work. Losing them would be
+   a real cost, so this deserves an explicit answer rather than a default.
+3. **Scope of Stage 1** — is one parameterised sbatch script preferred (mirroring
+   `scripts/roihu/reprocess_project.sbatch`), or one per stage? This determines how the
+   job sequencing in §3.6 is expressed.
+4. **Ollama on Roihu** — the pattern in §5.1 already answers this technically (per-job
+   port, `OLLAMA_MODELS` under the private root, ARM64 install, trap cleanup). The open
+   part is whether this project should start its own server per job as EP24 does, or
+   attach to a shared one.
+5. **Private path contract** — confirm the expected `LaclauGPT-Private` layout for EP24
+   codebooks and settings. The sibling repo already enforces a concrete contract
+   (`source/`, `codebooks/`, and `ep24_common_private.json`,
+   `ep24_finland_private.json`, `ep24_poland_private.json`), so the question is whether
+   this repository should adopt that same layout or define its own.
+6. **Whisper dependency** — keep `openai-whisper` (no behaviour change) or adopt the
+   already-proven `faster-whisper` from `requirements/roihu-ep24.txt`? Both are
+   dependency-level changes; the second is the one with evidence behind it on ARM64.
+7. **Model identifier** — the sibling EP24 Roihu runner defaults to `gemma4:12b`. Stage 2
+   says a specific Gemma4 size must not become irreversible; is `gemma4:12b` the
+   intended first target here too, or should the smoke test sweep sizes?
