@@ -65,5 +65,5 @@ def run_language(lang):
     df.to_csv(p,index=False)
 
 if __name__=="__main__":
-    for lang in os.getenv("LACLAUGPT_LANGUAGES","fi,sv,pl,pt,de,es,hu,hr,fr,en").split(","):
+    for lang in os.getenv("LACLAUGPT_LANGUAGES","fi,sv,pl,pt,de,es,hu,hr,fr,bg,en").split(","):
         run_language(lang.strip())
