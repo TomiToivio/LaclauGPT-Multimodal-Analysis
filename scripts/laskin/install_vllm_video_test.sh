@@ -64,20 +64,28 @@ echo
 echo "--- verifying the stack ---"
 "${TARGET}/bin/python" - <<'PY'
 import sys
+
+errors = []
 print("python        :", sys.version.split()[0])
 try:
     import torch
     print("torch         :", torch.__version__)
-    print("cuda_available:", torch.cuda.is_available())
-    print("arch_list     :", torch.cuda.get_arch_list())
-    print("sm_70_in_build:", any("70" in a for a in torch.cuda.get_arch_list()))
+    cuda_available = torch.cuda.is_available()
+    arch_list = torch.cuda.get_arch_list()
+    print("cuda_available:", cuda_available)
+    print("arch_list     :", arch_list)
+    print("sm_70_in_build:", any("70" in a for a in arch_list))
+    if not cuda_available:
+        errors.append("torch cannot access CUDA")
 except Exception as exc:
     print("torch probe failed:", type(exc).__name__, exc)
+    errors.append(f"torch probe failed: {type(exc).__name__}: {exc}")
 try:
     import vllm
     print("vllm          :", vllm.__version__)
 except Exception as exc:
     print("vllm import failed:", type(exc).__name__, exc)
+    errors.append(f"vllm import failed: {type(exc).__name__}: {exc}")
 try:
     import transformers, qwen_vl_utils, av
     print("transformers  :", transformers.__version__)
@@ -85,6 +93,13 @@ try:
     print("av            :", av.__version__)
 except Exception as exc:
     print("support import failed:", type(exc).__name__, exc)
+    errors.append(f"support import failed: {type(exc).__name__}: {exc}")
+
+if errors:
+    print("\nSTACK VERIFICATION FAILED:", file=sys.stderr)
+    for error in errors:
+        print(" -", error, file=sys.stderr)
+    raise SystemExit(1)
 PY
 
 cat <<EOF
