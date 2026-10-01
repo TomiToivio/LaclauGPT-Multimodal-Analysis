@@ -17,6 +17,34 @@ from typing import Any
 
 REQUIRED_MEDIA_COLUMNS: tuple[str, ...] = ("video_id", "allas_filename")
 
+# The canonical source columns of the researcher-feed reprocess input
+# (analysis/ep24_reprocess/data/to_reprocess/ep24_<country>.csv).
+#
+# This is the KEEP-SCHEMA as a contract constant, not a filter. The active
+# pipeline is deliberately dynamic: every incoming column is preserved as-is and
+# analysis fields are appended, so a country whose CSV carries extra or slightly
+# differently named columns still flows through untouched (see
+# ``source_metadata``). This tuple exists so stages and tests can name, document
+# and validate the canonical schema in one place instead of re-declaring the
+# column names independently. Do not use it to project a row into a fixed shape.
+EP24_REPROCESS_COLUMNS: tuple[str, ...] = (
+    "country",
+    "author_username",
+    "account_type",
+    "source_type",
+    "source_recording",
+    "video_id",
+    "sequence_number",
+    "political_preference",
+    "allas_filename",
+    "new_entity",
+    "new_theme",
+    "video_duration",
+    "researcher_new_persons",
+    "researcher_new_themes",
+    "researcher_note",
+)
+
 LEGACY_ALIASES: dict[str, tuple[str, ...]] = {
     "video_id": ("videoId",),
     "country": ("scrapedCountry",),
