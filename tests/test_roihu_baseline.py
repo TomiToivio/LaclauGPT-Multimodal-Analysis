@@ -34,4 +34,4 @@ def test_readme_marks_legacy_frozen_and_main_phase2_roihu():
 def test_migration_doc_keeps_private_material_private():
     text = (ROOT / "docs/ROIHU_MIGRATION.md").read_text(encoding="utf-8")
     assert "LaclauGPT-Private" in text
-    assert "Private codebooks, settings, researcher notes and source data remain" in text
+    assert "Private codebooks, settings, source data, researcher notes" in text
