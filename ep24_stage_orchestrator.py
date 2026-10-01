@@ -264,6 +264,24 @@ def run_country(
     processed = 0
 
     try:
+        collection = storage.db[storage.collection_name("dataframe")]
+        if dry_run:
+            query = eligible_query(step, retry_errors=retry_errors, force=force)
+            count = collection.count_documents(query)
+            if limit > 0:
+                count = min(count, limit)
+            LOG.info("country=%s step=%d dry-run eligible=%d", country, step, count)
+            return count
+
+        if force:
+            # Reset this stage ONCE for the eligible upstream subset. Claims then
+            # use normal pending semantics so completed rows cannot be reclaimed forever.
+            base = {}
+            if step > 1:
+                base[f"{status_path(step - 1)}.status"] = "complete"
+            collection.update_many(base, {"$unset": {status_path(step): ""}})
+            force = False
+
         while True:
             if soft_seconds > 0 and time.monotonic() - started >= soft_seconds:
                 LOG.info(
@@ -300,10 +318,6 @@ def run_country(
                 processed,
                 run_id,
             )
-            if dry_run:
-                processed += len(before)
-                break
-
             try:
                 after = run_legacy_batch(
                     country=country,
