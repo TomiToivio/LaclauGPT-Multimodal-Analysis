@@ -13,11 +13,10 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Iterable
-
 import pandas as pd
 
 from ep24_backups import write_checkpoint
+from ep24_context import bootstrap_context
 from roihu_storage import MongoStorage, StorageConfig
 
 LOG = logging.getLogger("ep24_bootstrap")
@@ -118,16 +117,6 @@ def prepare_dataframe(df: pd.DataFrame, *, country: str) -> pd.DataFrame:
     return out
 
 
-def _codebook_candidates(private_root: Path, country: str) -> Iterable[Path]:
-    roots = (
-        private_root / "codebooks",
-        private_root / "analysis" / "ep24_reprocess" / "codebooks",
-    )
-    for root in roots:
-        if root.exists():
-            yield from sorted(root.glob(f"*{country}*"))
-
-
 def bootstrap_country(path: Path, *, private_root: Path, backup_root: Path, dry_run: bool = False) -> int:
     country = country_slug(path)
     LOG.info("bootstrap country=%s input=%s", country, path)
@@ -153,19 +142,20 @@ def bootstrap_country(path: Path, *, private_root: Path, backup_root: Path, dry_
                 docs.append(doc)
             count = storage.upsert_documents("dataframe", docs)
 
-            # Store runtime codebook files as fingerprinted metadata, never their secrets in logs.
-            for cb in _codebook_candidates(private_root, country):
-                if not cb.is_file():
-                    continue
-                payload = cb.read_bytes()
-                storage.upsert_documents("codebooks", [{
-                    "_storage_id": hashlib.sha256((country + "|" + cb.name).encode()).hexdigest(),
-                    "country": country,
-                    "path": str(cb),
-                    "sha256": hashlib.sha256(payload).hexdigest(),
-                    "size": len(payload),
-                }])
-            LOG.info("Mongo bootstrap country=%s upserts=%d", country, count)
+            context = bootstrap_context(
+                storage,
+                prepared,
+                private_root=private_root,
+                country=country,
+            )
+            LOG.info(
+                "Mongo bootstrap country=%s upserts=%d codebooks=%d memory_seeds=%d fingerprint=%s",
+                country,
+                count,
+                context["codebook_count"],
+                context["memory_seed_count"],
+                context["codebook_fingerprint"],
+            )
             return count
         finally:
             storage.close()
@@ -182,7 +172,10 @@ def main(argv: list[str] | None = None) -> int:
         default=Path(os.getenv("LACLAUGPT_EP24_INPUT_ROOT",
             "/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/data/to_reprocess")))
     parser.add_argument("--private-root", type=Path,
-        default=Path(os.getenv("LACLAUGPT_PRIVATE_ROOT", "/scratch/project_2009497/LaclauGPT-Private")))
+        default=Path(os.getenv(
+            "LACLAUGPT_EP24_PRIVATE_ROOT",
+            "/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess",
+        )))
     parser.add_argument("--backup-root", type=Path,
         default=Path(os.getenv("LACLAUGPT_EP24_OUTPUT_ROOT",
             "/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/outputs")))
