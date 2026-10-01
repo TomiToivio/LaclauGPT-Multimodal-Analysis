@@ -50,6 +50,12 @@ The compatibility spine remains the historical five-stage sequence, now named fo
 
 Phase 2 functionality from LaclauGPT-Data-Analysis may be attached before, after, or alongside these stages, provided legacy-compatible inputs and outputs remain available.
 
+### Video analysis rules
+
+The EP24 clips were split from continuous GrapheneOS screen recordings, so **the first 1.0 second of every clip is the scroll transition from the previous feed item** and is excluded from every analysis path (transcription, frames, OCR, VLM, embeddings, summaries). The rule is defined once in `video_config.py`. Scroll-detection failures are reported with `SCROLL` / `SCROLL_SECONDS` and feed a bounded re-splitting step.
+
+See [docs/EP24_VIDEO_HANDLING.md](docs/EP24_VIDEO_HANDLING.md).
+
 ## Public/private boundary
 
 This repository is public open source. **Do not store real codebooks, private settings, researcher notes, restricted prompts, credentials, source data, or other sensitive research material here.**

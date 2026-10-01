@@ -22,6 +22,7 @@ exact backend path and the Roihu version caveats.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import platform
@@ -36,6 +37,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+
+# The sbatch and the runbook execute this file by path from the private runtime
+# root, so the repository root (where video_config / video_scroll live) is not on
+# sys.path the way it would be for an installed package. Add it explicitly
+# instead of relying on the caller's working directory.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from video_config import initial_skip_seconds, scroll_rule_text  # noqa: E402
+from video_scroll import parse_scroll_report, plan_resplit  # noqa: E402
 
 DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 DEFAULT_SAMPLE_SIZE = 5
@@ -61,6 +73,10 @@ OUTPUT_COLUMNS = (
     "vllm_video_runtime_seconds",
     "vllm_video_selected_index",
     "vllm_video_prompt",
+    "vllm_video_scroll",
+    "vllm_video_scroll_seconds",
+    "vllm_video_resplit_status",
+    "vllm_video_resplit_plan",
 )
 
 # Descriptive, pre-discursive. This stage produces a video *evidence
@@ -75,12 +91,16 @@ SYSTEM_PROMPT = (
     "antagonisms, hegemony or political camps. Do not guess the identity of any "
     "person. Those tasks belong to later stages.\n\n"
     "Describe only what is observable in the video, and mark uncertainty "
-    "explicitly rather than filling gaps with plausible invention."
+    "explicitly rather than filling gaps with plausible invention.\n\n"
+    + scroll_rule_text()
 )
 
 VIDEO_PROMPT = (
     "Watch this video from beginning to end and produce an in-depth description "
-    "of its whole temporal narrative. Cover, wherever observable:\n"
+    "of its whole temporal narrative. "
+    f"The first {initial_skip_seconds():.1f} second(s) are the scrolling "
+    "transition from the previous feed item: ignore that interval entirely.\n"
+    "Cover, wherever observable:\n"
     "1. Major scenes and scene changes, in the order they occur.\n"
     "2. Actions and events over time.\n"
     "3. People and participants (describe them without guessing unknown "
@@ -393,6 +413,25 @@ def prepare_vllm_request(messages: list[dict], processor, logger: logging.Logger
     return request
 
 
+def probe_duration_seconds(path: Path) -> float | None:
+    """Clip duration via OpenCV, or None. Used for the scroll interval checks."""
+    try:
+        import cv2
+    except ImportError:
+        return None
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            return None
+        fps = capture.get(cv2.CAP_PROP_FPS)
+        frames = capture.get(cv2.CAP_PROP_FRAME_COUNT)
+        if not fps or fps <= 0 or not frames or frames <= 0:
+            return None
+        return float(frames) / float(fps)
+    finally:
+        capture.release()
+
+
 def generate_stub(local_path: Path, model: str) -> str:
     """Deterministic placeholder used only with --model-backend stub.
 
@@ -524,10 +563,13 @@ def main(argv: list[str] | None = None) -> int:
         record["vllm_video_prompt"] = VIDEO_PROMPT
 
         started = time.monotonic()
+        clip_duration = None
         try:
             local_path = fetch_video(object_path, download_dir, args, logger)
             record["vllm_video_local_path"] = str(local_path)
             record["vllm_video_bytes"] = str(local_path.stat().st_size)
+            clip_duration = probe_duration_seconds(local_path)
+            logger.info("  clip_duration     : %s", clip_duration)
             logger.info("  local_path        : %s", local_path)
             logger.info("  bytes             : %s", record["vllm_video_bytes"])
             logger.info("  metadata          : %s", probe_video_metadata(local_path, logger))
@@ -538,6 +580,29 @@ def main(argv: list[str] | None = None) -> int:
             succeeded += 1
             logger.info("  analysis_chars    : %d", len(analysis))
             logger.debug("  raw_response      : %s", analysis)
+
+            # Scroll-detection failure check. The first second is excluded by
+            # design, so a boundary at or below the skip is never reported as an
+            # additional scroll. A detected scroll does not fail the row: it is
+            # recorded and turned into a deterministic re-split plan.
+            # The stub produces no SCROLL block, so this yields FALSE/[]. A real
+            # response is parsed for the two fields.
+            report = parse_scroll_report(analysis, clip_duration)
+            plan = plan_resplit(report, clip_duration, local_path.name)
+            record["vllm_video_scroll"] = "TRUE" if report.scroll else "FALSE"
+            record["vllm_video_scroll_seconds"] = json.dumps(report.scroll_seconds)
+            record["vllm_video_resplit_status"] = plan.status
+            record["vllm_video_resplit_plan"] = json.dumps(
+                {"reason": plan.reason,
+                 "segments": plan.segments,
+                 "derived_names": plan.derived_names},
+                ensure_ascii=False,
+            )
+            logger.info(
+                "  scroll            : SCROLL=%s SCROLL_SECONDS=%s resplit=%s",
+                record["vllm_video_scroll"], record["vllm_video_scroll_seconds"],
+                plan.status,
+            )
         except Exception as exc:  # noqa: BLE001 - one bad video must not stop the run
             failed += 1
             record["vllm_video_status"] = "error"

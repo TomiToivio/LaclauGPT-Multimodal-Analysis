@@ -2,6 +2,7 @@ import ast
 import logging
 import os
 import sqlite3
+import subprocess
 from logging.handlers import RotatingFileHandler
 
 import cv2
@@ -10,6 +11,12 @@ import pandas as pd
 from deep_translator import GoogleTranslator
 
 from asr_backend import describe_backend, load_asr_model
+from video_config import (
+    audio_extract_command,
+    initial_skip_seconds,
+    is_analysable,
+    sample_offsets_seconds,
+)
 
 # The repository does not contain runtime directories, so create them before
 # constructing file handlers or SQLite connections.
@@ -143,10 +150,22 @@ def get_keyframes(video_filename, video_id, author_username):
     finally:
         video.release()
 
-    # Always try the first frame for a valid very short video.
+    # Sample inside the logical analysis interval, which begins after the
+    # mandatory first-second scroll-transition exclusion (video_config). The
+    # legacy cadence — one frame every 30 s, at most six — is preserved; only
+    # the starting offset changes, so the first sample is no longer the
+    # transition frame at 0 s. A clip too short to hold an analysable interval
+    # yields no samples rather than a frame from the transition.
     duration_seconds = max(1, min(int(duration), 180))
     frame_files = []
-    for frame_number, frame_time in enumerate(range(0, duration_seconds, 30), start=1):
+    offsets = sample_offsets_seconds(duration_seconds, every_seconds=30, limit=6)
+    if not offsets:
+        logger.warning(
+            'Video %s is too short for analysis after the %.1fs skip; no keyframes taken',
+            video_id,
+            initial_skip_seconds(),
+        )
+    for frame_number, frame_time in enumerate(offsets, start=1):
         frame_file = save_keyframe(
             video_id,
             author_username,
@@ -159,6 +178,67 @@ def get_keyframes(video_filename, video_id, author_username):
     return frame_files
 
 
+def probe_duration_seconds(video_filename):
+    """Return the clip duration in seconds using OpenCV, or None if unknown.
+
+    The skip logic needs a duration to decide whether a clip holds any
+    analysable interval at all, so this is deliberately small and depends only
+    on OpenCV, which this stage already imports.
+    """
+    capture = cv2.VideoCapture(video_filename)
+    try:
+        if not capture.isOpened():
+            return None
+        fps = capture.get(cv2.CAP_PROP_FPS)
+        frame_count = capture.get(cv2.CAP_PROP_FRAME_COUNT)
+        if not fps or fps <= 0 or not frame_count or frame_count <= 0:
+            return None
+        return float(frame_count) / float(fps)
+    finally:
+        capture.release()
+
+
+def prepare_analysis_audio(video_filename, logger_=None):
+    """Extract the analysed audio interval (everything after the 1 s skip).
+
+    Returns the path to a 16 kHz mono WAV, or ``None`` when the clip has no
+    analysable interval or ffmpeg failed. Callers must fall back rather than
+    transcribe the whole file, because the whole file includes the scroll
+    transition this pipeline is required to ignore.
+    """
+    log = logger_ or logger
+    try:
+        duration = probe_duration_seconds(video_filename)
+    except Exception as exc:  # noqa: BLE001 - probing must never be fatal
+        log.warning('Could not probe duration for %s: %s', video_filename, exc)
+        duration = None
+
+    if not is_analysable(duration):
+        log.warning(
+            'Video %s has no analysable interval after the %.1fs skip',
+            video_filename,
+            initial_skip_seconds(),
+        )
+        return None
+
+    audio_path = f'{video_filename}.analysis.wav'
+    command = audio_extract_command(video_filename, audio_path, duration)
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=900)
+    except Exception as exc:  # noqa: BLE001 - missing ffmpeg is a logged fallback
+        log.warning('Audio extraction failed for %s: %s', video_filename, exc)
+        return None
+    if result.returncode != 0 or not os.path.exists(audio_path):
+        log.warning(
+            'ffmpeg audio extraction returned %s for %s: %s',
+            result.returncode,
+            video_filename,
+            (result.stderr or '')[-500:],
+        )
+        return None
+    return audio_path
+
+
 def get_transcript(video_id, author_username, scraped_country):
     """Get a Whisper transcript and, when useful, an English translation."""
     video_filename = (
@@ -168,10 +248,22 @@ def get_transcript(video_id, author_username, scraped_country):
     whisper_transcript = ''
     whisper_language = ''
     whisper_translated = ''
+    asr_input = None
 
     try:
+        # Transcribe the analysed interval, not the raw file: the first second
+        # is the scroll transition from the previous feed item and must not
+        # appear in the transcript.
+        asr_input = prepare_analysis_audio(video_filename)
+        if asr_input is None:
+            logger.warning(
+                'Skipping transcription for video %s: no analysable audio interval',
+                video_id,
+            )
+            return whisper_transcript, whisper_language, whisper_translated
+
         # Backend-agnostic call: same temperature ladder, same two outputs.
-        whisper_transcript, whisper_language = _asr(video_filename)
+        whisper_transcript, whisper_language = _asr(asr_input)
 
         if whisper_transcript:
             if whisper_language == 'en':
@@ -183,6 +275,12 @@ def get_transcript(video_id, author_username, scraped_country):
                 ).translate(whisper_transcript[:3000])
     except Exception as exc:
         logger.error('Error transcribing video %s: %s', video_id, exc)
+    finally:
+        try:
+            if asr_input and os.path.exists(asr_input):
+                os.remove(asr_input)
+        except OSError:
+            pass
 
     return whisper_transcript, whisper_language, whisper_translated
 
