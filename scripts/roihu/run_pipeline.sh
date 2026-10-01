@@ -7,7 +7,7 @@ if [[ -z "${PUBLIC_ROOT}" ]]; then
 fi
 : "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:?Set LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
 PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}
-STAGES=${LACLAUGPT_MULTIMODAL_STAGES:-"preprocess frame summary postprocess enrich populism"}
+STAGES=${LACLAUGPT_MULTIMODAL_STAGES:-"preprocess frame summary postprocess enrich populism storage"}
 
 mkdir -p "${PRIVATE_ROOT}"/{csv,Allas,Keyframes,database,logs,whisper}
 cd "${PRIVATE_ROOT}"
@@ -15,6 +15,9 @@ cd "${PRIVATE_ROOT}"
 run_stage() {
   local stage=$1
   local script="${PUBLIC_ROOT}/roihu_${stage}.py"
+  if [[ "${stage}" == "storage" ]]; then
+    script="${PUBLIC_ROOT}/roihu_storage_sync.py"
+  fi
   [[ -f "${script}" ]] || { echo "Missing stage script: ${script}" >&2; exit 2; }
   echo "=== LaclauGPT multimodal stage ${stage} ==="
   echo "script=${script}"
@@ -24,7 +27,7 @@ run_stage() {
 
 for stage in ${STAGES}; do
   case "${stage}" in
-    preprocess|frame|summary|postprocess|enrich|populism) run_stage "${stage}" ;;
+    preprocess|frame|summary|postprocess|enrich|populism|storage) run_stage "${stage}" ;;
     *) echo "Unknown stage: ${stage}" >&2; exit 2 ;;
   esac
 done
