@@ -61,6 +61,7 @@ export HF_HUB_CACHE="${HF_HUB_CACHE:-${HF_HOME}/hub}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-${HF_HOME}/transformers}"
 export TOKENIZERS_PARALLELISM=false
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+export NUMEXPR_MAX_THREADS="${SLURM_CPUS_PER_TASK:-64}"
 export OMP_PLACES=cores
 export OMP_PROC_BIND=spread
 
@@ -85,10 +86,34 @@ module load python-vllm
 module load allas
 module load gcc/14.3.0 ffmpeg
 module list
+# CSC documents this compatibility switch for module-backed Python environments
+# when activating a venv on Roihu.
+export CW_FORCE_CONDA_ACTIVATE=1
 source "${VENV}/bin/activate"
 
 unset PYTHONPATH
 unset PYTHONHOME
+
+# vLLM >=0.24 removed Transformers v4 support. A stale project venv can shadow
+# the Transformers version bundled/expected by CSC's python-vllm module, so
+# detect that explicitly before spending GPU time.
+python - <<'PY'
+import sys
+import transformers
+from pathlib import Path
+
+version = getattr(transformers, "__version__", "0")
+major = int(version.split(".", 1)[0]) if version.split(".", 1)[0].isdigit() else 0
+print(f"transformers version: {version}")
+print(f"transformers path   : {Path(transformers.__file__).resolve()}")
+if major < 5:
+    sys.stderr.write(
+        "ERROR: Transformers v5+ is required by vLLM 0.29, but this environment "
+        f"has {version}. Rebuild/upgrade the project venv from "
+        "experiments/requirements-vllm-video-test.txt before resubmitting.\n"
+    )
+    raise SystemExit(2)
+PY
 
 echo "ffmpeg path: $(command -v ffmpeg || true)"
 echo "ffprobe path: $(command -v ffprobe || true)"
