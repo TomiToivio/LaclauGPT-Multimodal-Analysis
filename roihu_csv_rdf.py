@@ -241,6 +241,11 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(asctime)s %(levelname)s %(message)s")
     try:
         export(args)
+        orchestrated_output = os.getenv("LACLAUGPT_OUTPUT_CSV")
+        if orchestrated_output and not args.dry_run:
+            target = Path(orchestrated_output)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(args.output_dir / "final.csv", target)
     except (OSError, ValueError, csv.Error, sqlite3.Error) as exc:
         LOG.error("%s", exc)
         return 1
