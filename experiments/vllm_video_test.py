@@ -29,8 +29,8 @@ import os
 import platform
 import random
 import re
-import shutil
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -38,7 +38,7 @@ import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import pandas as pd
 
@@ -214,6 +214,44 @@ _SECRET_KEY_VALUE_RE = re.compile(
 _BASIC_AUTH_URL_RE = re.compile(r"://[^/\s:@]+:[^/\s:@]+@")
 
 
+def _package_version(name: str) -> str:
+    """Version of an installed package, or a marker. Never raises.
+
+    A missing package on one host must not hide the versions that are available
+    (this harness runs on both Roihu and Laskin).
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version(name)
+    except PackageNotFoundError:
+        return "<not installed>"
+    except Exception as exc:  # noqa: BLE001 - diagnostics only
+        return f"<unavailable: {type(exc).__name__}>"
+
+
+def parse_structured_output(raw: str) -> tuple[str, str, str, str]:
+    """Split a structured-output reply into (analysis, json, status, error).
+
+    ``status`` is ``ok`` when a JSON object was parsed, otherwise ``parse_failed``.
+    The caller always keeps the raw text, so a parse failure is a diagnostic and
+    never a lost result.
+    """
+    if not raw:
+        return raw, "", "empty", "no model output"
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        return raw, "", "parse_failed", "no JSON object in model output"
+    candidate = match.group(0)
+    try:
+        parsed = json.loads(candidate)
+    except Exception as exc:  # noqa: BLE001 - the fallback is the point
+        return raw, candidate, "parse_failed", f"{type(exc).__name__}: {exc}"
+    if not isinstance(parsed, dict):
+        return raw, candidate, "parse_failed", "JSON was not an object"
+    return raw, candidate, "ok", ""
+
+
 def redact_secret_like(text: object) -> str:
     """Mask obvious credential-shaped substrings before they reach a log line.
 
@@ -233,9 +271,9 @@ def redact_secret_like(text: object) -> str:
     return redacted
 
 
-# Backwards-compatible internal name retained for the older Roihu harness
-# call sites. Both hosts use the same redaction implementation.
-redact_sensitive = redact_secret_like
+def redact_sensitive(value: object) -> str:
+    """Backward-compatible alias for secret-safe diagnostic serialization."""
+    return redact_secret_like(value)
 
 
 def _run_capture(command: list[str]) -> str:
@@ -243,7 +281,7 @@ def _run_capture(command: list[str]) -> str:
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=30)
     except Exception as exc:  # noqa: BLE001 - diagnostics must never be fatal
-        return redact_sensitive(f"<{command[0]} unavailable: {exc}>")
+        return redact_secret_like(f"<{command[0]} unavailable: {exc}>")
     output = (result.stdout or "") + (result.stderr or "")
     return redact_secret_like(output.strip()) or f"<{command[0]} produced no output>"
 
@@ -468,7 +506,7 @@ def fetch_video(
     remote_source = build_rclone_source(args.rclone_remote, args.allas_bucket, object_path)
     operation = "copyurl" if urlsplit(remote_source).scheme in {"http", "https"} else "copyto"
     command = ["rclone", operation, remote_source, str(local_path)]
-    logger.info("download_backend=rclone command=%s", redact_sensitive(shlex.join(command)))
+    logger.info("download_backend=rclone command=%s", redact_secret_like(shlex.join(command)))
     result = subprocess.run(
         command,
         capture_output=True,
@@ -477,12 +515,12 @@ def fetch_video(
     )
     logger.info("download_exit_status=%s stdout=%s stderr=%s",
                 result.returncode,
-                redact_sensitive((result.stdout or "").strip()),
-                redact_sensitive((result.stderr or "").strip()))
+                redact_secret_like((result.stdout or "").strip()),
+                redact_secret_like((result.stderr or "").strip()))
     if result.returncode != 0:
         raise RuntimeError(
-            f"rclone failed for {redact_sensitive(remote_source)}: "
-            f"{redact_sensitive((result.stderr or result.stdout or '').strip())}"
+            f"rclone failed for {redact_secret_like(remote_source)}: "
+            f"{redact_secret_like((result.stderr or result.stdout or '').strip())}"
         )
     if not local_path.is_file():
         raise RuntimeError(f"rclone reported success but {local_path} is absent")
@@ -502,12 +540,12 @@ def probe_video_metadata(local_path: Path, logger: logging.Logger) -> dict:
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     logger.info("ffprobe_exit_status=%d stdout=%s stderr=%s",
                 result.returncode,
-                redact_sensitive((result.stdout or "").strip()),
-                redact_sensitive((result.stderr or "").strip()))
+                redact_secret_like((result.stdout or "").strip()),
+                redact_secret_like((result.stderr or "").strip()))
     if result.returncode:
         raise RuntimeError(
             f"ffprobe failed for {local_path}: "
-            f"{redact_sensitive((result.stderr or result.stdout or '').strip())}"
+            f"{redact_secret_like((result.stderr or result.stdout or '').strip())}"
         )
     metadata = json.loads(result.stdout)
     duration = metadata.get("format", {}).get("duration")
@@ -596,7 +634,7 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
         max_tokens=args.max_tokens,
     )
     structured_status = "off"
-    if args.structured_output:
+    if args.structured_output == "json_schema":
         try:
             from vllm.sampling_params import StructuredOutputsParams
 
@@ -609,7 +647,7 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
         except Exception as exc:  # noqa: BLE001 - constrained decoding is optional
             logger.warning(
                 "structured output unsupported by installed vLLM path; using raw text: %s",
-                redact_sensitive(f"{type(exc).__name__}: {exc}"),
+                redact_secret_like(f"{type(exc).__name__}: {exc}"),
             )
             sampling_params = SamplingParams(**sampling_kwargs)
             structured_status = "unsupported"
@@ -647,6 +685,41 @@ def build_video_messages(local_path: Path, args: argparse.Namespace) -> list[dic
 DEFAULT_VIDEO_API = "mm_processor_kwargs"
 
 
+def _vllm_version_tuple(logger: logging.Logger) -> tuple[int, int]:
+    """Best-effort (major, minor) of the installed vLLM, or (0, 0) if unknown."""
+    try:
+        import re as _re
+
+        import vllm
+
+        match = _re.match(r"(\d+)\.(\d+)", str(getattr(vllm, "__version__", "") or ""))
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    except Exception as exc:  # noqa: BLE001 - never fatal, only selects an API
+        logger.debug("could not determine vLLM version: %s", exc)
+    return 0, 0
+
+
+def resolve_video_api(video_api: str, logger: logging.Logger) -> str:
+    """Resolve ``auto`` to the request shape the installed vLLM accepts.
+
+    The two shapes are not interchangeable: ``mm_processor_kwargs`` is fatal on
+    vLLM 0.8.5 (the processor cache hashes the kwargs dict and raises
+    ``TypeError: unhashable type: 'dict'``). Guessing wrong therefore kills the
+    whole run on the Laskin/Volta stack, so ``auto`` exists to prevent an
+    operator from having to remember which host needs which shape.
+
+    Rule: vLLM >= 0.9 supports the metadata path; 0.8.x and anything unreadable
+    fall back to ``direct``, the shape that cannot crash.
+    """
+    if video_api in ("direct", "mm_processor_kwargs"):
+        return video_api
+    major, minor = _vllm_version_tuple(logger)
+    resolved = "mm_processor_kwargs" if (major, minor) >= (0, 9) else "direct"
+    logger.info("video_api auto-resolved to %s for vLLM %s.%s", resolved, major, minor)
+    return resolved
+
+
 def prepare_vllm_request(
     messages: list[dict],
     processor,
@@ -674,17 +747,24 @@ def prepare_vllm_request(
 
     prompt = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
+    video_api = resolve_video_api(video_api, logger)
+
     if video_api == "direct":
-        image_inputs, video_inputs, video_kwargs = process_vision_info(
+        # Do NOT ask for video kwargs here. vLLM 0.8.5's processor cache does
+        # ``hash(tuple(...))`` on mm_processor_kwargs and raises
+        # ``TypeError: unhashable type: 'dict'`` for the mapping this returns,
+        # so any non-empty dict is fatal on Laskin. The video tensors go to
+        # vLLM directly instead, which is what 0.8.x supports.
+        image_inputs, video_inputs, _ = process_vision_info(
             messages,
             image_patch_size=16,
-            return_video_kwargs=True,
         )
         mm_data: dict = {}
         if image_inputs is not None:
             mm_data["image"] = image_inputs
         if video_inputs is not None:
             mm_data["video"] = video_inputs
+        video_kwargs = None
     else:
         image_inputs, video_inputs, video_kwargs = process_vision_info(
             messages,
@@ -788,27 +868,26 @@ def analyze_one_video(
     sampling_params,
     processor,
     logger: logging.Logger,
-) -> tuple[str, str, float]:
-    """Return analysis text, structured-output status, and inference seconds."""
+) -> tuple[str, str]:
+    """Run whole-video analysis for one downloaded file and return the text."""
     if args.model_backend == "stub":
-        return generate_stub(local_path, args.model), "off", 0.0
+        return generate_stub(local_path, args.model), "off"
 
     messages = build_video_messages(local_path, args)
     request = prepare_vllm_request(messages, processor, logger, video_api=args.video_api)
     inference_started = time.monotonic()
-    logger.info("inference_start_utc=%s", datetime.now(timezone.utc).isoformat())
     outputs = llm.generate([request], sampling_params=sampling_params)
     inference_seconds = time.monotonic() - inference_started
     logger.info("inference_end_utc=%s inference_runtime_seconds=%.3f",
                 datetime.now(timezone.utc).isoformat(), inference_seconds)
     completion = outputs[0].outputs[0]
-    logger.info("vllm_completion_metadata=%s", redact_sensitive({
+    logger.info("vllm_completion_metadata=%s", redact_secret_like({
         "finish_reason": getattr(completion, "finish_reason", None),
         "stop_reason": getattr(completion, "stop_reason", None),
         "prompt_tokens": len(getattr(outputs[0], "prompt_token_ids", []) or []),
         "generated_tokens": len(getattr(completion, "token_ids", []) or []),
     }))
-    return completion.text, getattr(args, "structured_output_status", "off"), inference_seconds
+    return completion.text, getattr(args, "structured_output_status", "off")
 
 
 # --------------------------------------------------------------------------- #
@@ -843,8 +922,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model-backend", choices=("vllm", "stub"), default="vllm")
     parser.add_argument(
         "--video-api",
-        choices=("mm_processor_kwargs", "direct"),
-        default=os.environ.get("LACLAUGPT_VLLM_TEST_VIDEO_API", DEFAULT_VIDEO_API),
+        choices=("auto", "mm_processor_kwargs", "direct"),
+        default=os.environ.get("LACLAUGPT_VLLM_TEST_VIDEO_API", "auto"),
         help=(
             "vLLM multi-modal request shape. 'mm_processor_kwargs' is the "
             "Roihu/current-vLLM default (Qwen3-VL). 'direct' is the Laskin/"
@@ -895,7 +974,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("log_path   : %s", log_path)
     logger.info("prompt_version : %s", PROMPT_VERSION)
     logger.info("prompt_sha256  : %s", PROMPT_SHA256)
-    logger.info("prompt_text    : %s", redact_sensitive(PROMPT_TEXT))
+    logger.info("prompt_text    : %s", redact_secret_like(PROMPT_TEXT))
     logger.info("=== end configuration ===")
 
     df = load_input_csv(input_csv, logger)
@@ -929,7 +1008,7 @@ def main(argv: list[str] | None = None) -> int:
         author = str(row.get("authorUniqueId", ""))
         video_id = str(row.get("videoId", ""))
         object_path = derive_remote_path(row, args.allas_path_template)
-        safe_object_path = redact_sensitive(object_path)
+        safe_object_path = redact_secret_like(object_path)
         source_id = "|".join(
             str(row.get(column, "")).strip()
             for column in ("allas_filename", "scrapedCountry", "authorUniqueId", "videoId")
@@ -938,35 +1017,33 @@ def main(argv: list[str] | None = None) -> int:
 
         logger.info("--- video %d/%d: %s / %s ---", position, len(selected), author, video_id)
         logger.info("  source_row_index  : %s", index)
-        logger.info("  source_id         : %s", redact_sensitive(source_id))
+        logger.info("  source_id         : %s", redact_secret_like(source_id))
         logger.info("  remote_object     : %s", safe_object_path)
-        logger.info("  country           : %s", redact_sensitive(row.get("scrapedCountry", "")))
-        logger.info("  language          : %s", redact_sensitive(row.get("language", "")))
-        logger.info("  description       : %s", redact_sensitive(str(row.get("videoDescription", ""))[:300]))
+        logger.info("  country           : %s", redact_secret_like(row.get("scrapedCountry", "")))
+        logger.info("  language          : %s", redact_secret_like(row.get("language", "")))
+        logger.info("  description       : %s", redact_secret_like(str(row.get("videoDescription", ""))[:300]))
 
         record = {column: "" for column in OUTPUT_COLUMNS}
         record["vllm_video_model"] = args.model
-        record["vllm_video_version"] = runtime_versions["vllm_version"]
-        record["vllm_video_api"] = args.video_api
-        record["vllm_version"] = runtime_versions["vllm_version"]
-        record["vllm_torch_version"] = runtime_versions["torch_version"]
-        record["vllm_cuda_version"] = runtime_versions["cuda_version"]
-        record["vllm_gpu_name"] = runtime_versions["gpu_name"]
-        record["vllm_hostname"] = runtime_versions["hostname"]
-        record["vllm_video_prompt_hash"] = prompt_version_hash
+        record["vllm_video_version"] = _package_version("vllm")
         record["vllm_video_selected_index"] = index
         record["vllm_video_source_row_index"] = index
-        record["vllm_video_source_id"] = redact_sensitive(source_id)
+        record["vllm_video_source_id"] = redact_secret_like(source_id)
         record["vllm_video_allas_source"] = safe_object_path
         record["vllm_video_remote_path"] = safe_object_path
         record["vllm_video_remote_path_logged"] = safe_object_path
         record["vllm_video_prompt"] = PROMPT_TEXT
         record["vllm_video_prompt_version"] = PROMPT_VERSION
         record["vllm_video_prompt_sha256"] = PROMPT_SHA256
+        record["vllm_video_prompt_hash"] = PROMPT_SHA256[:12]
         record["video_initial_skip_seconds"] = str(VIDEO_INITIAL_SKIP_SECONDS)
         record["SCROLL"] = "FALSE"
         record["SCROLL_SECONDS"] = "[]"
         record["needs_resplit"] = "FALSE"
+        # Record which request shape and engine actually ran. Without this the
+        # column is declared but always empty, so a Laskin row could not be
+        # told apart from a Roihu one.
+        record["vllm_video_api"] = resolve_video_api(args.video_api, logger)
 
         started = time.monotonic()
         local_path = None
@@ -1010,8 +1087,8 @@ def main(argv: list[str] | None = None) -> int:
                     logger.info(
                         "trim_exit_status=%d stdout=%s stderr=%s",
                         result.returncode,
-                        redact_sensitive((result.stdout or "").strip()),
-                        redact_sensitive((result.stderr or "").strip()),
+                        redact_secret_like((result.stdout or "").strip()),
+                        redact_secret_like((result.stderr or "").strip()),
                     )
                     return result
 
@@ -1023,7 +1100,6 @@ def main(argv: list[str] | None = None) -> int:
                 analysis_metadata = probe_video_metadata(analysis_path, logger)
                 analysis_duration = float(analysis_metadata["duration_seconds"])
                 record["vllm_video_analysis_duration_seconds"] = str(analysis_duration)
-                record["vllm_video_analyzed_duration_seconds"] = str(analysis_duration)
                 expected_duration = source_duration - VIDEO_INITIAL_SKIP_SECONDS
                 tolerance = max(0.15, source_duration * 0.01)
                 if analysis_duration <= 0 or abs(analysis_duration - expected_duration) > tolerance:
@@ -1036,23 +1112,21 @@ def main(argv: list[str] | None = None) -> int:
                 logger.info("  analysis_path     : %s", analysis_path)
                 record["vllm_video_analysis_path"] = str(analysis_path)
             logger.info("  initial_skip_s    : %.1f", VIDEO_INITIAL_SKIP_SECONDS)
-            raw_output, structured_status, inference_seconds = analyze_one_video(
+            inference_started = time.monotonic()
+            raw_output, structured_status = analyze_one_video(
                 analysis_path, args, llm, sampling_params, processor, logger
             )
-            record["vllm_video_inference_seconds"] = f"{inference_seconds:.3f}"
-            record["vllm_peak_gpu_memory_mb"] = peak_gpu_memory_mb()
-            record["vllm_structured_status"] = structured_status
-            record["vllm_video_raw_output"] = redact_sensitive(raw_output)
+            record["vllm_video_inference_seconds"] = f"{time.monotonic() - inference_started:.3f}"
+            record["vllm_video_raw_output"] = redact_secret_like(raw_output)
             analysis = raw_output
             record["vllm_video_structured_output_status"] = structured_status
             if structured_status == "requested":
                 analysis, structured_json, parse_status, parse_error = parse_structured_output(raw_output)
                 record["vllm_video_structured_json"] = structured_json
-                record["vllm_structured_output"] = structured_json
                 record["vllm_video_structured_output_status"] = parse_status
                 record["vllm_video_structured_output_error"] = parse_error
                 logger.info("structured_parse_status=%s error=%s json=%s",
-                            parse_status, redact_sensitive(parse_error), structured_json)
+                            parse_status, redact_secret_like(parse_error), structured_json)
             elif structured_status == "unsupported":
                 record["vllm_video_structured_output_error"] = (
                     "Installed vLLM offline generate path does not support JSON Schema decoding."
@@ -1067,7 +1141,7 @@ def main(argv: list[str] | None = None) -> int:
             record["vllm_video_markdown_analysis"] = analysis
             record["vllm_video_status"] = "ok"
             logger.info("  analysis_chars    : %d", len(analysis))
-            logger.debug("  raw_response      : %s", redact_sensitive(raw_output))
+            logger.debug("  raw_response      : %s", redact_secret_like(raw_output))
             if sha256_file(local_path) != source_checksum:
                 raise RuntimeError("downloaded source changed during analysis")
             logger.info("source_integrity=unchanged sha256=%s", source_checksum)
@@ -1075,9 +1149,9 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001 - one bad video must not stop the run
             failed += 1
             record["vllm_video_status"] = "error"
-            record["vllm_video_error"] = redact_sensitive(f"{type(exc).__name__}: {exc}")
-            logger.error("  FAILED: %s", redact_sensitive(f"{type(exc).__name__}: {exc}"))
-            logger.error("  traceback:\n%s", redact_sensitive(traceback.format_exc()))
+            record["vllm_video_error"] = redact_secret_like(f"{type(exc).__name__}: {exc}")
+            logger.error("  FAILED: %s", redact_secret_like(f"{type(exc).__name__}: {exc}"))
+            logger.error("  traceback:\n%s", redact_secret_like(traceback.format_exc()))
         finally:
             record["vllm_video_runtime_seconds"] = f"{time.monotonic() - started:.1f}"
             logger.info("  runtime_seconds   : %s", record["vllm_video_runtime_seconds"])

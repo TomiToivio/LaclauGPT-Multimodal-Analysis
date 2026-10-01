@@ -92,18 +92,9 @@ CURRENT_STAGE_FILES = {
 
 
 def _stage_path(name: str) -> Path:
-    """Resolve the frozen legacy contract to historical files when available.
-
-    Main carries restored puhti_* compatibility files alongside the active
-    roihu_* successors. This test documents the historical contract, so it
-    must inspect the historical file first. Falling back to the Roihu successor
-    keeps the test usable on branches where the compatibility copy is absent.
-    """
-    historical = ROOT / name
-    if historical.is_file():
-        return historical
+    """Resolve a documented legacy stage name to the file that now carries it."""
     current = ROOT / CURRENT_STAGE_FILES.get(name, name)
-    return current if current.is_file() else historical
+    return current if current.is_file() else ROOT / name
 
 
 def _source(name: str) -> str:
@@ -191,9 +182,9 @@ def test_documented_en_and_bg_asymmetry_is_real() -> None:
     """The doc calls the en/bg asymmetry load-bearing; confirm it still holds."""
     for script in LEGACY_STAGES[:4]:
         assert "'en'" in _source(script), f"{script} unexpectedly lost 'en'"
-    assert "'bg'" in _source("puhti_populism.py")
     for script in LEGACY_STAGES[:4]:
-        assert "'bg'" not in _source(script), f"{script} gained 'bg' outside stage 5"
+        assert "'bg'" in _source(script), f"{script} unexpectedly lost 'bg'"
+    assert "'bg'" in _source("puhti_populism.py")
 
 
 def test_documented_drop_semantics_still_hold() -> None:
