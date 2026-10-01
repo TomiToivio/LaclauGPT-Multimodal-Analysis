@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -149,6 +150,79 @@ def documents_to_dataframe(documents: Iterable[Mapping[str, Any]]) -> pd.DataFra
         row.pop("_id", None)
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def sqlite_memory_documents(path: str | Path, *, config: StorageConfig) -> list[dict[str, Any]]:
+    """Export reviewed canonical EP24 SQLite objects into durable Mongo memory documents."""
+    db_path = Path(path)
+    if not db_path.exists():
+        return []
+    with sqlite3.connect(db_path) as db:
+        db.row_factory = sqlite3.Row
+        exists = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='objects'"
+        ).fetchone()
+        if not exists:
+            return []
+        rows = list(db.execute("SELECT * FROM objects WHERE state='CANONICAL' ORDER BY obj_id"))
+    docs = []
+    for row in rows:
+        payload = dict(row)
+        obj_id = str(payload["obj_id"])
+        docs.append(
+            {
+                "_storage_id": stable_record_id(
+                    {"source_id": obj_id},
+                    dataset=config.dataset,
+                    country=config.country,
+                    source_hint="sqlite_memory",
+                ),
+                "source_id": obj_id,
+                "dataset": config.dataset,
+                "country": config.country,
+                "memory_type": payload.get("kind", ""),
+                "text": payload.get("canonical_label", ""),
+                "structured_metadata": payload,
+                "originating_pipeline_stage": "reviewed_sqlite_memory",
+                "provenance": {
+                    "backend": "sqlite",
+                    "sqlite_path": str(db_path),
+                    "origin": payload.get("origin", ""),
+                },
+                "version": payload.get("updated_at", ""),
+            }
+        )
+    return docs
+
+
+def jsonl_documents(path: str | Path, *, config: StorageConfig, purpose: str) -> list[dict[str, Any]]:
+    """Load newline-delimited records for optional RAG/memory handoff between pipeline stages."""
+    source = Path(path)
+    if not source.exists():
+        return []
+    docs = []
+    with source.open("r", encoding="utf-8") as handle:
+        for row_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            if not isinstance(record, dict):
+                raise ValueError(f"{source}:{row_number}: expected a JSON object")
+            record.setdefault("dataset", config.dataset)
+            record.setdefault("country", config.country)
+            record.setdefault(
+                "_storage_id",
+                stable_record_id(
+                    record,
+                    dataset=config.dataset,
+                    country=config.country,
+                    source_hint=str(source),
+                    row_hint=str(row_number),
+                ),
+            )
+            record.setdefault("provenance", {"source": str(source), "purpose": purpose})
+            docs.append(record)
+    return docs
 
 
 class MongoStorage:
