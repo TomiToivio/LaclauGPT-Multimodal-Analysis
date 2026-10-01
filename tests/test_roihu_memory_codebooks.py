@@ -18,6 +18,7 @@ def test_memory_acceptance_ambiguity_lock_and_snapshot(tmp_path):
     assert memory.resolve("Example Party", "actor").decision == "AMBIGUOUS"
     assert memory.resolve("Example Party", "actor", country="FI").obj_id == fi
     assert memory.resolve("Example Party", "actor", country="PL").obj_id == pl
+    assert memory.resolve("Example Party", "actor", country="SE").decision == "NEW"
 
     proposal = memory.propose("topic", "new model guess", country="FI", reason="model-discovered", source_record_id="row-1")
     assert proposal.startswith("P-")
