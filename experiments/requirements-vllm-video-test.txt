@@ -1,0 +1,21 @@
+# Extra Python packages for experiments/vllm_video_test.py on CSC Roihu.
+#
+# IMPORTANT:
+# - Load CSC's python-vllm module first.
+# - Create the venv with --system-site-packages so it can see CSC's vLLM/PyTorch.
+# - Do NOT pip-install vllm or torch here; replacing CSC's GPU stack can break ABI/CUDA compatibility.
+#
+# Install:
+#   module load python-vllm
+#   python -m venv --system-site-packages "$VENV"
+#   source "$VENV/bin/activate"
+#   python -m pip install -U pip
+#   python -m pip install -r experiments/requirements-vllm-video-test.txt
+
+pandas>=2.2,<3
+qwen-vl-utils>=0.0.14,<1
+av>=13,<17
+transformers>=4.57,<5
+
+# Test-only, harmless in the Roihu venv and useful for the documented dry run.
+pytest>=8.3,<9
