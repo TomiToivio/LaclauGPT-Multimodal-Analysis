@@ -426,7 +426,7 @@ belong to existing threads:
   `missing_english_count`; stopword tokens produce 27 spurious selections over 8 neutral probes
 - **fixes made:** auditor wired to `fold_fixed`; blast-radius scan widened to all scripts;
   new `apostrophe_hygiene.py`; 47 new/extended tests
-- **PR:** see PR **#99**
+- **PR:** see PR **#100**
 - **remaining uncertainties:** the 8 shared-layer apostrophe splits and their per-country
   reach; where the bilingual gate belongs; whether NER ran at all for FR; the two
   public-context generations
