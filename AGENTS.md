@@ -76,3 +76,18 @@ Never copy private content into this public repository to make a test or job wor
 ## Development principle
 
 **Preserve the published legacy record. Keep full compatibility. Build Phase 2 around it. Run the active pipeline on Roihu. Keep private research material private.**
+
+
+## EP2024 storage and dataframe contract
+
+For active EP2024 reprocessing on Roihu:
+
+- MongoDB is the canonical shared durable research backend for dataframe mirrors/results, codebooks, memory, RAG, researcher notes, embeddings, graph/RDF/DNA/SNA material, provenance and backups.
+- Redis is for transient coordination/cache/messaging/locks/status, not the durable source of truth.
+- PostgreSQL is not part of this project architecture.
+- SQLite and DuckDB are allowed only as local/job-local helpers, compatibility artifacts, imports/exports or checkpoints.
+- Source videos remain in CSC Allas and are downloaded on demand from the URL/object identifier after the user configures `allas_conf`.
+- Input and output remain Pandas-compatible CSV files. Preserve every legacy column and meaning.
+- New analytical fields are additive. Every major step must provide a human-readable Markdown summary field as well as any structured JSON/machine output.
+- Use MongoDB collection names `laclaugpt_ep2024_reprocess_<country_name>_<collection_name>`.
+- Real MongoDB/Redis credentials are read from the private companion repository/runtime environment and must never be copied into this public repository or logs.
