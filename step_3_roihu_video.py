@@ -21,9 +21,11 @@ from experiments.vllm_video_test import main
 
 
 def _bridge_env() -> None:
-    if os.getenv("LACLAUGPT_INPUT_CSV") and not os.getenv("LACLAUGPT_VLLM_TEST_INPUT_CSV"):
+    # Production orchestration is authoritative. Explicit cumulative stage paths
+    # must override stale experiment variables inherited from the private .env.
+    if os.getenv("LACLAUGPT_INPUT_CSV"):
         os.environ["LACLAUGPT_VLLM_TEST_INPUT_CSV"] = os.environ["LACLAUGPT_INPUT_CSV"]
-    if os.getenv("LACLAUGPT_OUTPUT_CSV") and not os.getenv("LACLAUGPT_VLLM_TEST_OUTPUT_CSV"):
+    if os.getenv("LACLAUGPT_OUTPUT_CSV"):
         os.environ["LACLAUGPT_VLLM_TEST_OUTPUT_CSV"] = os.environ["LACLAUGPT_OUTPUT_CSV"]
 
 
