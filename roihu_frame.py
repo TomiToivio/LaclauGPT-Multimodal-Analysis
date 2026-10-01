@@ -140,6 +140,10 @@ def analyze_videos(language):
     """Analyze TikTok videos for a specific language."""
     filename = f'./csv/tiktok_{language}.csv'
     df = pd.read_csv(filename)
+    max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
+    if max_rows > 0:
+        df = df.head(max_rows).copy()
+        logger.info("Demo row limit active: processing first %s rows", max_rows)
     df = df.dropna(subset=['whisperResult'])
     df = df.dropna(subset=['frame_files'])
     df['frame_analysis_1'] = ''
