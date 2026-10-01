@@ -212,8 +212,65 @@ class EP24Memory:
             self._add_alias_db(db, obj_id, canonical, country=country, language=language, provenance=origin)
             old_id = preserve_upstream_id or upstream_stable_id(kind, canonical)
             if old_id != obj_id:
+                # An upstream id is derived from a label-only hash, so two genuinely
+                # distinct objects can legitimately claim the same one (see
+                # ``upstream_legacy_key``: accents and parenthesised qualifiers are
+                # stripped). A second claimant is NOT dropped and NOT merged: the
+                # row is written and the collision is recorded, so a later lookup can
+                # report ambiguity instead of silently picking whichever object was
+                # inserted last.
+                prior = db.execute(
+                    "SELECT DISTINCT ep24_id FROM id_crosswalk WHERE upstream_id=?",
+                    (old_id,),
+                ).fetchall()
+                others = [row[0] for row in prior if row[0] != obj_id]
                 db.execute("INSERT OR IGNORE INTO id_crosswalk VALUES(?,?,?)", (old_id, obj_id, "context-aware EP24 identity"))
+                if others:
+                    self._record_crosswalk_collision(db, old_id, obj_id, others)
+                    # Record the existing claimants too: every object sharing an
+                    # upstream id is part of the ambiguity, not just the last one
+                    # to arrive, and an operator listing collisions needs all sides.
+                    for other in others:
+                        self._record_crosswalk_collision(
+                            db, old_id, other, [obj_id] + [o for o in others if o != other]
+                        )
         return obj_id
+
+    def _record_crosswalk_collision(self, db: sqlite3.Connection, upstream_id: str,
+                                    obj_id: str, others: list[str]) -> None:
+        """Mark an upstream id that now maps to more than one object.
+
+        Recorded once per (upstream_id, claimant) pair so re-running an idempotent
+        import does not keep appending audit noise.
+        """
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS crosswalk_collisions(
+                upstream_id TEXT NOT NULL,
+                claimant_id TEXT NOT NULL,
+                other_ids TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(upstream_id, claimant_id)
+            )"""
+        )
+        db.execute(
+            "INSERT OR IGNORE INTO crosswalk_collisions VALUES(?,?,?,?,?)",
+            (
+                upstream_id,
+                obj_id,
+                ",".join(sorted(others)),
+                "label-only upstream id claimed by more than one object",
+                now_iso(),
+            ),
+        )
+        db.execute(
+            "INSERT INTO audit_log(obj_id,action,actor,details_json,created_at) VALUES(?,?,?,?,?)",
+            (
+                obj_id, "crosswalk_collision", "system",
+                json.dumps({"upstream_id": upstream_id, "other_ids": sorted(others)}),
+                now_iso(),
+            ),
+        )
 
     def _add_alias_db(self, db: sqlite3.Connection, obj_id: str, alias: str, *, country: str = "", language: str = "", provenance: str = "") -> None:
         key = surface_key(alias)
@@ -310,6 +367,43 @@ class EP24Memory:
                 "INSERT OR IGNORE INTO id_crosswalk(upstream_id,ep24_id,reason) VALUES(?,?,?)",
                 (external_id, obj_id, reason),
             )
+
+    def resolve_upstream_id(self, upstream_id: str) -> dict[str, Any]:
+        """Resolve a legacy/upstream id to EP24 objects, reporting ambiguity.
+
+        ``upstream_stable_id`` strips accents and parenthesised qualifiers, so a
+        label-only upstream id is not guaranteed unique. Returning one object for
+        an ambiguous id would silently pick a winner by insertion order, which is
+        exactly what the issue forbids. This returns every claimant and marks the
+        result ambiguous instead.
+
+        An unknown id yields an empty list, not an error.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT DISTINCT ep24_id FROM id_crosswalk WHERE upstream_id=? ORDER BY ep24_id",
+                (upstream_id,),
+            ).fetchall()
+        obj_ids = [row[0] for row in rows]
+        return {
+            "upstream_id": upstream_id,
+            "obj_ids": obj_ids,
+            "ambiguous": len(obj_ids) > 1,
+        }
+
+    def crosswalk_collisions(self) -> list[dict[str, Any]]:
+        """Every recorded upstream-id collision, for audit and operator review."""
+        with self.connect() as db:
+            exists = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='crosswalk_collisions'"
+            ).fetchone()
+            if not exists:
+                return []
+            rows = db.execute(
+                "SELECT upstream_id, claimant_id, other_ids, reason, created_at "
+                "FROM crosswalk_collisions ORDER BY upstream_id, claimant_id"
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def set_state(self, obj_id: str, state: str, *, actor: str = "researcher") -> None:
         if state not in STATES:

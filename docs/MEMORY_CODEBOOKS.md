@@ -136,6 +136,38 @@ original and English labels, plus a compatibility crosswalk to older upstream ID
 Two people, parties or concepts with the same surface label are not merged merely
 because their text matches.
 
+### The legacy crosswalk can be ambiguous, and says so
+
+The compatibility crosswalk is keyed by `upstream_stable_id()`, which is derived
+from the accent- and qualifier-stripping helper. That hash is **deliberately
+unchanged** — existing upstream ids are already in use and moving them would
+silently re-point historical references. But it means one upstream id can
+legitimately be claimed by more than one object:
+
+```text
+upstream_stable_id("actor", "Puolue (A)")  ==  A-e569d2c4ea4a
+upstream_stable_id("actor", "Puolue (B)")  ==  A-e569d2c4ea4a
+upstream_stable_id("actor", "Grüne")       ==  A-1cef4e6f3e2e
+upstream_stable_id("actor", "Grune")       ==  A-1cef4e6f3e2e
+```
+
+Previously a lookup for such an id returned both objects with no indication that
+the id was ambiguous — i.e. it resolved by insertion order. That is the silent
+merge the identity policy above forbids.
+
+The behaviour now:
+
+- the legacy hash is unchanged, so no existing id moves;
+- every claimant is retained (the second is not dropped, and the two are **not**
+  merged into one object);
+- the collision is recorded in `crosswalk_collisions` and the audit log;
+- `resolve_upstream_id()` returns **every** claimant plus `ambiguous: true`, so a
+  caller must decide, rather than receiving a winner chosen by write order;
+- `crosswalk_collisions()` lists them for operator review.
+
+A genuinely unique upstream id is unaffected: it resolves to exactly one object
+and is not flagged.
+
 ## Layering and authority
 
 Runtime precedence is common -> EU -> country -> language -> researcher overlay.
