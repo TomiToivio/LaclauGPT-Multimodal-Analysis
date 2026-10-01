@@ -46,6 +46,9 @@ FI/PL material and public-context research staging. This public repository does
 not duplicate those files.
 
 Run `python roihu_codebooks.py --manifest` for the machine-readable manifest.
+Each loaded profile also reports ambiguous surface forms, source-language coverage,
+source-backed entry counts, and missing English labels. Missing English coverage is
+a recorded gap, never a reason to silently substitute another country's profile.
 
 ## Runtime
 
@@ -111,7 +114,15 @@ storage. SQLite WAL is not the cross-host coordination mechanism.
 6. Promote valuable outputs atomically back to private project storage.
 
 `roihu_memory.py export-csv` creates inspectable CSV exports of objects, aliases,
-redirects, ID crosswalks, proposals and audit history.
+redirects, ID crosswalks, source provenance, affiliations, proposals and audit history.
+
+Two public Slurm templates implement the single-writer workflow:
+
+- `scripts/roihu/memory_prepare.sbatch` seeds reviewed private entries, creates a transactionally consistent job-local snapshot, checksums it and atomically promotes the snapshot to private project storage.
+- `scripts/roihu/memory_merge.sbatch` snapshots the canonical DB before merging proposal shards, merges shards deterministically and exports an inspectable CSV/provenance bundle.
+
+The memory schema is versioned with `PRAGMA user_version`. A pre-migration SQLite
+backup is created before an existing older schema is upgraded.
 
 ## Identity policy
 
@@ -132,13 +143,19 @@ human entry wins over an unlocked addition. Conflicting locked entries are emitt
 as review conflicts instead of using last-write-wins behavior.
 
 Background codebook matches are context only. They do not establish a speaker's
-beliefs, a post's discourse category, or agreement with a mentioned actor.
+beliefs, a post's discourse category, or agreement with a mentioned actor. When
+enrichment is enabled, the legacy `roihu_populism.py` Laclau stage receives the
+selected bilingual context as an appended, explicitly non-evidentiary block and
+stores the exact selection/fingerprint in additive columns. Existing cached
+historical results are retained and labeled as not having received that context.
 
 ## Current validation boundary
 
 Public synthetic tests cover Unicode IDs, cross-country homonyms, accepted-only
-resolution, ambiguous aliases, locked human entries, bilingual retrieval, SQLite
-snapshotting, and additive CSV enrichment.
+resolution, ambiguous aliases, locked human entries, rejected/provisional states,
+redirects and ID crosswalks, bilingual retrieval, migration backups, SQLite
+snapshotting, deterministic proposal-shard merging, disabled-mode no-op behavior,
+and additive CSV enrichment.
 
 This implementation consumes the already-populated private EP24 codebooks. It does
 not claim that every private entry has independently completed the issue's full
