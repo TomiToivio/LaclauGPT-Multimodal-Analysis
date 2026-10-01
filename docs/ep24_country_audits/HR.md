@@ -144,13 +144,56 @@ Do not promote repeated model errors into aliases without human/source validatio
 - result: provisional
 - next independent reviewer: required
 
-### Pass 2+
-Add independent review entries here. Re-check sources and assumptions rather than merely approving pass 1.
+### Pass 2 (independent re-check)
+- agent branch: `croatian-hedgehog-eats-leftovers-too`
+- focus: the legacy-data checks pass 1 explicitly deferred (this pass had the private material)
+- result: pass 1 hypotheses 1 and 5 **confirmed with counts**; a pipeline-level defect found and escalated
+- note: pass 1 is not merely approved here — its two testable hypotheses were tested against the real rows
+
+Pass 1 said, correctly, that "a later/local agent with access to materialized LFS objects should inspect" the HR rows. This pass did that. Aggregates only; row-level private content stays in `TomiToivio/LaclauGPT-Private`.
+
+## Pass 2 measured results (legacy HR data)
+
+Legacy HR dataset: 1,376 rows, 95 columns. Researcher review is thin: `researcher_video_checked` is filled on 113 rows (8%); `researcher_dubious_video` 112, `researcher_delete_video` 112, `researcher_new_persons` 107, `researcher_note` 68. So no more than ~8% of HR rows carry a human correction — everything else rests on the unreviewed pipeline output.
+
+**Hypothesis 1 — CONFIRMED.** Coalition/electoral-list flattening is real, and it shows up first as *surface-form fragmentation*:
+- 1,193 non-empty `entities` cells contain **849 distinct** entity strings, and **852 cells (71% of non-empty) pack more than one entity into a single comma-joined string** (for example `european parliament, hdz, milanović, plenković`).
+- All 1,193 non-empty entity cells are **lower-cased**, so proper-name casing is destroyed at extraction time.
+- The same party appears under many variants: **HDZ 9** distinct surface forms (including both the bare acronym and the full Croatian *and* English names, sometimes glued together), **Domovinski pokret 8**, **SDP 4**, **Možemo 4**.
+
+**Hypothesis 5 — CONFIRMED and escalated.** The flattening is not only present, it is **systematic across stages**, and it is worse than "flattening":
+- `spacy_entities` is **completely empty** in this dataset (0 of 1,376 rows); the NER stage contributed nothing.
+- `new_entity` (the normalization/correction output) is filled on only **186 of 1,376 rows**, and on **150** of those it *removes* entities rather than canonicalizing them — e.g. a three-entity cell becomes a single person. That is why **zero** HDZ variants appear in `new_entity`: the party was not normalized, it was dropped.
+- **1190 of 1,376 rows keep the raw fragmented blob as their final value**, including 108 rows that still carry a multi-party blob. So the fragment the researcher sees in the analysis input is the one the extractor wrote, not a canonical entity.
+- Net effect: the distinct-surface count collapses from **849** in `entities` to **56** in `new_entity`, but by deletion, not by canonicalization.
+
+**Hypotheses 2, 3, 4 — not yet measurable from data alone.** They remain design rules; pass 1's reasoning is sound and this pass has nothing to refute.
+
+## This is not a Croatia-specific defect (systematic, all 10 countries)
+
+The same build defects reproduce across every EP24 country book, which is why this is escalated as a pipeline problem rather than fixed as a Croatia codebook tweak:
+
+| metric | all 10 country books |
+|---|---|
+| country entries | 4,654 |
+| entries with **empty** `aliases` | 4,060 (**87%**) |
+| acronyms dropped by the min-length guard | **938** |
+| mechanical-parse fragments (`Podemos)`, `PSOE)`, …) | 16 |
+| labels beginning lowercase | 232 |
+
+Per country, empty-alias share ranges 80% (HR) to 91% (PL, HU); dropped short forms range 76 (ES) to 134 (SE). The guard's own log for HR records `Most (label shorter than 5)` and `NATO (label shorter than 5)`, and the HR drop-list contains `HDZ`, `SDP`, `DP`, `HSP`, `IDS`, `SDSS`, `MOST`/`Most`, `ECR`, `EPP`, `EU`, `S&D`, `NATO`, `USA` and more. Every one of the main Croatian parties is in the *dropped* set, and **none of `hdz`, `sdp`, `dp`, `most`, `hsp`, `hsls`, `ids` resolves to any exact HR label or alias** (only `Možemo` does). HDZ's 10 competing codebook labels are therefore all unreachable by the acronym a post or a researcher would actually type.
+
+## Escalation
+
+Hypothesis 5 asked for a separate linked issue if the flattening was systematic. It is, and so is its cause: the **canonicalization/alias layer is missing from the builder**, end to end. That is a shared-pipeline defect affecting all countries and all stages, not an HR codebook fix, and it is tracked separately (see PR discussion for the issue link) rather than folded into #72.
+
+The HR-specific, in-scope follow-ups remain as pass-1 designed them: acronym recovery as country/kind-scoped exact-match aliases, `english_label` instead of English canonical labels, and explicit `source_languages` for the public-context entries.
 
 ## Open hypotheses for the next reviewer
 
-1. Coalition/electoral-list identity deserves an explicit relation layer instead of being serialized only as aliases.
-2. Country-scoped abbreviation resolution should be evaluated before any fuzzy matching.
-3. Croatian diacritic-loss should be handled as observed alias evidence, not destructive normalization.
-4. Country context should be stage-specific: entity extraction needs aliases/list relations; Laclau analysis needs only retrieved context relevant to entities/themes already evidenced in the item.
-5. If legacy HR rows show systematic coalition flattening across stages, open a separate pipeline issue for list/coalition relation preservation.
+1. Coalition/electoral-list identity deserves an explicit relation layer instead of being serialized only as aliases. → **Pass 2: surface fragmentation confirmed (see above); the relation layer is still unbuilt.**
+2. Country-scoped abbreviation resolution should be evaluated before any fuzzy matching. → **Pass 2: the acronyms are being dropped, not resolved; scoped exact-match is still the right fix.**
+3. Croatian diacritic-loss should be handled as observed alias evidence, not destructive normalization. → **Pass 2: not measurable from data alone; design rule stands.**
+4. Country context should be stage-specific: entity extraction needs aliases/list relations; Laclau analysis needs only retrieved context relevant to entities/themes already evidenced in the item. → **Pass 2: supported — `spacy_entities` is empty and `new_entity` deletes rather than canonicalizes, so there is currently no stage that produces canonical entities at all.**
+5. If legacy HR rows show systematic coalition flattening across stages, open a separate pipeline issue for list/coalition relation preservation. → **Pass 2: CONFIRMED, escalated separately.**
+6. **New for the next reviewer:** verify whether the 938 dropped acronyms across all 10 books have a second cause besides the min-length guard (e.g. a per-book owner map that gives up on a colliding form). If so, both causes need fixing before acronyms can be recovered.
