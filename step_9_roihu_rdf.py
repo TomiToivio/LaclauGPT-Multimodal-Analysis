@@ -6,6 +6,9 @@ from roihu_csv_rdf import main
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    if "--limit" not in args and os.getenv("LACLAUGPT_MAX_ROWS"):
-        args += ["--limit", os.environ["LACLAUGPT_MAX_ROWS"]]
+    if not args and os.getenv("LACLAUGPT_INPUT_CSV"):
+        args = ["--input", os.environ["LACLAUGPT_INPUT_CSV"]]
+    limit = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
+    if "--limit" not in args and limit > 0:
+        args += ["--limit", str(limit)]
     raise SystemExit(main(args))
