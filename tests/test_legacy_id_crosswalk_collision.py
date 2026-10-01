@@ -13,9 +13,12 @@ recorded, and the read side reports ambiguity rather than picking a winner.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from roihu_memory import (
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from roihu_memory import (  # noqa: E402
     EP24Memory,
     stable_id,
     surface_key,
