@@ -152,7 +152,7 @@ def save_keyframe(video_id, author_username, video_filename, frame_time, frame_n
 
 
 def get_keyframes(video_filename, video_id, author_username):
-    """Extract up to six keyframes, beginning after the known initial scroll."""
+    """Extract exactly one keyframe at original t=1.0s."""
     duration = get_video_duration(video_filename)
     frame_files = []
     for frame_number, frame_time in enumerate(analysis_frame_times(duration), start=1):
@@ -261,13 +261,14 @@ def analyze_videos(language=None):
                 whisper_translated,
             ) = cached
 
-            df.at[index, 'frame_files'] = normalize_frame_files(frames)
+            cached_frames = normalize_frame_files(frames)
+            first_cached_frame = cached_frames.split(',')[0].strip() if cached_frames else ''
+            df.at[index, 'frame_files'] = first_cached_frame
             df.at[index, 'ocr_1'] = str(ocr_1 or '')
-            df.at[index, 'ocr_2'] = str(ocr_2 or '')
-            df.at[index, 'ocr_3'] = str(ocr_3 or '')
-            df.at[index, 'ocr_4'] = str(ocr_4 or '')
-            df.at[index, 'ocr_5'] = str(ocr_5 or '')
-            df.at[index, 'ocr_6'] = str(ocr_6 or '')
+            # Old caches may contain the historical six-frame outputs. The
+            # current pipeline deliberately exposes only the t=1.0s keyframe.
+            for old_index in range(2, 7):
+                df.at[index, f'ocr_{old_index}'] = ''
             df.at[index, 'whisper_transcript'] = str(whisper_transcript or '')
             df.at[index, 'whisper_language'] = str(whisper_language or '')
             df.at[index, 'whisper_translated'] = str(whisper_translated or '')
@@ -306,9 +307,9 @@ def analyze_videos(language=None):
             frame_files = get_keyframes(video_path, video_id, author_username)
             ocr_values = [''] * 6
 
-            for i, frame_file in enumerate(frame_files[:6]):
-                results = reader.readtext(frame_file)
-                ocr_values[i] = '\n'.join(str(result[1]) for result in results)
+            if frame_files:
+                results = reader.readtext(frame_files[0])
+                ocr_values[0] = '\n'.join(str(result[1]) for result in results)
 
             (
                 whisper_transcript,
@@ -347,8 +348,8 @@ def analyze_videos(language=None):
             )
             df.at[index, 'video_analysis_status'] = 'ok'
             df.at[index, 'video_analysis_note'] = (
-                f'Frames/OCR begin at t={VIDEO_INITIAL_SKIP_SECONDS:.1f}s; ASR uses '
-                'a non-destructive derived clip with the same skip.'
+                f'One keyframe + OCR at original t={VIDEO_INITIAL_SKIP_SECONDS:.1f}s; '
+                'ASR uses a non-destructive derived clip beginning at the same boundary.'
             )
         except Exception as exc:
             logger.exception(
