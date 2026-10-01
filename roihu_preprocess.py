@@ -105,8 +105,11 @@ def get_video_duration(video_filename):
             raise ValueError(f'Could not open video: {video_filename}')
         fps = video.get(cv2.CAP_PROP_FPS)
         frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
-        if not fps or fps <= 0:
-            raise ValueError(f'Invalid FPS ({fps}) for video: {video_filename}')
+        if not fps or fps <= 0 or not frame_count or frame_count <= 0:
+            raise ValueError(
+                f'Invalid video metadata for {video_filename}: '
+                f'fps={fps}, frames={frame_count}'
+            )
         return frame_count / fps
     finally:
         video.release()
@@ -365,8 +368,12 @@ def analyze_videos(language):
 
 
 languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
-for language in languages:
-    analyze_videos(language)
 
-c.close()
-conn.close()
+
+if __name__ == '__main__':
+    try:
+        for language in languages:
+            analyze_videos(language)
+    finally:
+        c.close()
+        conn.close()
