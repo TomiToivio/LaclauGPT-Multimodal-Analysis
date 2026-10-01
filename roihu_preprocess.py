@@ -34,7 +34,7 @@ logging.basicConfig(
     level=logging.DEBUG,
 )
 
-reader = easyocr.Reader(['en', 'fr', 'pl', 'sv', 'pt', 'de', 'es', 'hu', 'hr'])
+reader = easyocr.Reader(['en', 'fr', 'pl', 'sv', 'pt', 'de', 'es', 'hu', 'hr', 'bg'])
 _asr = load_asr_model()
 logger.info('ASR backend: %s', describe_backend())
 logger.info(
@@ -364,7 +364,7 @@ def analyze_videos(language):
     df.to_csv(f'./csv/tiktok_{language}.csv', index=False)
 
 
-languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']
+languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
 for language in languages:
     analyze_videos(language)
 
