@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=72
 #SBATCH --gres=gpu:gh200:1
-#SBATCH --mem=212G
+#SBATCH --mem=217086M
 #SBATCH --time=02:00:00
 #SBATCH --output=vllm-video-test-%j.out
 #SBATCH --error=vllm-video-test-%j.err
@@ -83,7 +83,7 @@ mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${DOWNLOAD_DIR}" "${HF_HOME}" "${TRANSFOR
 module --force purge
 module load python-vllm
 module load allas
-module load ffmpeg
+module load gcc/15.2.0 ffmpeg
 source "${VENV}/bin/activate"
 
 unset PYTHONPATH
