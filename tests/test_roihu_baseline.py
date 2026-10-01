@@ -15,20 +15,20 @@ def test_roihu_batch_has_no_private_allocation_or_absolute_scratch_path():
 def test_runner_preserves_historical_stage_order():
     text = (ROOT / "scripts/roihu/run_pipeline.sh").read_text(encoding="utf-8")
     assert "preprocess frame summary postprocess populism" in text
-    assert "puhti_${stage}.py" in text
+    assert "roihu_${stage}.py" in text
 
 
 def test_inference_stages_use_configurable_model():
-    for name in ("puhti_frame.py", "puhti_summary.py", "puhti_postprocess.py", "puhti_populism.py"):
+    for name in ("roihu_frame.py", "roihu_summary.py", "roihu_postprocess.py", "roihu_populism.py"):
         text = (ROOT / name).read_text(encoding="utf-8")
         assert "LACLAUGPT_MULTIMODAL_MODEL" in text, name
         assert "gemma4:12b" in text, name
 
 
-def test_readme_marks_legacy_frozen_and_main_roihu():
+def test_readme_marks_legacy_frozen_and_main_phase2_roihu():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "`legacy` is the frozen historical CSC Puhti" in text
-    assert "CSC Roihu" in text
+    assert "`legacy` branch" in text
+    assert "Phase 2" in text and "CSC Roihu" in text
 
 
 def test_migration_doc_keeps_private_material_private():
