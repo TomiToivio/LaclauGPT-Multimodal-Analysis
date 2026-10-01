@@ -815,16 +815,8 @@ def generate_stub(local_path: Path, model: str) -> str:
 
 
 def guided_decoding_schema() -> dict:
-    """JSON schema matching the mandatory SCROLL/SCROLL_SECONDS tail of the prompt."""
-    return {
-        "type": "object",
-        "properties": {
-            "SCROLL": {"type": "boolean"},
-            "SCROLL_SECONDS": {"type": "array", "items": {"type": "number"}},
-        },
-        "required": ["SCROLL", "SCROLL_SECONDS"],
-    }
-
+    """JSON schema for complete structured analysis plus scroll metadata."""
+    return STRUCTURED_OUTPUT_SCHEMA
 
 def attempt_structured_output(
     analysis_path: Path,
