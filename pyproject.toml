@@ -21,6 +21,10 @@ dependencies = [
 mongo = [
   "pymongo>=4.10,<5",
 ]
+# Coordination/cache only (MongoDB stays canonical, SQLite stays the backup).
+redis = [
+  "redis>=5,<6",
+]
 dev = [
   "pytest>=8.3,<9",
   "ruff>=0.11,<1",
