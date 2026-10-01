@@ -15,7 +15,7 @@
 # Install into an ISOLATED venv (scripts/laskin/install_vllm_video_test.sh) so the
 # machine's existing CUDA/PyTorch environment is never modified.
 
-vllm==0.8.5.post1
+vllm==0.28.0
 # vLLM 0.8.5 pulls the torch build it was tested against (2.6.0+cu124), which
 # still lists sm_70. Do not "upgrade" torch: 2.11+/cu128+ drops Volta.
 transformers==4.51.3
