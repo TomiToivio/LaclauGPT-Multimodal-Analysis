@@ -171,6 +171,6 @@ def analyze_responses(language):
         df.to_csv(legacy_output, index=False)
 
 
-languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']
+languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
 for language in languages:
     analyze_responses(language)
