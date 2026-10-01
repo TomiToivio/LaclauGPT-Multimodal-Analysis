@@ -71,8 +71,28 @@ def _tokens(value: Any) -> set[str]:
     return {t for t in _fold(value).split() if len(t) > 2}
 
 
+class CodebookUnreadable(RuntimeError):
+    """A codebook file exists but cannot be read (LFS pointer, malformed JSON)."""
+
+
 def _load_entries(path: Path) -> list[dict[str, Any]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    """Load entries, failing cleanly on an LFS pointer or malformed JSON.
+
+    A checked-out-but-unsmudged LFS pointer is a 130-byte text file beginning
+    with `version https://git-lfs.github.com/spec/v1`. That is an environment
+    problem (`git lfs pull`), not a codebook defect, and it must be reported as
+    such rather than as a JSON traceback.
+    """
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if text.lstrip().startswith("version https://git-lfs.github.com/spec/v1"):
+        raise CodebookUnreadable(
+            f"{path.name} is an unsmudged Git LFS pointer - run "
+            f"`git lfs pull --include='{path.name}'` first"
+        )
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise CodebookUnreadable(f"{path.name} is not valid JSON: {exc}") from exc
     out: list[dict[str, Any]] = []
     for item in payload.get("entries", []) or []:
         if isinstance(item, dict):
@@ -181,73 +201,54 @@ def theme_near_duplicates(entries: list[dict[str, Any]], *, threshold: float = 0
     return out
 
 
-def _iso2_of(path: Path) -> str | None:
-    """The ISO2 code recorded *inside* a codebook file, if it has one.
+def _candidate_paths(root: Path, country: str) -> list[Path]:
+    """Resolve a country's codebook files using the repo's own country map.
 
-    The books are not named consistently: `ep24_hr_private.json` and
-    `ep24_es_private.json` use the ISO2 code, but `ep24_finland_private.json`
-    and `ep24_poland_private.json` use the country name. Resolving by filename
-    therefore fails for those two countries. The files record `country_code`
-    internally, so read it rather than inferring it from the name.
+    The filename is NOT derivable from the ISO2 code: Finland is
+    `ep24_finland_private.json` (not `ep24_fi_private.json`) and Poland is
+    `ep24_poland_private.json`. Guessing from the code silently reports
+    "no codebook found" for those countries, so use COUNTRY_PROFILES when it is
+    importable and fall back to the slug only for unmapped countries.
     """
+    iso = country.upper()
+    slug = country.casefold()
+    candidates: list[Path] = []
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    value = payload.get("country_code")
-    return str(value).strip().upper() if value else None
+        from roihu_codebooks import COUNTRY_PROFILES  # type: ignore
 
-
-def _candidate_layers(root: Path, country: str) -> list[Path]:
-    """Every per-country codebook under ``root`` matching ``country``.
-
-    ``country`` may be an ISO2 code (`HR`) or a name (`Finland`). Matching is by
-    the file's own `country_code` and `country` fields first, then by filename,
-    so a book named after the country is still found from its ISO2 code.
-    """
-    wanted = country.strip().casefold()
-    wanted_iso = country.strip().upper()
-
-    matches: list[Path] = []
-    for path in sorted(root.glob("ep24_*_private.json")):
-        if path.name == "ep24_common_private.json":
-            # The shared book is not a country layer; it is loaded as a base and
-            # has no country_code of its own.
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        code = str(payload.get("country_code") or "").strip().upper()
-        name = str(payload.get("country") or "").strip().casefold()
-        if wanted_iso == code or wanted == name or wanted == path.stem.removeprefix("ep24_").removesuffix("_private"):
-            matches.append(path)
-
-    country_dir = root / "countries"
-    if country_dir.is_dir():
-        # `countries/<iso2>.json` is a second layer for some countries. Accept it
-        # when either its name or its own country_code matches.
-        for path in sorted(country_dir.glob("*.json")):
-            if path.stem.casefold() == wanted or (
-                path.stem.upper() == wanted_iso and _iso2_of(path) == wanted_iso
-            ):
-                matches.append(path)
-
-    # Preserve order, drop duplicates.
-    seen: set[Path] = set()
-    ordered: list[Path] = []
-    for path in matches:
-        if path not in seen:
-            seen.add(path)
-            ordered.append(path)
-    return ordered
+        mapped = COUNTRY_PROFILES.get(iso)
+        if mapped and mapped.get("file"):
+            candidates.append(root / str(mapped["file"]))
+        elif mapped and mapped.get("country"):
+            candidates.append(root / f"ep24_{str(mapped['country']).casefold()}_private.json")
+    except Exception:  # pragma: no cover - map is a convenience, not a hard dep
+        pass
+    candidates.append(root / f"ep24_{slug}_private.json")
+    candidates.append(root / "countries" / f"{slug}.json")
+    # de-duplicate, preserving order
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for path in candidates:
+        if path.name not in seen:
+            seen.add(path.name)
+            unique.append(path)
+    return unique
 
 
 def audit(root: Path, country: str) -> dict[str, Any]:
-    candidates = _candidate_layers(root, country)
+    iso = country.upper()
+    candidates = _candidate_paths(root, country)
     layers: dict[str, Any] = {}
     for path in candidates:
-        entries = _load_entries(path)
+        if not path.exists():
+            continue
+        try:
+            entries = _load_entries(path)
+        except CodebookUnreadable as exc:
+            # Report the unreadable layer instead of aborting: a pointer in one
+            # layer must not hide the numbers for the layer that IS readable.
+            layers[path.name] = {"unreadable": str(exc)}
+            continue
         layers[path.name] = {
             "entries": entries,
             "alias_coverage": alias_coverage(entries),
@@ -260,20 +261,24 @@ def audit(root: Path, country: str) -> dict[str, Any]:
             p.name for p in root.glob("ep24_*_private.json") if p.name != "ep24_common_private.json"
         )
         raise FileNotFoundError(
-            f"no codebook found for {country!r} under {root}. "
-            "Matching is by the file's own country_code/country field, then by filename. "
-            "Books present: " + (", ".join(available) or "(none)")
+            f"no codebook found for {iso} under {root} (looked for "
+            + ", ".join(p.name for p in candidates)
+            + "). Books present: "
+            + (", ".join(available) or "(none)")
         )
-    return {"country_code": country.upper(), "root": str(root), "layers": layers}
+    return {"country_code": iso, "root": str(root), "layers": layers}
 
 
 def _print_human(report: dict[str, Any], *, top: int) -> None:
     print(f"EP24 codebook coverage report — {report['country_code']}")
     print(f"root: {report['root']}")
     for name, layer in report["layers"].items():
-        cov = layer["alias_coverage"]
         print()
         print(f"=== {name} ===")
+        if "unreadable" in layer:
+            print(f"  UNREADABLE: {layer['unreadable']}")
+            continue
+        cov = layer["alias_coverage"]
         print(f"  entries                    : {cov['entries']}")
         print(f"  without aliases            : {cov['entries_without_aliases']} ({cov['entries_without_aliases_pct']}%)")
         print(f"  aliases total / per entry  : {cov['aliases_total']} / {cov['aliases_per_entry']}")
