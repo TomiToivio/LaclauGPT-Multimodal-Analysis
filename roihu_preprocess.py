@@ -222,12 +222,14 @@ def analyze_videos(language=None):
         'whisper_transcript',
         'whisper_language',
         'whisper_translated',
+        'video_initial_skip_seconds',
+        'video_analysis_status',
+        'video_analysis_note',
     ):
-        df[column] = ''
+        if column not in df.columns:
+            df[column] = ''
 
-    df['video_initial_skip_seconds'] = VIDEO_INITIAL_SKIP_SECONDS
-    df['video_analysis_status'] = ''
-    df['video_analysis_note'] = ''
+    df['video_initial_skip_seconds'] = str(VIDEO_INITIAL_SKIP_SECONDS)
 
     if language and 'language' in df.columns:
         df = df[df['language'] == language].copy()
