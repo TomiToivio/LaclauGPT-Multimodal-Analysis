@@ -25,5 +25,6 @@ module load python-vllm
 if [[ -x "${VENV}/bin/python" ]]; then source "${VENV}/bin/activate"; fi
 unset PYTHONPATH
 unset PYTHONHOME
+python3 "${PUBLIC_ROOT}/scripts/roihu/check_ep24_runtime.py"
 cd "${PRIVATE_ROOT}"
 srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 3 --script "${PUBLIC_ROOT}/step_3_roihu_video.py" "$@"
