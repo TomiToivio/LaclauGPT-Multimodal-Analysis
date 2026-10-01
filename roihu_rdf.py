@@ -40,7 +40,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 os.makedirs("./logs", exist_ok=True)
@@ -305,7 +305,7 @@ class Provenance:
         return cls(
             run_id=os.getenv("SLURM_JOB_ID", f"local-{int(time.time())}"),
             model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"),
-            generated_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             code_version=os.getenv("LACLAUGPT_MULTIMODAL_CODE_VERSION", "unversioned"),
         )
 
@@ -450,7 +450,7 @@ def emit_timestamp(graph: Graph, node: str, value) -> None:
         return
 
     graph.literal(node, f"{LG}videoCreatedEpoch", int(epoch), datatype=f"{XSD}integer")
-    stamp = datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     graph.literal(node, f"{SCHEMA}datePublished", stamp, datatype=f"{XSD}dateTime")
 
 

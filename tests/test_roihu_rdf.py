@@ -14,7 +14,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from rdflib import Graph, URIRef
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "roihu_rdf.py"
@@ -100,17 +99,19 @@ def run_export(cwd: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
-def parse(turtle: Path) -> Graph:
-    """Parse the export.
+def parse(turtle: Path):
+    """Parse the export with rdflib, or skip.
 
-    rdflib is optional: the *exporter* is stdlib-only by design, and this import
-    only guards the tests that verify the output. Skipping is correct when the
-    extra is absent from a minimal environment.
+    rdflib is an OPTIONAL validation extra, never a runtime dependency: the
+    exporter itself is stdlib-only so a batch job cannot fail on an import. CI
+    installs only ruff + pytest, so this must skip rather than raise — a
+    module-scope import here fails collection and takes the whole suite down.
     """
-    pytest.importorskip(
-        "rdflib", reason="rdflib validates the export; it is not a runtime dependency"
+    rdflib = pytest.importorskip(
+        "rdflib",
+        reason="optional validation extra; the exporter itself needs no RDF library",
     )
-    graph = Graph()
+    graph = rdflib.Graph()
     graph.parse(turtle, format="turtle")
     return graph
 
@@ -180,7 +181,8 @@ def test_sample_limits_rows(runtime: Path) -> None:
 def test_expected_class_is_asserted(runtime: Path, cls: str) -> None:
     assert run_export(runtime, "--language", "fi").returncode == 0
     graph = parse(runtime / "rdf" / "ep24_fi.ttl")
-    assert (None, URIRef(RDF_NS + "type"), URIRef(LG + cls)) in graph, cls
+    rdflib = pytest.importorskip("rdflib")
+    assert (None, rdflib.URIRef(RDF_NS + "type"), rdflib.URIRef(LG + cls)) in graph, cls
 
 
 # --------------------------------------------------------------------------
@@ -192,8 +194,9 @@ def test_every_legacy_column_survives_into_the_graph(runtime: Path) -> None:
     """The acceptance criterion "retains all legacy fields", checked mechanically."""
     assert run_export(runtime, "--language", "fi").returncode == 0
     graph = parse(runtime / "rdf" / "ep24_fi.ttl")
+    rdflib = pytest.importorskip("rdflib")
 
-    emitted = {str(o) for o in graph.objects(None, URIRef(LG + "columnName"))}
+    emitted = {str(o) for o in graph.objects(None, rdflib.URIRef(LG + "columnName"))}
     assert "a_unknown_legacy_column" in emitted, (
         "an unrecognised legacy column must be preserved as a LegacyField, "
         "or the export silently drops research data"
@@ -203,7 +206,8 @@ def test_every_legacy_column_survives_into_the_graph(runtime: Path) -> None:
 def test_unknown_legacy_values_are_preserved_verbatim(runtime: Path) -> None:
     assert run_export(runtime, "--language", "fi").returncode == 0
     graph = parse(runtime / "rdf" / "ep24_fi.ttl")
-    values = {str(o) for o in graph.objects(None, URIRef(LG + "columnValue"))}
+    rdflib = pytest.importorskip("rdflib")
+    values = {str(o) for o in graph.objects(None, rdflib.URIRef(LG + "columnValue"))}
     assert {"must survive", "second"} <= values
 
 
@@ -215,15 +219,17 @@ def test_unknown_legacy_values_are_preserved_verbatim(runtime: Path) -> None:
 def test_provenance_is_attached(runtime: Path) -> None:
     assert run_export(runtime, "--language", "fi").returncode == 0
     graph = parse(runtime / "rdf" / "ep24_fi.ttl")
-    assert any(graph.objects(None, URIRef(LG + "runId")))
-    assert any(graph.objects(None, URIRef(LG + "stage")))
+    rdflib = pytest.importorskip("rdflib")
+    assert any(graph.objects(None, rdflib.URIRef(LG + "runId")))
+    assert any(graph.objects(None, rdflib.URIRef(LG + "stage")))
 
 
 def test_derivation_distinguishes_observed_from_model(runtime: Path) -> None:
     """A platform fact and a model claim must be tellable apart."""
     assert run_export(runtime, "--language", "fi").returncode == 0
     graph = parse(runtime / "rdf" / "ep24_fi.ttl")
-    values = {str(o) for o in graph.objects(None, URIRef(LG + "derivation"))}
+    rdflib = pytest.importorskip("rdflib")
+    values = {str(o) for o in graph.objects(None, rdflib.URIRef(LG + "derivation"))}
     assert {"observed", "model_derived"} <= values
 
 
