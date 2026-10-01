@@ -12,9 +12,9 @@ from typing import Iterable
 
 import pandas as pd
 
-from ep24_schema import EP24_REPROCESS_COLUMNS, LEGACY_ALIASES, value
+from ep24_schema import LEGACY_ALIASES, REQUIRED_MEDIA_COLUMNS, value
 
-SOURCE_METADATA_COLUMNS = EP24_REPROCESS_COLUMNS
+SOURCE_METADATA_COLUMNS: tuple[str, ...] = ()
 RESEARCHER_COLUMNS = (
     "political_preference",
     "new_entity",
@@ -30,7 +30,7 @@ MODEL_PREFIXES = (
 
 
 def load_cumulative_csv(path: str | Path, *, require_canonical: bool = True) -> pd.DataFrame:
-    """Load a stage CSV losslessly and expose canonical aliases for old files."""
+    """Load a stage CSV losslessly and expose only necessary media aliases."""
     path = Path(path)
     df = pd.read_csv(path, dtype=str, keep_default_na=False)
     for canonical, aliases in LEGACY_ALIASES.items():
@@ -41,25 +41,28 @@ def load_cumulative_csv(path: str | Path, *, require_canonical: bool = True) -> 
                 df[canonical] = df[alias].astype(str)
                 break
     if require_canonical:
-        missing = [c for c in EP24_REPROCESS_COLUMNS if c not in df.columns]
+        missing = [c for c in REQUIRED_MEDIA_COLUMNS if c not in df.columns]
         if missing:
             raise ValueError(
-                "EP24 reprocessing input is missing canonical columns: "
-                + ", ".join(missing)
+                "EP24 media input is missing required columns: " + ", ".join(missing)
             )
     return df
 
 
 def assert_source_metadata_preserved(before: pd.DataFrame, after: pd.DataFrame) -> None:
-    """Fail fast if a stage drops or mutates canonical researcher-feed metadata."""
-    missing = [c for c in EP24_REPROCESS_COLUMNS if c not in after.columns]
+    """Fail if a stage drops, reorders, or mutates any incoming column."""
+    missing = [column for column in before.columns if column not in after.columns]
     if missing:
-        raise AssertionError(f"stage dropped canonical EP24 columns: {missing}")
-    for column in EP24_REPROCESS_COLUMNS:
+        raise AssertionError(f"stage dropped incoming columns: {missing}")
+    if len(before) != len(after):
+        raise AssertionError(
+            f"stage changed row count: {len(before)} -> {len(after)}"
+        )
+    for column in before.columns:
         left = before[column].astype(str).tolist()
         right = after[column].astype(str).tolist()
         if left != right:
-            raise AssertionError(f"stage mutated canonical EP24 column: {column}")
+            raise AssertionError(f"stage mutated incoming column: {column}")
 
 
 def write_cumulative_csv(
@@ -96,8 +99,6 @@ def metadata_context(row: pd.Series, *, include_model_fields: bool = True) -> st
         line = f"- {column}: {text}"
         if column in RESEARCHER_COLUMNS:
             researcher_lines.append(line)
-        elif column in SOURCE_METADATA_COLUMNS:
-            source_lines.append(line)
         elif include_model_fields and (
             column.startswith(MODEL_PREFIXES)
             or column in {
@@ -106,6 +107,8 @@ def metadata_context(row: pd.Series, *, include_model_fields: bool = True) -> st
             }
         ):
             model_lines.append(line)
+        else:
+            source_lines.append(line)
     parts = [
         "EP24 SOURCE METADATA (recorded/split researcher feed; factual source context):",
         *(source_lines or ["- <none>"]),
