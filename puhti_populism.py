@@ -387,7 +387,12 @@ def get_formula_of_populism(country):
             print(f'Error processing row {index}: {e}')
             logger.error(f'Error processing row {index}: {e}')
 
-countries = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg']
-for country in countries:
-    get_formula_of_populism(country)
+if __name__ == '__main__':
+    countries = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg']
+    try:
+        for country in countries:
+            get_formula_of_populism(country)
+    finally:
+        c.close()
+        conn.close()
 

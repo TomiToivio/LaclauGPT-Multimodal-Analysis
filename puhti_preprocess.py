@@ -11,6 +11,8 @@ import whisper
 from deep_translator import GoogleTranslator
 from logging.handlers import RotatingFileHandler
 logger = logging.getLogger(__name__)
+os.makedirs('./logs', exist_ok=True)
+os.makedirs('./database', exist_ok=True)
 logging.basicConfig(handlers=[RotatingFileHandler('./logs/preprocess.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 # All EP2024 TikTok languages for OCR
@@ -42,22 +44,32 @@ def save_keyframe(video_id, author_username, video_filename, frame_time, frame_n
     vidcap = cv2.VideoCapture(video_filename)
     milliseconds = frame_time * 1000
     vidcap.set(cv2.CAP_PROP_POS_MSEC, milliseconds)
-    (success, image) = vidcap.read()
+    success, image = vidcap.read()
+    vidcap.release()
     directory = f'./Keyframes/TikTok/{author_username}/{video_id}/'
     if not os.path.exists(directory):
         os.makedirs(directory)
     new_filename = f'{directory}{frame_number}.jpg'
-    if success:
-        cv2.imwrite(new_filename, image)
+    if success and cv2.imwrite(new_filename, image):
         logger.debug(f'Keyframe saved for video {video_id}')
-    return new_filename
+        return new_filename
+    logger.warning(f'Could not extract frame {frame_number} from video {video_id}')
+    return None
 
 def get_keyframes(video_filename, video_id, author_username):
     """Extract keyframes from a video file."""
     video = cv2.VideoCapture(video_filename)
+    if not video.isOpened():
+        video.release()
+        raise ValueError(f'Could not open video: {video_filename}')
     # Get the video duration
     fps = video.get(cv2.CAP_PROP_FPS)
     frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
+    if fps <= 0 or frame_count <= 0:
+        video.release()
+        raise ValueError(
+            f'Invalid video metadata for {video_filename}: fps={fps}, frames={frame_count}'
+        )
     duration = frame_count / fps
     # Extract keyframes
     video.release()
@@ -68,7 +80,8 @@ def get_keyframes(video_filename, video_id, author_username):
     frame_number = 1
     for frame_time in range(0, duration, 30):
         frame_file = save_keyframe(video_id, author_username, video_filename, frame_time, frame_number)
-        frame_files.append(frame_file)
+        if frame_file is not None:
+            frame_files.append(frame_file)
         frame_number = frame_number + 1
     return frame_files
 
@@ -167,11 +180,10 @@ def analyze_videos(language):
                         frame_number = frame_number + 1
                     # Get the whisper transcript
                     (whisper_transcript, whisper_language, whisper_translated) = get_transcript(video_id, author_username, scrapedCountry)
-                    # Insert into database
-                    c.execute("INSERT INTO tiktok_videos (author_username, video_id, frames, ocr_1, ocr_2, ocr_3, ocr_4, ocr_5, ocr_6, whisper_transcript, whisper_language, whisper_translated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (author_username, video_id, str(frame_files), str(ocr_1), str(ocr_2), str(ocr_3), str(ocr_4), str(ocr_5), str(ocr_6), str(whisper_transcript), str(whisper_language), str(whisper_translated)))
-                    conn.commit()
-                    # Frame files to string
                     frame_files = ','.join(frame_files)
+                    # Store the same portable representation written to CSV.
+                    c.execute("INSERT INTO tiktok_videos (author_username, video_id, frames, ocr_1, ocr_2, ocr_3, ocr_4, ocr_5, ocr_6, whisper_transcript, whisper_language, whisper_translated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (author_username, video_id, frame_files, str(ocr_1), str(ocr_2), str(ocr_3), str(ocr_4), str(ocr_5), str(ocr_6), str(whisper_transcript), str(whisper_language), str(whisper_translated)))
+                    conn.commit()
                     # Add to dataframe
                     df.at[index, 'frame_files'] = str(frame_files)
                     df.at[index, 'ocr_1'] = str(ocr_1)
@@ -189,11 +201,12 @@ def analyze_videos(language):
     df.to_csv(filename, index=False)
 
 # All EP2024 TikTok languages for preprocessing
-languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']
-for language in languages:
-    analyze_videos(language)
-
-
-c.close()
-conn.close()
+if __name__ == '__main__':
+    languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']
+    try:
+        for language in languages:
+            analyze_videos(language)
+    finally:
+        c.close()
+        conn.close()
 

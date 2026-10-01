@@ -11,7 +11,20 @@ The pipeline was used to collect and analyze multimodal social media data relate
 
 ## LaclauGPT Multimodal Data Analysis
 
-These data analysis scripts are published for research documentation. You probably cannot use these without some modification.
+These data analysis scripts are published for research documentation. They are a legacy Puhti-era pipeline and require local path, model, and scheduler configuration before use.
+
+Install the Python dependencies with:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+The lightweight test suite validates syntax and safe batch entry points without loading OCR, Whisper, or Ollama models:
+
+```bash
+python -m pip install pytest
+python -m pytest -q
+```
 
 These are used with [Ollama](https://ollama.com/) running on [CSC Puhti](https://docs.csc.fi/computing/systems-puhti/) supercomputer.
 

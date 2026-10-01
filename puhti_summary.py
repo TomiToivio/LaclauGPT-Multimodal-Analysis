@@ -11,6 +11,8 @@ import sqlite3
 import time
 from logging.handlers import RotatingFileHandler
 logger = logging.getLogger(__name__)
+os.makedirs('./logs', exist_ok=True)
+os.makedirs('./database', exist_ok=True)
 logging.basicConfig(handlers=[RotatingFileHandler('./logs/summary.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -302,11 +304,13 @@ def analyze_videos(language):
     df.to_csv(f'./csv/tiktok_{language}.csv', index=False)
 
 # Loop through each EP2024 TikTok language and analyze videos
-languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']
-for language in languages:
-    analyze_videos(language)
-
-c.close()
-conn.close()
+if __name__ == '__main__':
+    languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']
+    try:
+        for language in languages:
+            analyze_videos(language)
+    finally:
+        c.close()
+        conn.close()
 
 
