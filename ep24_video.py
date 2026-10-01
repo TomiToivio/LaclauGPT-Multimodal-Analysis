@@ -73,9 +73,19 @@ def build_trim_command(source: str | Path, destination: str | Path) -> list[str]
         "-i",
         str(source),
         "-map",
-        "0",
-        "-c",
-        "copy",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "18",
+        "-c:a",
+        "aac",
+        "-movflags",
+        "+faststart",
         str(destination),
     ]
 
@@ -88,8 +98,9 @@ def prepare_analysis_clip(
 ) -> Path:
     """Create/reuse a derived clip after the mandatory initial artifact.
 
-    The original source is never modified. Stream-copy is used so the helper is
-    inexpensive on Roihu. Frame extraction may seek the source directly at the
+    The original source is never modified. The derived clip is transcoded so the
+    1.0-second boundary is exact even when it does not land on a source keyframe.
+    Frame extraction may seek the source directly at the
     canonical analysis start for frame-accurate sampling.
     """
     source_path = Path(source)
