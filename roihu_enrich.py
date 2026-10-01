@@ -12,6 +12,7 @@ import json
 import math
 import os
 from pathlib import Path
+from typing import Any
 
 from roihu_codebooks import COUNTRY_PROFILES, context_block, load_profile
 from roihu_memory import EP24Memory
@@ -41,6 +42,20 @@ def split_values(value) -> list[str]:
     if not text:
         return []
     return [item.strip() for item in text.split(",") if item.strip()]
+
+
+def _abstain_fields(identity: dict[str, Any]) -> dict[str, Any]:
+    """Shrink a ``resolve_identity`` payload to what an unresolved record needs.
+
+    The decision is never upgraded here: ``FUZZY_CANDIDATE``/``AMBIGUOUS`` stay
+    abstentions, with any conservative candidates attached only as proposals
+    for a human reviewer, matching the ``never silently canonize`` rule.
+    """
+    return {
+        "decision": identity["decision"],
+        "match_method": identity.get("match_method", ""),
+        "candidates": identity.get("candidates", []),
+    }
 
 
 def seed_memory(private_root: Path, memory: EP24Memory) -> dict[str, int]:
@@ -176,11 +191,18 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         "ep24_codebook_context_json",
         "ep24_memory_entity_ids",
         "ep24_memory_topic_ids",
+        "ep24_memory_sentiment_target_ids_json",
         "ep24_memory_unresolved_json",
     )
     for column in new_columns:
         if column not in frame.columns:
             frame[column] = ""
+
+    # Sentiment-target columns ("us"/"them" valence buckets from populism
+    # postprocessing) are resolved through the same identity layer as
+    # entities/topics, not a separate ad-hoc path: a sentiment target is still
+    # an entity/actor, just tagged with the valence the model assigned it.
+    sentiment_columns = ("positive", "neutral", "negative")
 
     for index, row in frame.iterrows():
         text = str(row.get("summary_analysis") or "")
@@ -190,17 +212,28 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
 
         entity_ids: list[str] = []
         topic_ids: list[str] = []
-        unresolved: list[dict[str, str]] = []
+        sentiment_target_ids: dict[str, list[str]] = {valence: [] for valence in sentiment_columns}
+        unresolved: list[dict[str, Any]] = []
         if memory is not None:
             for kind, column, output in (("entity", "entities", entity_ids), ("topic", "topics", topic_ids)):
                 for label in split_values(row.get(column)):
-                    result = memory.resolve(label, kind, country=country, language=language, accepted_only=True)
-                    if result.decision == "EXISTING":
-                        output.append(result.obj_id)
+                    identity = memory.resolve_identity(label, kind, country=country, language=language, accepted_only=True)
+                    if identity["decision"] == "EXISTING":
+                        output.append(identity["obj_id"])
                     else:
-                        unresolved.append({"kind": kind, "raw": label, "decision": result.decision})
+                        unresolved.append({"kind": kind, "raw": label, **_abstain_fields(identity)})
+            for valence in sentiment_columns:
+                if valence not in frame.columns:
+                    continue
+                for label in split_values(row.get(valence)):
+                    identity = memory.resolve_identity(label, "target", country=country, language=language, accepted_only=True)
+                    if identity["decision"] == "EXISTING":
+                        sentiment_target_ids[valence].append(identity["obj_id"])
+                    else:
+                        unresolved.append({"kind": "target", "valence": valence, "raw": label, **_abstain_fields(identity)})
         frame.at[index, "ep24_memory_entity_ids"] = json.dumps(entity_ids, ensure_ascii=False)
         frame.at[index, "ep24_memory_topic_ids"] = json.dumps(topic_ids, ensure_ascii=False)
+        frame.at[index, "ep24_memory_sentiment_target_ids_json"] = json.dumps(sentiment_target_ids, ensure_ascii=False, sort_keys=True)
         frame.at[index, "ep24_memory_unresolved_json"] = json.dumps(unresolved, ensure_ascii=False, sort_keys=True)
 
     frame.to_csv(path, index=False)
