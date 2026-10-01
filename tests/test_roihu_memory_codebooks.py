@@ -109,3 +109,47 @@ def test_populism_context_hook_is_opt_in_and_explicit():
     assert "add_codebook_context(country, user_prompt)" in source
     assert "formula_of_populism_codebook_context_json" in source
     assert "legacy_cached_result" in source
+
+
+def test_memory_schema_migration_creates_backup_and_temporal_columns(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "legacy-memory.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        db.execute("INSERT INTO meta VALUES('schema_version','1')")
+        db.execute(
+            """CREATE TABLE objects(
+                obj_id TEXT PRIMARY KEY, kind TEXT NOT NULL, canonical_label TEXT NOT NULL,
+                original_label TEXT NOT NULL, english_label TEXT NOT NULL DEFAULT '',
+                country TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT '',
+                entity_type TEXT NOT NULL DEFAULT '', disambiguation TEXT NOT NULL DEFAULT '',
+                definition TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'PROVISIONAL',
+                origin TEXT NOT NULL DEFAULT '', locked INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            )"""
+        )
+        db.execute("PRAGMA user_version=1")
+
+    memory = EP24Memory(path)
+    assert path.with_suffix(".sqlite3.schema-v1.bak").exists()
+    with memory.connect() as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(objects)")}
+        assert {"valid_from", "valid_to"}.issubset(columns)
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+
+
+def test_proposal_shard_merge_is_deterministic_and_idempotent(tmp_path):
+    canonical = EP24Memory(tmp_path / "canonical.sqlite3")
+    shard_b = EP24Memory(tmp_path / "b.sqlite3")
+    shard_a = EP24Memory(tmp_path / "a.sqlite3")
+    shard_b.propose("topic", "beta", country="FI", reason="model", source_record_id="2", run_id="run-b", stage="enrich")
+    shard_a.propose("topic", "alpha", country="FI", reason="model", source_record_id="1", run_id="run-a", stage="enrich")
+
+    first = canonical.merge_proposal_shards([shard_b.path, shard_a.path])
+    second = canonical.merge_proposal_shards([shard_a.path, shard_b.path])
+    assert first == {"inserted": 2, "duplicates": 0, "conflicts": 0}
+    assert second == {"inserted": 0, "duplicates": 2, "conflicts": 0}
+    with canonical.connect() as db:
+        labels = [row[0] for row in db.execute("SELECT raw_label FROM proposals ORDER BY proposal_id")]
+    assert sorted(labels) == ["alpha", "beta"]
