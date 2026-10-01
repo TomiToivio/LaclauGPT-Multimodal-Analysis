@@ -158,12 +158,16 @@ def analyze_videos(language=None):
     if not os.getenv('LACLAUGPT_INPUT_CSV'):
         df = df.dropna(subset=['whisperResult'])
         df = df.dropna(subset=['frame_files'])
-    df['frame_analysis_1'] = ''
-    df['frame_analysis_2'] = ''
-    df['frame_analysis_3'] = ''
-    df['frame_analysis_4'] = ''
-    df['frame_analysis_5'] = ''
-    df['frame_analysis_6'] = ''
+    for column in (
+        'frame_analysis_1',
+        'frame_analysis_2',
+        'frame_analysis_3',
+        'frame_analysis_4',
+        'frame_analysis_5',
+        'frame_analysis_6',
+    ):
+        if column not in df.columns:
+            df[column] = ''
     if language and 'language' in df.columns:
         df = df[df['language'] == language].copy()
     for (index, row) in df.iterrows():
