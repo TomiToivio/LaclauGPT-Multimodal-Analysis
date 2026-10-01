@@ -50,3 +50,12 @@ ignore = ["E501", "UP017"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+# Put the repository root on sys.path for pytest's default import mode.
+#
+# The root holds the modules the tests import at collection time
+# (`ep24_cleaner`, `roihu_*`, `ep24_*`). Without this, a bare `pytest` run --
+# which is what `python-quality.yml` uses -- cannot import them, and because it
+# is a *collection* error it aborts the whole job before any test executes, so
+# the step reports no results at all. `python -m pytest` happens to work because
+# the interpreter puts the CWD on sys.path; `pytest` does not.
+pythonpath = ["."]
