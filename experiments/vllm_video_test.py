@@ -214,6 +214,44 @@ _SECRET_KEY_VALUE_RE = re.compile(
 _BASIC_AUTH_URL_RE = re.compile(r"://[^/\s:@]+:[^/\s:@]+@")
 
 
+def _package_version(name: str) -> str:
+    """Version of an installed package, or a marker. Never raises.
+
+    A missing package on one host must not hide the versions that are available
+    (this harness runs on both Roihu and Laskin).
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version(name)
+    except PackageNotFoundError:
+        return "<not installed>"
+    except Exception as exc:  # noqa: BLE001 - diagnostics only
+        return f"<unavailable: {type(exc).__name__}>"
+
+
+def parse_structured_output(raw: str) -> tuple[str, str, str, str]:
+    """Split a structured-output reply into (analysis, json, status, error).
+
+    ``status`` is ``ok`` when a JSON object was parsed, otherwise ``parse_failed``.
+    The caller always keeps the raw text, so a parse failure is a diagnostic and
+    never a lost result.
+    """
+    if not raw:
+        return raw, "", "empty", "no model output"
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        return raw, "", "parse_failed", "no JSON object in model output"
+    candidate = match.group(0)
+    try:
+        parsed = json.loads(candidate)
+    except Exception as exc:  # noqa: BLE001 - the fallback is the point
+        return raw, candidate, "parse_failed", f"{type(exc).__name__}: {exc}"
+    if not isinstance(parsed, dict):
+        return raw, candidate, "parse_failed", "JSON was not an object"
+    return raw, candidate, "ok", ""
+
+
 def redact_secret_like(text: str) -> str:
     """Mask obvious credential-shaped substrings before they reach a log line.
 
@@ -235,7 +273,7 @@ def _run_capture(command: list[str]) -> str:
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=30)
     except Exception as exc:  # noqa: BLE001 - diagnostics must never be fatal
-        return redact_sensitive(f"<{command[0]} unavailable: {exc}>")
+        return redact_secret_like(f"<{command[0]} unavailable: {exc}>")
     output = (result.stdout or "") + (result.stderr or "")
     return redact_secret_like(output.strip()) or f"<{command[0]} produced no output>"
 
@@ -460,7 +498,7 @@ def fetch_video(
     remote_source = build_rclone_source(args.rclone_remote, args.allas_bucket, object_path)
     operation = "copyurl" if urlsplit(remote_source).scheme in {"http", "https"} else "copyto"
     command = ["rclone", operation, remote_source, str(local_path)]
-    logger.info("download_backend=rclone command=%s", redact_sensitive(shlex.join(command)))
+    logger.info("download_backend=rclone command=%s", redact_secret_like(shlex.join(command)))
     result = subprocess.run(
         command,
         capture_output=True,
@@ -469,12 +507,12 @@ def fetch_video(
     )
     logger.info("download_exit_status=%s stdout=%s stderr=%s",
                 result.returncode,
-                redact_sensitive((result.stdout or "").strip()),
-                redact_sensitive((result.stderr or "").strip()))
+                redact_secret_like((result.stdout or "").strip()),
+                redact_secret_like((result.stderr or "").strip()))
     if result.returncode != 0:
         raise RuntimeError(
-            f"rclone failed for {redact_sensitive(remote_source)}: "
-            f"{redact_sensitive((result.stderr or result.stdout or '').strip())}"
+            f"rclone failed for {redact_secret_like(remote_source)}: "
+            f"{redact_secret_like((result.stderr or result.stdout or '').strip())}"
         )
     if not local_path.is_file():
         raise RuntimeError(f"rclone reported success but {local_path} is absent")
@@ -494,12 +532,12 @@ def probe_video_metadata(local_path: Path, logger: logging.Logger) -> dict:
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     logger.info("ffprobe_exit_status=%d stdout=%s stderr=%s",
                 result.returncode,
-                redact_sensitive((result.stdout or "").strip()),
-                redact_sensitive((result.stderr or "").strip()))
+                redact_secret_like((result.stdout or "").strip()),
+                redact_secret_like((result.stderr or "").strip()))
     if result.returncode:
         raise RuntimeError(
             f"ffprobe failed for {local_path}: "
-            f"{redact_sensitive((result.stderr or result.stdout or '').strip())}"
+            f"{redact_secret_like((result.stderr or result.stdout or '').strip())}"
         )
     metadata = json.loads(result.stdout)
     duration = metadata.get("format", {}).get("duration")
@@ -601,7 +639,7 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
         except Exception as exc:  # noqa: BLE001 - constrained decoding is optional
             logger.warning(
                 "structured output unsupported by installed vLLM path; using raw text: %s",
-                redact_sensitive(f"{type(exc).__name__}: {exc}"),
+                redact_secret_like(f"{type(exc).__name__}: {exc}"),
             )
             sampling_params = SamplingParams(**sampling_kwargs)
             structured_status = "unsupported"
@@ -787,12 +825,13 @@ def analyze_one_video(
 
     messages = build_video_messages(local_path, args)
     request = prepare_vllm_request(messages, processor, logger, video_api=args.video_api)
+    inference_started = time.monotonic()
     outputs = llm.generate([request], sampling_params=sampling_params)
     inference_seconds = time.monotonic() - inference_started
     logger.info("inference_end_utc=%s inference_runtime_seconds=%.3f",
                 datetime.now(timezone.utc).isoformat(), inference_seconds)
     completion = outputs[0].outputs[0]
-    logger.info("vllm_completion_metadata=%s", redact_sensitive({
+    logger.info("vllm_completion_metadata=%s", redact_secret_like({
         "finish_reason": getattr(completion, "finish_reason", None),
         "stop_reason": getattr(completion, "stop_reason", None),
         "prompt_tokens": len(getattr(outputs[0], "prompt_token_ids", []) or []),
@@ -885,7 +924,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("log_path   : %s", log_path)
     logger.info("prompt_version : %s", PROMPT_VERSION)
     logger.info("prompt_sha256  : %s", PROMPT_SHA256)
-    logger.info("prompt_text    : %s", redact_sensitive(PROMPT_TEXT))
+    logger.info("prompt_text    : %s", redact_secret_like(PROMPT_TEXT))
     logger.info("=== end configuration ===")
 
     df = load_input_csv(input_csv, logger)
@@ -919,7 +958,7 @@ def main(argv: list[str] | None = None) -> int:
         author = str(row.get("authorUniqueId", ""))
         video_id = str(row.get("videoId", ""))
         object_path = derive_remote_path(row, args.allas_path_template)
-        safe_object_path = redact_sensitive(object_path)
+        safe_object_path = redact_secret_like(object_path)
         source_id = "|".join(
             str(row.get(column, "")).strip()
             for column in ("allas_filename", "scrapedCountry", "authorUniqueId", "videoId")
@@ -928,18 +967,18 @@ def main(argv: list[str] | None = None) -> int:
 
         logger.info("--- video %d/%d: %s / %s ---", position, len(selected), author, video_id)
         logger.info("  source_row_index  : %s", index)
-        logger.info("  source_id         : %s", redact_sensitive(source_id))
+        logger.info("  source_id         : %s", redact_secret_like(source_id))
         logger.info("  remote_object     : %s", safe_object_path)
-        logger.info("  country           : %s", redact_sensitive(row.get("scrapedCountry", "")))
-        logger.info("  language          : %s", redact_sensitive(row.get("language", "")))
-        logger.info("  description       : %s", redact_sensitive(str(row.get("videoDescription", ""))[:300]))
+        logger.info("  country           : %s", redact_secret_like(row.get("scrapedCountry", "")))
+        logger.info("  language          : %s", redact_secret_like(row.get("language", "")))
+        logger.info("  description       : %s", redact_secret_like(str(row.get("videoDescription", ""))[:300]))
 
         record = {column: "" for column in OUTPUT_COLUMNS}
         record["vllm_video_model"] = args.model
         record["vllm_video_version"] = _package_version("vllm")
         record["vllm_video_selected_index"] = index
         record["vllm_video_source_row_index"] = index
-        record["vllm_video_source_id"] = redact_sensitive(source_id)
+        record["vllm_video_source_id"] = redact_secret_like(source_id)
         record["vllm_video_allas_source"] = safe_object_path
         record["vllm_video_remote_path"] = safe_object_path
         record["vllm_video_remote_path_logged"] = safe_object_path
@@ -993,8 +1032,8 @@ def main(argv: list[str] | None = None) -> int:
                     logger.info(
                         "trim_exit_status=%d stdout=%s stderr=%s",
                         result.returncode,
-                        redact_sensitive((result.stdout or "").strip()),
-                        redact_sensitive((result.stderr or "").strip()),
+                        redact_secret_like((result.stdout or "").strip()),
+                        redact_secret_like((result.stderr or "").strip()),
                     )
                     return result
 
@@ -1021,7 +1060,7 @@ def main(argv: list[str] | None = None) -> int:
             raw_output, structured_status = analyze_one_video(
                 analysis_path, args, llm, sampling_params, processor, logger
             )
-            record["vllm_video_raw_output"] = redact_sensitive(raw_output)
+            record["vllm_video_raw_output"] = redact_secret_like(raw_output)
             analysis = raw_output
             record["vllm_video_structured_output_status"] = structured_status
             if structured_status == "requested":
@@ -1030,7 +1069,7 @@ def main(argv: list[str] | None = None) -> int:
                 record["vllm_video_structured_output_status"] = parse_status
                 record["vllm_video_structured_output_error"] = parse_error
                 logger.info("structured_parse_status=%s error=%s json=%s",
-                            parse_status, redact_sensitive(parse_error), structured_json)
+                            parse_status, redact_secret_like(parse_error), structured_json)
             elif structured_status == "unsupported":
                 record["vllm_video_structured_output_error"] = (
                     "Installed vLLM offline generate path does not support JSON Schema decoding."
@@ -1045,7 +1084,7 @@ def main(argv: list[str] | None = None) -> int:
             record["vllm_video_markdown_analysis"] = analysis
             record["vllm_video_status"] = "ok"
             logger.info("  analysis_chars    : %d", len(analysis))
-            logger.debug("  raw_response      : %s", redact_sensitive(raw_output))
+            logger.debug("  raw_response      : %s", redact_secret_like(raw_output))
             if sha256_file(local_path) != source_checksum:
                 raise RuntimeError("downloaded source changed during analysis")
             logger.info("source_integrity=unchanged sha256=%s", source_checksum)
@@ -1053,9 +1092,9 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001 - one bad video must not stop the run
             failed += 1
             record["vllm_video_status"] = "error"
-            record["vllm_video_error"] = redact_sensitive(f"{type(exc).__name__}: {exc}")
-            logger.error("  FAILED: %s", redact_sensitive(f"{type(exc).__name__}: {exc}"))
-            logger.error("  traceback:\n%s", redact_sensitive(traceback.format_exc()))
+            record["vllm_video_error"] = redact_secret_like(f"{type(exc).__name__}: {exc}")
+            logger.error("  FAILED: %s", redact_secret_like(f"{type(exc).__name__}: {exc}"))
+            logger.error("  traceback:\n%s", redact_secret_like(traceback.format_exc()))
         finally:
             record["vllm_video_runtime_seconds"] = f"{time.monotonic() - started:.1f}"
             logger.info("  runtime_seconds   : %s", record["vllm_video_runtime_seconds"])
