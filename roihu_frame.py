@@ -7,6 +7,8 @@ import base64
 import ast
 import sqlite3
 from logging.handlers import RotatingFileHandler
+from ep24_pipeline import load_cumulative_csv, metadata_context
+from ep24_schema import value as ep24_value
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
@@ -28,7 +30,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS tiktok_videos
 conn.commit()
 
 # Get the analysis from Ollama
-def get_analysis(frame_file):
+def get_analysis(frame_file, row_context=''):
     """Analyze a single frame from a TikTok video using the Llama model."""
     # Social-semiotic first-pass prompt. Keep this stage descriptive and pre-discursive.
     system_prompt = f'''### System Prompt
@@ -91,8 +93,7 @@ Produce a compact structured description under the headings above, followed by:
 '''
 
     user_prompt = f'''
-Analyze the provided frame using the social-semiotic pre-analysis categories above. Stay descriptive and modality-aware. Do not perform discourse or political analysis, and do not infer ideology, persuasion, populism, sentiment, or political alignment.
-'''
+Analyze the provided frame using the social-semiotic pre-analysis categories above. Stay descriptive and modality-aware. Do not perform discourse or political analysis, and do not infer ideology, persuasion, populism, sentiment, or political alignment.\n\nCUMULATIVE EP24 CONTEXT:\n{row_context}\n'''
     frame_analysis = ''
     logger.debug(f'Processing image: {frame_file}')
     images = []
@@ -136,27 +137,29 @@ def parse_frame_files(value):
     return [item.strip() for item in text.split(',') if item.strip()]
 
 
-def analyze_videos(language):
+def analyze_videos(language=None):
     """Analyze TikTok videos for a specific language."""
-    filename = f'./csv/tiktok_{language}.csv'
-    df = pd.read_csv(filename)
+    filename = os.getenv('LACLAUGPT_INPUT_CSV') or f'./csv/tiktok_{language}.csv'
+    df = load_cumulative_csv(filename, require_canonical=bool(os.getenv('LACLAUGPT_INPUT_CSV')))
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
     if max_rows > 0:
         df = df.head(max_rows).copy()
         logger.info("Demo row limit active: processing first %s rows", max_rows)
-    df = df.dropna(subset=['whisperResult'])
-    df = df.dropna(subset=['frame_files'])
+    if 'whisperResult' in df.columns:
+        df = df[df['whisperResult'].astype(str).str.strip() != ''].copy()
+    if 'frame_files' in df.columns:
+        df = df[df['frame_files'].astype(str).str.strip() != ''].copy()
     df['frame_analysis_1'] = ''
     df['frame_analysis_2'] = ''
     df['frame_analysis_3'] = ''
     df['frame_analysis_4'] = ''
     df['frame_analysis_5'] = ''
     df['frame_analysis_6'] = ''
-    # Take only rows where language is the same
-    df = df[df['language'] == language]
+    if language and 'language' in df.columns:
+        df = df[df['language'] == language].copy()
     for (index, row) in df.iterrows():
-        author_username = row['authorUniqueId']
-        video_id = row['videoId']
+        author_username = ep24_value(row, 'author_username')
+        video_id = ep24_value(row, 'video_id')
         # Check if exists in database
         c.execute("SELECT * FROM tiktok_videos WHERE author_username = ? AND video_id = ?", (str(author_username), str(video_id)))
         if c.fetchone():
@@ -182,7 +185,7 @@ def analyze_videos(language):
                 frame_analysis_6 = ""
                 frame_number = 1
                 for i, frame_file in enumerate(frame_files):
-                    frame_response = get_analysis(frame_file)
+                    frame_response = get_analysis(frame_file, metadata_context(row))
                     seconds = i * 30
                     frame_response = str(frame_response)
                     seconds = str(seconds)
@@ -214,8 +217,8 @@ def analyze_videos(language):
                 conn.commit()
             except Exception as e:
                 logger.error(f'Error processing video: {e}')
-    filename = f'./csv/tiktok_{language}.csv'
-    df.to_csv(filename, index=False)
+    output = os.getenv('LACLAUGPT_OUTPUT_CSV') or filename
+    df.to_csv(output, index=False)
 
 
 # Loop through all EP2024 TikTok languages and analyze videos
@@ -226,8 +229,11 @@ languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
 
 if __name__ == '__main__':
     try:
-        for language in languages:
-            analyze_videos(language)
+        if os.getenv('LACLAUGPT_INPUT_CSV'):
+            analyze_videos(None)
+        else:
+            for language in languages:
+                analyze_videos(language)
     finally:
         c.close()
         conn.close()
