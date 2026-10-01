@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import sqlite3
 
 import pandas as pd
 import pytest
 
-from roihu_storage import MongoStorage, Storage, StorageConfig, collection_prefix, dataframe_to_documents, documents_to_dataframe
+from roihu_storage import MongoStorage, Storage, StorageConfig, collection_prefix, dataframe_to_documents, documents_to_dataframe, sqlite_memory_documents
 
 
 class FakeCursor(list):
@@ -165,3 +166,23 @@ def test_enabled_mode_requires_uri_without_injected_client():
     cfg = StorageConfig(dataset="ep24", country="fi", mongo_enabled=True, mongo_uri=None)
     with pytest.raises(RuntimeError, match="LACLAUGPT_MONGO_URI"):
         MongoStorage(cfg)
+
+
+def test_reviewed_sqlite_memory_bridge_exports_only_canonical(tmp_path):
+    path = tmp_path / "memory.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TABLE objects(obj_id TEXT, kind TEXT, canonical_label TEXT, state TEXT, origin TEXT, updated_at TEXT)"
+        )
+        db.execute(
+            "INSERT INTO objects VALUES(?,?,?,?,?,?)",
+            ("E-1", "entity", "Canonical actor", "CANONICAL", "researcher", "2026-10-01"),
+        )
+        db.execute(
+            "INSERT INTO objects VALUES(?,?,?,?,?,?)",
+            ("E-2", "entity", "Proposal", "PROVISIONAL", "model", "2026-10-01"),
+        )
+    docs = sqlite_memory_documents(path, config=config())
+    assert len(docs) == 1
+    assert docs[0]["source_id"] == "E-1"
+    assert docs[0]["memory_type"] == "entity"
