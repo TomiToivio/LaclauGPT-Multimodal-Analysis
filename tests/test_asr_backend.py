@@ -67,7 +67,7 @@ def test_unknown_engine_fails_loudly(backend, monkeypatch):
 
 def test_preprocess_uses_the_backend_and_not_a_hardcoded_engine():
     """Guard against a regression back to a hard-coded whisper.load_model."""
-    text = (ROOT / "puhti_preprocess.py").read_text(encoding="utf-8")
+    text = (ROOT / "roihu_preprocess.py").read_text(encoding="utf-8")
     assert "load_asr_model" in text
     assert not re.search(r"^import whisper$", text, re.M), "hard-coded whisper import returned"
     assert "whisper.load_model(" not in text, "hard-coded model load returned"
@@ -75,6 +75,6 @@ def test_preprocess_uses_the_backend_and_not_a_hardcoded_engine():
 
 def test_preprocess_preserves_legacy_output_fields():
     """The three whisper_* columns written to CSV/SQLite must survive."""
-    text = (ROOT / "puhti_preprocess.py").read_text(encoding="utf-8")
+    text = (ROOT / "roihu_preprocess.py").read_text(encoding="utf-8")
     for field in ("whisper_transcript", "whisper_language", "whisper_translated"):
         assert field in text, field

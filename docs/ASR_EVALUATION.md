@@ -12,7 +12,8 @@ Status: **evaluation complete on a GPU workstation; Roihu confirmation pending.*
 
 ## 1. What the legacy pipeline does
 
-`puhti_preprocess.py` (frozen on `legacy`) loads and calls:
+The preprocess stage — `puhti_preprocess.py` on the frozen `legacy` branch,
+renamed to `roihu_preprocess.py` on `main` — loads and calls:
 
 ```python
 model = whisper.load_model('large', download_root='./whisper/')
@@ -201,7 +202,7 @@ protects the corpus from a future `openai-whisper` release re-pointing the alias
 ## 5. What is implemented in this branch
 
 - `asr_backend.py` — configurable engine/checkpoint selection.
-- `puhti_preprocess.py` — calls the backend; **legacy behaviour is the default**.
+- `roihu_preprocess.py` — calls the backend; **legacy behaviour is the default**.
 - `tests/test_asr_backend.py` — contract tests pinning the default, the
   temperature ladder, loud failure on a bad engine name, and the three legacy
   output fields.

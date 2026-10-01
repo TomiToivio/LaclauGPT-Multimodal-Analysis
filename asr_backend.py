@@ -2,7 +2,8 @@
 
 Purpose
 -------
-``puhti_preprocess.py`` historically hard-coded::
+The stage historically hard-coded this, in ``puhti_preprocess.py`` on the frozen
+``legacy`` branch and as ``roihu_preprocess.py`` on ``main`` before this change::
 
     model = whisper.load_model('large', download_root='./whisper/')
     ...
