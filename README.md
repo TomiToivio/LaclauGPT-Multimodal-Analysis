@@ -58,6 +58,12 @@ Each stage has its own matching batch file under `scripts/roihu/step_N_*.sbatch`
 
 The historical `roihu_preprocess.py`, `roihu_frame.py`, `roihu_summary.py`, `roihu_postprocess.py`, and `roihu_populism.py` files remain available as compatibility implementations and must not be deleted merely because numbered entry points exist.
 
+### Video analysis rules
+
+The EP24 clips were split from continuous GrapheneOS screen recordings, so **the first 1.0 second of every clip is the scroll transition from the previous feed item** and is excluded from media analysis. The canonical implementation is `ep24_video.py`, which also normalizes later `SCROLL` / `SCROLL_SECONDS` detections and provides deterministic, provenance-preserving re-split planning.
+
+See [docs/EP24_VIDEO_HANDLING.md](docs/EP24_VIDEO_HANDLING.md) and [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
+
 ## Public/private boundary
 
 This repository is public open source. **Do not store real codebooks, private settings, researcher notes, restricted prompts, credentials, source data, or other sensitive research material here.**
