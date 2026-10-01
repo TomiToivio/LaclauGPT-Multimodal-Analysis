@@ -1,0 +1,47 @@
+{
+  "dataset": "ep2024_reprocess",
+  "preserve_all_incoming_columns": true,
+  "authoritative_keep_schema": [
+    "video_id",
+    "country",
+    "author_username",
+    "account_type",
+    "source_type",
+    "source_recording",
+    "sequence_number",
+    "political_preference",
+    "allas_filename",
+    "new_entity",
+    "new_theme",
+    "video_duration",
+    "researcher_new_persons",
+    "researcher_new_themes",
+    "researcher_note"
+  ],
+  "bootstrap_adds": [
+    "entities",
+    "themes",
+    "_storage_id"
+  ],
+  "derived_context_adds": [
+    "codebook_context_json",
+    "memory_context_json",
+    "rag_context_json",
+    "entity_normalization_json",
+    "theme_normalization_json",
+    "context_evidence_role"
+  ],
+  "stages": {
+    "1": {"name": "preprocess", "requires_previous": null, "preserve_all": true, "known_outputs": ["frame_files", "ocr_1", "whisper_transcript", "whisper_language", "whisper_translated", "video_analysis_status"]},
+    "2": {"name": "frame", "requires_previous": 1, "preserve_all": true, "known_output_prefixes": ["frame_"]},
+    "3": {"name": "video", "requires_previous": 2, "preserve_all": true, "known_outputs": ["SCROLL", "SCROLL_SECONDS"], "known_output_prefixes": ["video_"]},
+    "4": {"name": "summary", "requires_previous": 3, "preserve_all": true, "known_output_prefixes": ["summary_"]},
+    "5": {"name": "postprocess", "requires_previous": 4, "preserve_all": true, "known_outputs": ["entities", "themes", "topics"]},
+    "6": {"name": "discourse_analysis", "requires_previous": 5, "preserve_all": true, "known_output_prefixes": ["formula_of_populism_", "laclau_"]},
+    "7": {"name": "discourse_network_analysis", "requires_previous": 6, "preserve_all": true, "known_outputs": ["dna_analysis_markdown", "dna_statements_json"]},
+    "8": {"name": "social_network_analysis", "requires_previous": 7, "preserve_all": true, "known_outputs": ["sna_analysis_markdown", "sna_edges_json"]},
+    "9": {"name": "rdf", "requires_previous": 8, "preserve_all": true, "known_output_prefixes": ["rdf_"]}
+  },
+  "country_priority": ["finland", "poland", "portugal"],
+  "remaining_country_order": "alphabetical"
+}
