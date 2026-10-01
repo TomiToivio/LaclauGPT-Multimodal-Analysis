@@ -351,7 +351,87 @@ def load_profile(root: str | Path, country: str, *, language: str = "") -> tuple
     }
 
 
+def boundary_matches(form: str, query: str) -> bool:
+    """True when ``form`` occurs in ``query`` as a whole token, not a substring.
+
+    This is the **strict** matcher, and it exists because a plain
+    ``form in query`` test is wrong for short party acronyms. Measured on this
+    module: ``PiS`` (Poland's ruling party) matches the unrelated word
+    ``Pisarz`` ("writer"), and ``HDZ`` matches ``HDZx``. A hand-corrected
+    coverage count in the Croatia audit came from the same bug (``Možemo``
+    matched ``Mozemohr``, ``SDSS`` matched ``Republika Srpska``).
+
+    Use this for **identity and coverage** questions, where a false positive
+    silently attributes an actor or inflates a number.
+
+    Do **not** use it for the retrieval scorer: it deliberately rejects
+    inflected forms, and inflection recall is wanted for the EP24 languages.
+    ``ilmasto`` must still retrieve for the Finnish query ``ilmastosta``.
+    See ``score_entry`` for that side of the trade and why the two differ.
+    """
+    needle = form.casefold().strip()
+    if not needle:
+        return False
+    haystack = query.casefold()
+    start = 0
+    while True:
+        index = haystack.find(needle, start)
+        if index < 0:
+            return False
+        before = haystack[index - 1] if index else ""
+        after_index = index + len(needle)
+        after = haystack[after_index] if after_index < len(haystack) else ""
+        if not _is_word_char(before) and not _is_word_char(after):
+            return True
+        start = index + 1
+
+
+def _is_word_char(char: str) -> bool:
+    """Whether ``char`` is part of a word, in any script.
+
+    ``str.isalnum()`` is the bulk of it; underscore is included so that
+    ``foo_bar`` does not read as a ``foo`` boundary, matching how Python's own
+    ``\\w`` behaves in the regexes this module already uses.
+    """
+    return bool(char) and (char.isalnum() or char == "_")
+
+
+def entity_type_distribution(entries: Iterable[CodebookEntry]) -> dict[str, int]:
+    """Count entries per ``entity_type`` (falling back to ``kind``).
+
+    The Croatia audit found "zero parties" in the legacy entity layer only by
+    looking at a type breakdown; in aggregate output the gap was invisible,
+    because 41 distinct entities all looked populated. Any codebook review
+    should print this.
+    """
+    counts: dict[str, int] = {}
+    for entry in entries:
+        key = (entry.entity_type or entry.kind or "unknown").casefold() or "unknown"
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
+
+
 def score_entry(query: str, entry: CodebookEntry) -> float:
+    """Lexical retrieval score: recall-oriented, so it matches substrings.
+
+    Retrieval and identity are different questions, and they need opposite
+    biases:
+
+    - **Retrieval** (this function) feeds background context, which is advisory.
+      A miss costs context; the EP24 languages are heavily inflective, so
+      ``ilmasto`` must retrieve for ``ilmastosta`` and a substring match is what
+      buys that. Over-matching is a quality problem, bounded by the selection
+      limit and by the evidence firewall, not a correctness one.
+    - **Identity** (``roihu_identity.resolve_surface``) decides what an actor
+      *is*. A false positive there silently attributes a statement to the wrong
+      party. That path uses exact ``identity_key`` matching only, and abstains
+      otherwise. ``boundary_matches`` belongs to that side and to coverage
+      counting.
+
+    The substring behaviour here is therefore deliberate and load-bearing, not
+    an oversight: ``test_private_profile_merge_keeps_locked_human_entry_and_bilingual_context``
+    depends on the Finnish inflection case.
+    """
     q = query.casefold()
     if not q.strip():
         return 0.0
