@@ -8,12 +8,36 @@ Only media identity is mandatory for media stages:
 - video_id
 - allas_filename
 
-Legacy aliases exist only for backwards-compatible reads.
+Every other incoming column flows through dynamically.
+
+EP24_REPROCESS_COLUMNS describes the canonical researcher-feed field order. It is
+deliberately NOT a validator: newer inputs may carry extra columns (and older
+ones may miss some), and those must still be preserved and forwarded. It is kept
+because downstream stages (for example roihu_rdf.py) rely on it to order the
+identity columns, and because it pins the canonical contract in tests.
 """
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+
+EP24_REPROCESS_COLUMNS: tuple[str, ...] = (
+    "country",
+    "author_username",
+    "account_type",
+    "source_type",
+    "source_recording",
+    "video_id",
+    "sequence_number",
+    "political_preference",
+    "allas_filename",
+    "new_entity",
+    "new_theme",
+    "video_duration",
+    "researcher_new_persons",
+    "researcher_new_themes",
+    "researcher_note",
+)
 
 REQUIRED_MEDIA_COLUMNS: tuple[str, ...] = ("video_id", "allas_filename")
 
