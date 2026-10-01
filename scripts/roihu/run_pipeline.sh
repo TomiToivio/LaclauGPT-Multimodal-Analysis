@@ -14,7 +14,7 @@ cd "${PRIVATE_ROOT}"
 
 run_stage() {
   local stage=$1
-  local script="${PUBLIC_ROOT}/puhti_${stage}.py"
+  local script="${PUBLIC_ROOT}/roihu_${stage}.py"
   [[ -f "${script}" ]] || { echo "Missing stage script: ${script}" >&2; exit 2; }
   echo "=== LaclauGPT multimodal stage ${stage} ==="
   echo "script=${script}"
