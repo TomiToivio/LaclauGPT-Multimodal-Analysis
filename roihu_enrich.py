@@ -44,10 +44,10 @@ def split_values(value) -> list[str]:
     return [item.strip() for item in text.split(",") if item.strip()]
 
 
-def seed_memory(private_root: Path, memory: EP24Memory) -> int:
-    """Single-writer preparation: seed only reviewed/locked codebook objects."""
+def seed_memory(private_root: Path, memory: EP24Memory) -> dict[str, int]:
+    """Single-writer seeding without silently merging ambiguous aliases."""
     seen: set[tuple[str, str]] = set()
-    count = 0
+    counts = {"created": 0, "reused": 0, "ambiguous": 0, "alias_conflicts": 0}
     for country in COUNTRY_PROFILES:
         entries, _ = load_profile(private_root, country)
         for entry in entries:
@@ -57,24 +57,83 @@ def seed_memory(private_root: Path, memory: EP24Memory) -> int:
             if key in seen:
                 continue
             seen.add(key)
-            obj_id = memory.add_object(
-                entry.kind,
+            scope_country = "" if entry.country == "COMMON" else country
+            scope_language = entry.source_languages[0] if entry.source_languages else ""
+            existing = memory.resolve(
                 entry.label,
-                english_label=entry.english_label,
-                country="" if entry.country == "COMMON" else country,
-                language=(entry.source_languages[0] if entry.source_languages else ""),
-                entity_type=entry.entity_type,
-                disambiguation=entry.disambiguation,
-                definition=entry.english_definition or entry.definition,
-                state="CANONICAL",
-                origin=entry.origin,
-                locked=entry.locked,
-                preserve_upstream_id=entry.entry_id,
+                entry.kind,
+                country=scope_country,
+                language=scope_language,
+                accepted_only=False,
             )
+            if existing.decision == "AMBIGUOUS":
+                memory.propose(
+                    entry.kind,
+                    entry.label,
+                    country=scope_country,
+                    language=scope_language,
+                    reason="ambiguous-codebook-seed",
+                    stage="memory-seed",
+                    payload={"codebook_entry_id": entry.entry_id},
+                )
+                counts["ambiguous"] += 1
+                continue
+            if existing.decision == "EXISTING":
+                obj_id = existing.obj_id
+                memory.add_crosswalk(entry.entry_id, obj_id, reason="codebook entry resolved to existing object")
+                counts["reused"] += 1
+            else:
+                obj_id = memory.add_object(
+                    entry.kind,
+                    entry.label,
+                    english_label=entry.english_label,
+                    country=scope_country,
+                    language=scope_language,
+                    entity_type=entry.entity_type,
+                    disambiguation=entry.disambiguation,
+                    definition=entry.english_definition or entry.definition,
+                    state="CANONICAL",
+                    origin=entry.origin,
+                    locked=entry.locked,
+                    preserve_upstream_id=entry.entry_id,
+                )
+                counts["created"] += 1
+
             for alias in entry.aliases:
-                memory.add_alias(obj_id, alias, country="" if entry.country == "COMMON" else country, provenance=entry.origin)
-            count += 1
-    return count
+                resolved_alias = memory.resolve(
+                    alias,
+                    entry.kind,
+                    country=scope_country,
+                    language=scope_language,
+                    accepted_only=False,
+                )
+                if resolved_alias.decision == "NEW":
+                    memory.add_alias(
+                        obj_id,
+                        alias,
+                        country=scope_country,
+                        language=scope_language,
+                        provenance=entry.origin,
+                    )
+                elif resolved_alias.decision == "EXISTING" and resolved_alias.obj_id == obj_id:
+                    continue
+                else:
+                    memory.propose(
+                        entry.kind,
+                        alias,
+                        country=scope_country,
+                        language=scope_language,
+                        reason="codebook-alias-conflict",
+                        stage="memory-seed",
+                        payload={
+                            "codebook_entry_id": entry.entry_id,
+                            "target_obj_id": obj_id,
+                            "resolved_obj_id": resolved_alias.obj_id,
+                            "decision": resolved_alias.decision,
+                        },
+                    )
+                    counts["alias_conflicts"] += 1
+    return counts
 
 
 def enrich_file(path: Path, *, country: str, language: str, private_root: Path, memory: EP24Memory | None) -> dict:
