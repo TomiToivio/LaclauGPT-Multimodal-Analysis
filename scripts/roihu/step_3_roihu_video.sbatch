@@ -27,4 +27,4 @@ if [[ -x "${VENV}/bin/python" ]]; then source "${VENV}/bin/activate"; fi
 unset PYTHONPATH
 unset PYTHONHOME
 cd "${PRIVATE_ROOT}"
-srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 3 --script "${PUBLIC_ROOT}/step_3_roihu_video.py"
+srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 3 --script "${PUBLIC_ROOT}/step_3_roihu_video.py" "$@"
