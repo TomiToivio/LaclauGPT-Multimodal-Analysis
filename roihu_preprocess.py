@@ -10,11 +10,16 @@ import pandas as pd
 from deep_translator import GoogleTranslator
 
 from asr_backend import describe_backend, load_asr_model
+from ep24_video import (
+    VIDEO_INITIAL_SKIP_SECONDS,
+    analysis_frame_times,
+    is_too_short,
+    prepare_analysis_clip,
+)
 
-# The repository does not contain runtime directories, so create them before
-# constructing file handlers or SQLite connections.
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
+os.makedirs('./analysis_clips', exist_ok=True)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -29,16 +34,14 @@ logging.basicConfig(
     level=logging.DEBUG,
 )
 
-# All EP2024 TikTok languages used for OCR.
 reader = easyocr.Reader(['en', 'fr', 'pl', 'sv', 'pt', 'de', 'es', 'hu', 'hr'])
-
-# Load the configured speech-to-text backend.
-# Default is the historical engine/checkpoint (openai-whisper 'large');
-# see asr_backend.py and docs/ASR_EVALUATION.md.
 _asr = load_asr_model()
 logger.info('ASR backend: %s', describe_backend())
+logger.info(
+    'EP24 media analysis starts at %.1fs to exclude the known initial scroll artifact',
+    VIDEO_INITIAL_SKIP_SECONDS,
+)
 
-# SQLite database connection.
 conn = sqlite3.connect('./database/preprocess.db')
 c = conn.cursor()
 c.execute(
@@ -60,12 +63,7 @@ conn.commit()
 
 
 def normalize_frame_files(value):
-    """Return cached/new frame paths in the CSV format expected downstream.
-
-    Older cache rows stored ``str(list)`` while fresh rows used comma-separated
-    paths. Accept both representations so old preprocessing databases continue
-    to work with ``roihu_frame.py``.
-    """
+    """Return cached/new frame paths in the CSV format expected downstream."""
     if value is None:
         return ''
 
@@ -99,8 +97,29 @@ def best_transcript(legacy, transcript, translated):
     return ''
 
 
+def get_video_duration(video_filename):
+    """Return video duration in seconds, or raise for unreadable media."""
+    video = cv2.VideoCapture(video_filename)
+    try:
+        if not video.isOpened():
+            raise ValueError(f'Could not open video: {video_filename}')
+        fps = video.get(cv2.CAP_PROP_FPS)
+        frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
+        if not fps or fps <= 0:
+            raise ValueError(f'Invalid FPS ({fps}) for video: {video_filename}')
+        return frame_count / fps
+    finally:
+        video.release()
+
+
 def save_keyframe(video_id, author_username, video_filename, frame_time, frame_number):
     """Extract and save a keyframe, returning its path on success."""
+    if frame_time < VIDEO_INITIAL_SKIP_SECONDS:
+        raise ValueError(
+            f'Frame time {frame_time} precedes mandatory EP24 analysis start '
+            f'{VIDEO_INITIAL_SKIP_SECONDS}'
+        )
+
     vidcap = cv2.VideoCapture(video_filename)
     try:
         vidcap.set(cv2.CAP_PROP_POS_MSEC, frame_time * 1000)
@@ -121,32 +140,17 @@ def save_keyframe(video_id, author_username, video_filename, frame_time, frame_n
             logger.warning('Could not write keyframe %s for video %s', frame_number, video_id)
             return None
 
-        logger.debug('Keyframe saved for video %s', video_id)
+        logger.debug('Keyframe saved for video %s at %.3fs', video_id, frame_time)
         return new_filename
     finally:
         vidcap.release()
 
 
 def get_keyframes(video_filename, video_id, author_username):
-    """Extract up to six keyframes, one every 30 seconds for 180 seconds."""
-    video = cv2.VideoCapture(video_filename)
-    try:
-        if not video.isOpened():
-            raise ValueError(f'Could not open video: {video_filename}')
-
-        fps = video.get(cv2.CAP_PROP_FPS)
-        frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
-        if not fps or fps <= 0:
-            raise ValueError(f'Invalid FPS ({fps}) for video: {video_filename}')
-
-        duration = frame_count / fps
-    finally:
-        video.release()
-
-    # Always try the first frame for a valid very short video.
-    duration_seconds = max(1, min(int(duration), 180))
+    """Extract up to six keyframes, beginning after the known initial scroll."""
+    duration = get_video_duration(video_filename)
     frame_files = []
-    for frame_number, frame_time in enumerate(range(0, duration_seconds, 30), start=1):
+    for frame_number, frame_time in enumerate(analysis_frame_times(duration), start=1):
         frame_file = save_keyframe(
             video_id,
             author_username,
@@ -160,7 +164,7 @@ def get_keyframes(video_filename, video_id, author_username):
 
 
 def get_transcript(video_id, author_username, scraped_country):
-    """Get a Whisper transcript and, when useful, an English translation."""
+    """Get a Whisper transcript after excluding the first-second scroll artifact."""
     video_filename = (
         f'./Allas/Scraper/TikTok/Videos/{scraped_country}/'
         f'{author_username}/{video_id}.mp4'
@@ -170,8 +174,15 @@ def get_transcript(video_id, author_username, scraped_country):
     whisper_translated = ''
 
     try:
-        # Backend-agnostic call: same temperature ladder, same two outputs.
-        whisper_transcript, whisper_language = _asr(video_filename)
+        duration = get_video_duration(video_filename)
+        if is_too_short(duration):
+            raise ValueError(
+                f'video duration {duration:.3f}s is not longer than the mandatory '
+                f'{VIDEO_INITIAL_SKIP_SECONDS:.1f}s initial skip'
+            )
+
+        analysis_clip = prepare_analysis_clip(video_filename, './analysis_clips')
+        whisper_transcript, whisper_language = _asr(str(analysis_clip))
 
         if whisper_transcript:
             if whisper_language == 'en':
@@ -191,9 +202,6 @@ def analyze_videos(language):
     """Preprocess TikTok videos for a specific language."""
     df = pd.read_csv('./csv/tiktok_videos.csv')
 
-    # ``whisperResult`` is a legacy downstream field. Do not drop rows based on
-    # it before preprocessing, because this stage is the one that creates the
-    # Whisper transcript in the first place.
     if 'whisperResult' not in df.columns:
         df['whisperResult'] = ''
 
@@ -210,6 +218,10 @@ def analyze_videos(language):
         'whisper_translated',
     ):
         df[column] = ''
+
+    df['video_initial_skip_seconds'] = VIDEO_INITIAL_SKIP_SECONDS
+    df['video_analysis_status'] = ''
+    df['video_analysis_note'] = ''
 
     df = df[df['language'] == language].copy()
 
@@ -261,13 +273,33 @@ def analyze_videos(language):
                 whisper_transcript,
                 whisper_translated,
             )
+            df.at[index, 'video_analysis_status'] = 'cached'
+            df.at[index, 'video_analysis_note'] = (
+                'Historical cache preserved for reproducibility. New media analysis '
+                f'uses t={VIDEO_INITIAL_SKIP_SECONDS:.1f}s onward.'
+            )
             continue
 
         if not os.path.exists(video_path):
             logger.error('Video does not exist: %s - %s', author_username, video_id)
+            df.at[index, 'video_analysis_status'] = 'missing_video'
+            df.at[index, 'video_analysis_note'] = (
+                'Source video was not available locally after Allas staging.'
+            )
             continue
 
         try:
+            duration = get_video_duration(video_path)
+            if is_too_short(duration):
+                message = (
+                    f'Video is {duration:.3f}s long; no analyzable media remains '
+                    f'after the mandatory {VIDEO_INITIAL_SKIP_SECONDS:.1f}s skip.'
+                )
+                logger.warning('%s - %s: %s', author_username, video_id, message)
+                df.at[index, 'video_analysis_status'] = 'too_short'
+                df.at[index, 'video_analysis_note'] = message
+                continue
+
             frame_files = get_keyframes(video_path, video_id, author_username)
             ocr_values = [''] * 6
 
@@ -310,6 +342,11 @@ def analyze_videos(language):
                 whisper_transcript,
                 whisper_translated,
             )
+            df.at[index, 'video_analysis_status'] = 'ok'
+            df.at[index, 'video_analysis_note'] = (
+                f'Frames/OCR begin at t={VIDEO_INITIAL_SKIP_SECONDS:.1f}s; ASR uses '
+                'a non-destructive derived clip with the same skip.'
+            )
         except Exception as exc:
             logger.exception(
                 'Error processing video %s - %s: %s',
@@ -317,11 +354,12 @@ def analyze_videos(language):
                 video_id,
                 exc,
             )
+            df.at[index, 'video_analysis_status'] = 'error'
+            df.at[index, 'video_analysis_note'] = f'{type(exc).__name__}: {exc}'
 
     df.to_csv(f'./csv/tiktok_{language}.csv', index=False)
 
 
-# All EP2024 TikTok languages for preprocessing.
 languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']
 for language in languages:
     analyze_videos(language)

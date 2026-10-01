@@ -37,6 +37,17 @@ from pathlib import Path
 
 import pandas as pd
 
+# Direct execution sets sys.path[0] to experiments/. Add the repository root so
+# the shared EP24 media contract is importable in sbatch and local runs alike.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from ep24_video import (
+    VIDEO_INITIAL_SKIP_SECONDS,
+    needs_resplit,
+    parse_scroll_metadata,
+    prepare_analysis_clip,
+)
+
 DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 DEFAULT_SAMPLE_SIZE = 5
 
@@ -61,6 +72,10 @@ OUTPUT_COLUMNS = (
     "vllm_video_runtime_seconds",
     "vllm_video_selected_index",
     "vllm_video_prompt",
+    "SCROLL",
+    "SCROLL_SECONDS",
+    "needs_resplit",
+    "video_initial_skip_seconds",
 )
 
 # Descriptive, pre-discursive. This stage produces a video *evidence
@@ -75,7 +90,12 @@ SYSTEM_PROMPT = (
     "antagonisms, hegemony or political camps. Do not guess the identity of any "
     "person. Those tasks belong to later stages.\n\n"
     "Describe only what is observable in the video, and mark uncertainty "
-    "explicitly rather than filling gaps with plausible invention."
+    "explicitly rather than filling gaps with plausible invention.\n\n"
+    "EP24 COLLECTION RULE: the original split clip always begins with a known "
+    "feed-scroll artifact. The application removes the first 1.0 second before "
+    "you see the video. Do not count that known initial transition as an "
+    "additional scroll. Inspect the remaining content for later TikTok/Instagram "
+    "feed scrolls that indicate the original splitter failed."
 )
 
 VIDEO_PROMPT = (
@@ -94,7 +114,16 @@ VIDEO_PROMPT = (
     "after what).\n"
     "10. A concise beginning -> middle -> end narrative summary.\n\n"
     "Finish with a short 'Uncertainty' note listing what you could not determine "
-    "or are unsure about. Write in English. Do not identify unknown individuals."
+    "or are unsure about. Then append exactly one JSON object on its own line with "
+    "keys SCROLL and SCROLL_SECONDS. SCROLL must be true only when an additional "
+    "feed-scroll transition separates distinct TikTok/Instagram items after the "
+    "known initial artifact. Distinguish a feed scroll from normal camera motion, "
+    "cuts, pans, zooms, in-post scrolling, or animation. SCROLL_SECONDS must list "
+    "approximate timestamps in seconds on the ORIGINAL source timeline. Because "
+    "the visible analysis clip begins at original t=1.0s, add 1.0 second to visible "
+    "timestamps. If no additional feed scroll exists, output "
+    "{\"SCROLL\": false, \"SCROLL_SECONDS\": []}. Write in English. Do not identify "
+    "unknown individuals."
 )
 
 
@@ -522,6 +551,10 @@ def main(argv: list[str] | None = None) -> int:
         record["vllm_video_remote_path"] = object_path
         record["vllm_video_remote_path_logged"] = object_path
         record["vllm_video_prompt"] = VIDEO_PROMPT
+        record["video_initial_skip_seconds"] = str(VIDEO_INITIAL_SKIP_SECONDS)
+        record["SCROLL"] = "FALSE"
+        record["SCROLL_SECONDS"] = "[]"
+        record["needs_resplit"] = "FALSE"
 
         started = time.monotonic()
         try:
@@ -532,7 +565,23 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("  bytes             : %s", record["vllm_video_bytes"])
             logger.info("  metadata          : %s", probe_video_metadata(local_path, logger))
 
-            analysis = analyze_one_video(local_path, args, llm, sampling_params, processor, logger)
+            if args.model_backend == "stub":
+                # Synthetic harness fixtures are not real media and CI does not
+                # require ffmpeg. Real vLLM analysis always uses the trimmed clip.
+                analysis_path = local_path
+                logger.info("  analysis_path     : %s (stub; trim not executed)", analysis_path)
+            else:
+                analysis_path = prepare_analysis_clip(
+                    local_path,
+                    download_dir / "analysis-clips",
+                )
+                logger.info("  analysis_path     : %s", analysis_path)
+            logger.info("  initial_skip_s    : %.1f", VIDEO_INITIAL_SKIP_SECONDS)
+            analysis = analyze_one_video(analysis_path, args, llm, sampling_params, processor, logger)
+            scroll_meta = parse_scroll_metadata(analysis)
+            record["SCROLL"] = "TRUE" if scroll_meta["SCROLL"] else "FALSE"
+            record["SCROLL_SECONDS"] = __import__("json").dumps(scroll_meta["SCROLL_SECONDS"])
+            record["needs_resplit"] = "TRUE" if needs_resplit(scroll_meta) else "FALSE"
             record["vllm_video_analysis"] = analysis
             record["vllm_video_status"] = "ok"
             succeeded += 1

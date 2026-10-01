@@ -42,6 +42,8 @@ The EP24 data covers multimodal social-media material related to the 2024 Europe
 
 The compatibility spine remains the historical five-stage sequence, now named for CSC Roihu:
 
+EP24 video handling has a mandatory collection-quality rule: all media analysis excludes the first 1.0 second of every split clip, and whole-video VLM analysis reports additional feed-scroll failures. See [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
+
 1. `roihu_preprocess.py` - extract video frames, OCR text, and audio transcripts.
 2. `roihu_frame.py` - multimodal frame analysis.
 3. `roihu_summary.py` - summary analysis from metadata, transcript, and multimodal evidence.
