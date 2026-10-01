@@ -42,26 +42,46 @@ def harness(tmp_path):
 
     rows = []
     for i in range(1, 11):
+        country = "Finland" if i % 2 else "Poland"
+        video_id = f"HEPP24-{country[:2].upper()}-{i:03d}"
+        allas_filename = f"HEPP24/{country}/researcher{i:02d}/{video_id}.mp4"
         rows.append(
             {
-                "language": "en",
-                "authorUniqueId": f"user{i:02d}",
-                "scrapedCountry": "Finland" if i % 2 else "Poland",
-                "videoId": f"70000000000000{i:02d}",
-                "authorNickname": f"nick{i}",
-                "videoDescription": f"synthetic row {i}",
+                "country": country,
+                "author_username": f"researcher{i:02d}",
+                "account_type": "Synthetic",
+                "source_type": "TikTok",
+                "source_recording": f"{country}-feed-{i:02d}.mp4",
+                "video_id": video_id,
+                "sequence_number": str(i),
+                "political_preference": "",
+                "allas_filename": allas_filename,
+                "new_entity": "",
+                "new_theme": "",
+                "video_duration": "12.0",
+                "researcher_new_persons": "",
+                "researcher_new_themes": "",
+                "researcher_note": f"synthetic researcher note {i}",
             }
         )
-    # One row that cannot be fetched: it has no videoId, so it is not "usable"
-    # and must never be selected.
+    # One unusable row has neither canonical media key nor clip identifier.
     rows.append(
         {
-            "language": "en",
-            "authorUniqueId": "userbad",
-            "scrapedCountry": "Finland",
-            "videoId": "",
-            "authorNickname": "bad",
-            "videoDescription": "unusable row",
+            "country": "Finland",
+            "author_username": "researcherbad",
+            "account_type": "Synthetic",
+            "source_type": "TikTok",
+            "source_recording": "bad-feed.mp4",
+            "video_id": "",
+            "sequence_number": "999",
+            "political_preference": "",
+            "allas_filename": "",
+            "new_entity": "",
+            "new_theme": "",
+            "video_duration": "",
+            "researcher_new_persons": "",
+            "researcher_new_themes": "",
+            "researcher_note": "unusable row",
         }
     )
     input_csv = tmp_path / "input.csv"
@@ -69,14 +89,11 @@ def harness(tmp_path):
 
     mirror = tmp_path / "allas"
     for row in rows:
-        if not row["videoId"]:
+        if not row["allas_filename"]:
             continue
-        object_dir = (
-            mirror / "Scraper" / "TikTok" / "Videos" / row["scrapedCountry"]
-            / row["authorUniqueId"]
-        )
-        object_dir.mkdir(parents=True, exist_ok=True)
-        (object_dir / f"{row['videoId']}.mp4").write_bytes(b"synthetic-video-bytes")
+        path = mirror / row["allas_filename"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"synthetic-video-bytes")
 
     return module, input_csv, mirror, tmp_path
 
@@ -111,7 +128,7 @@ def test_selection_is_reproducible_for_a_seed(harness):
     assert first != third, "a different seed should normally differ"
 
 
-def test_selection_never_picks_a_row_without_a_video_id(harness):
+def test_selection_never_picks_a_row_without_media_identifier(harness):
     module, input_csv, _, _ = harness
     df = module.load_input_csv(input_csv, module.logging.getLogger("t"))
     # Every seed we try must avoid the unusable row (the last one).
@@ -121,15 +138,12 @@ def test_selection_never_picks_a_row_without_a_video_id(harness):
         assert unusable_index not in chosen
 
 
-def test_remote_path_follows_the_documented_convention(harness):
+def test_remote_path_uses_canonical_allas_filename(harness):
     module, input_csv, _, _ = harness
     df = module.load_input_csv(input_csv, module.logging.getLogger("t"))
     row = df.iloc[0]
     path = module.derive_remote_path(row, module.DEFAULT_ALLAS_PATH_TEMPLATE)
-    assert path == (
-        f"Scraper/TikTok/Videos/{row['scrapedCountry']}/"
-        f"{row['authorUniqueId']}/{row['videoId']}.mp4"
-    )
+    assert path == row["allas_filename"]
 
 
 def test_end_to_end_stub_run_preserves_columns_and_writes_log(harness):
@@ -156,8 +170,7 @@ def test_end_to_end_stub_run_preserves_columns_and_writes_log(harness):
 
     assert len(out) == 5
     # Original columns survive untouched.
-    for column in ("language", "authorUniqueId", "scrapedCountry", "videoId",
-                   "authorNickname", "videoDescription"):
+    for column in module.EP24_REPROCESS_COLUMNS:
         assert column in out.columns
     # Experimental columns are appended.
     for column in module.OUTPUT_COLUMNS:
@@ -188,10 +201,7 @@ def test_one_missing_video_does_not_abort_the_sample(harness):
     df = module.load_input_csv(input_csv, module.logging.getLogger("t"))
     chosen = module.select_sample(df, 5, 3, module.logging.getLogger("t"))
     victim = df.loc[chosen[0]]
-    victim_path = (
-        mirror / "Scraper" / "TikTok" / "Videos" / victim["scrapedCountry"]
-        / victim["authorUniqueId"] / f"{victim['videoId']}.mp4"
-    )
+    victim_path = mirror / victim["allas_filename"]
     victim_path.unlink()
 
     out_csv = tmp_path / "out_skip.csv"
@@ -313,6 +323,57 @@ def test_legacy_video_request_unpacks_two_value_qwen_result(monkeypatch):
     assert request["multi_modal_data"]["image"] == ["image"]
     assert request["multi_modal_data"]["video"] == ["video"]
     assert "mm_processor_kwargs" not in request
+
+
+def test_modern_video_request_keeps_qwen_video_metadata_in_mm_data(monkeypatch):
+    module = _load_module()
+
+    class Processor:
+        def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+            return "prompt"
+
+    video_tensor = object()
+    metadata = {"fps": 2.0, "total_num_frames": 20}
+
+    class FakeQwen:
+        @staticmethod
+        def process_vision_info(
+            messages,
+            image_patch_size=16,
+            return_video_kwargs=True,
+            return_video_metadata=True,
+        ):
+            return None, [(video_tensor, metadata)], {"fps": 2.0}
+
+    monkeypatch.setitem(sys.modules, "qwen_vl_utils", FakeQwen)
+    request = module.prepare_vllm_request(
+        [{"role": "user", "content": []}],
+        Processor(),
+        module.logging.getLogger("test-modern-video"),
+        video_api="modern",
+    )
+
+    assert request["multi_modal_data"]["video"] == [(video_tensor, metadata)]
+    assert request["mm_processor_kwargs"] == {"fps": 2.0}
+    assert "video_metadata" not in request["mm_processor_kwargs"]
+
+
+def test_prompt_receives_real_researcher_feed_metadata(harness):
+    module, input_csv, _, tmp_path = harness
+    row = module.load_input_csv(input_csv, module.logging.getLogger("t")).iloc[0]
+    args = type("Args", (), {
+        "video_min_pixels": 4096,
+        "video_max_pixels": 262144,
+        "video_total_pixels": 20971520,
+    })()
+    messages = module.build_video_messages(tmp_path / "clip.mp4", args, row=row)
+    text_part = messages[1]["content"][1]["text"]
+    assert "EP24 SOURCE METADATA" in text_part
+    assert f"- video_id: {row['video_id']}" in text_part
+    assert f"- source_recording: {row['source_recording']}" in text_part
+    assert f"- researcher_note: {row['researcher_note']}" in text_part
+    assert "authorUniqueId" not in text_part
+    assert "scrapedCountry" not in text_part
 
 
 def test_guided_schema_matches_structured_output_contract():
