@@ -37,6 +37,10 @@ from pathlib import Path
 
 import pandas as pd
 
+# Direct execution sets sys.path[0] to experiments/. Add the repository root so
+# the shared EP24 media contract is importable in sbatch and local runs alike.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from ep24_video import (
     VIDEO_INITIAL_SKIP_SECONDS,
     needs_resplit,
