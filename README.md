@@ -57,3 +57,8 @@ This repository is public open source. **Do not store real codebooks, private se
 Those belong in [TomiToivio/LaclauGPT-Private](https://github.com/TomiToivio/LaclauGPT-Private) and/or private CSC project storage. Public code should consume private configuration through explicit paths, environment variables, or interfaces without copying private content into this repository.
 
 See [AGENTS.md](AGENTS.md) for mandatory development rules and [docs/ROIHU_MIGRATION.md](docs/ROIHU_MIGRATION.md) for the current architecture.
+
+
+## Memory and country/language codebooks
+
+The opt-in Roihu enrichment layer is documented in [docs/MEMORY_CODEBOOKS.md](docs/MEMORY_CODEBOOKS.md). It uses SQLite memory plus private, versioned EP24 codebooks while preserving every legacy output field. Operational codebooks and research material remain private.
