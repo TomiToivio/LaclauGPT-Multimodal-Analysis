@@ -44,6 +44,21 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+#: Trailing tokens that name an entity *kind*, not an entity. A label like
+#: "Centre Party" or "Brothers of Italy party" ends in one of these, so using it
+#: as a surname key collapses every party into one group.
+KIND_WORDS = frozenset(
+    {
+        "party", "parties", "coalition", "movement", "alliance", "list", "front",
+        "group", "association", "organisation", "organization", "union", "bloc",
+        "forum", "network", "institute", "institution", "foundation", "committee",
+        "council", "agency", "ministry", "government", "parliament", "federation",
+        "confederation", "league", "platform", "initiative", "campaign", "politics",
+        "policy", "policies", "theme", "topic",
+    }
+)
+
+
 def _fold(value: Any) -> str:
     """Casefold + strip accents + drop punctuation, for grouping only."""
     text = unicodedata.normalize("NFKD", str(value or "").strip().casefold())
@@ -120,7 +135,14 @@ def _fragment_groups(entries: list[dict[str, Any]], *, key_fn) -> list[dict[str,
 
 
 def _surname_key(label: str) -> str:
+    """The trailing *name* token, skipping trailing kind words.
+
+    Taking the literal last token groups `Centre Party`, `Finns Party` and
+    `Brothers of Italy party` under the key `party` — a false merge that hides
+    the real fragmentation. Type words are skipped so the key is an actual name.
+    """
     toks = [t for t in _fold(label).split() if len(t) > 3]
+    toks = [t for t in toks if t not in KIND_WORDS]
     return toks[-1] if toks else ""
 
 
@@ -159,17 +181,72 @@ def theme_near_duplicates(entries: list[dict[str, Any]], *, threshold: float = 0
     return out
 
 
+def _iso2_of(path: Path) -> str | None:
+    """The ISO2 code recorded *inside* a codebook file, if it has one.
+
+    The books are not named consistently: `ep24_hr_private.json` and
+    `ep24_es_private.json` use the ISO2 code, but `ep24_finland_private.json`
+    and `ep24_poland_private.json` use the country name. Resolving by filename
+    therefore fails for those two countries. The files record `country_code`
+    internally, so read it rather than inferring it from the name.
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    value = payload.get("country_code")
+    return str(value).strip().upper() if value else None
+
+
+def _candidate_layers(root: Path, country: str) -> list[Path]:
+    """Every per-country codebook under ``root`` matching ``country``.
+
+    ``country`` may be an ISO2 code (`HR`) or a name (`Finland`). Matching is by
+    the file's own `country_code` and `country` fields first, then by filename,
+    so a book named after the country is still found from its ISO2 code.
+    """
+    wanted = country.strip().casefold()
+    wanted_iso = country.strip().upper()
+
+    matches: list[Path] = []
+    for path in sorted(root.glob("ep24_*_private.json")):
+        if path.name == "ep24_common_private.json":
+            # The shared book is not a country layer; it is loaded as a base and
+            # has no country_code of its own.
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        code = str(payload.get("country_code") or "").strip().upper()
+        name = str(payload.get("country") or "").strip().casefold()
+        if wanted_iso == code or wanted == name or wanted == path.stem.removeprefix("ep24_").removesuffix("_private"):
+            matches.append(path)
+
+    country_dir = root / "countries"
+    if country_dir.is_dir():
+        # `countries/<iso2>.json` is a second layer for some countries. Accept it
+        # when either its name or its own country_code matches.
+        for path in sorted(country_dir.glob("*.json")):
+            if path.stem.casefold() == wanted or (
+                path.stem.upper() == wanted_iso and _iso2_of(path) == wanted_iso
+            ):
+                matches.append(path)
+
+    # Preserve order, drop duplicates.
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for path in matches:
+        if path not in seen:
+            seen.add(path)
+            ordered.append(path)
+    return ordered
+
+
 def audit(root: Path, country: str) -> dict[str, Any]:
-    iso = country.upper()
-    slug = country.casefold()
-    candidates = [
-        root / f"ep24_{slug}_private.json",
-        root / "countries" / f"{slug}.json",
-    ]
+    candidates = _candidate_layers(root, country)
     layers: dict[str, Any] = {}
     for path in candidates:
-        if not path.exists():
-            continue
         entries = _load_entries(path)
         layers[path.name] = {
             "entries": entries,
@@ -179,12 +256,15 @@ def audit(root: Path, country: str) -> dict[str, Any]:
             "theme_near_duplicates": theme_near_duplicates(entries),
         }
     if not layers:
-        raise FileNotFoundError(
-            f"no codebook found for {iso} under {root} (looked for "
-            + ", ".join(p.name for p in candidates)
-            + ")"
+        available = sorted(
+            p.name for p in root.glob("ep24_*_private.json") if p.name != "ep24_common_private.json"
         )
-    return {"country_code": iso, "root": str(root), "layers": layers}
+        raise FileNotFoundError(
+            f"no codebook found for {country!r} under {root}. "
+            "Matching is by the file's own country_code/country field, then by filename. "
+            "Books present: " + (", ".join(available) or "(none)")
+        )
+    return {"country_code": country.upper(), "root": str(root), "layers": layers}
 
 
 def _print_human(report: dict[str, Any], *, top: int) -> None:
