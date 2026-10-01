@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import platform
-import shutil
 import socket
 import subprocess
 import sys
@@ -310,9 +309,77 @@ def prepare_video_input(
     }
 
 
-def usable_rows(df: pd.DataFrame, args: argparse.Namespace) -> pd.DataFrame:
-    mask = df.apply(lambda row: bool(resolve_remote(row, args)), axis=1)
-    return df.loc[mask].copy()
+def remote_exists(remote: str, logger: logging.Logger) -> bool:
+    """Check that an Allas object exists without downloading it."""
+    command = ["rclone", "lsjson", "--stat", remote]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception:
+        logger.debug("remote stat failed for %s\n%s", remote, traceback.format_exc())
+        return False
+
+    if result.returncode == 0:
+        logger.debug("remote exists: %s", remote)
+        return True
+
+    logger.debug(
+        "remote missing/unavailable: %s returncode=%s stderr=%s",
+        remote,
+        result.returncode,
+        result.stderr.strip(),
+    )
+    return False
+
+
+def select_usable_rows(
+    df: pd.DataFrame,
+    args: argparse.Namespace,
+    logger: logging.Logger,
+) -> pd.DataFrame:
+    """Choose a reproducible random sample of rows whose Allas objects exist."""
+    resolvable_mask = df.apply(lambda row: bool(resolve_remote(row, args)), axis=1)
+    candidates = df.loc[resolvable_mask].copy()
+    logger.info(
+        "rows_total=%d rows_with_resolvable_video=%d",
+        len(df),
+        len(candidates),
+    )
+
+    if len(candidates) < args.sample_size:
+        raise RuntimeError(
+            f"Need exactly {args.sample_size} resolvable rows, found {len(candidates)}. "
+            "Set --remote-column or --remote-template to match the EP24 CSV."
+        )
+
+    randomized = candidates.sample(frac=1.0, random_state=args.seed)
+    selected_indices: list[Any] = []
+    for index, row in randomized.iterrows():
+        remote = resolve_remote(row, args)
+        if remote_exists(remote, logger):
+            selected_indices.append(index)
+            logger.info(
+                "usable remote %d/%d: index=%s remote=%s",
+                len(selected_indices),
+                args.sample_size,
+                index,
+                remote,
+            )
+        if len(selected_indices) == args.sample_size:
+            break
+
+    if len(selected_indices) != args.sample_size:
+        raise RuntimeError(
+            f"Could not find exactly {args.sample_size} existing Allas video objects; "
+            f"found {len(selected_indices)} after checking {len(candidates)} resolvable rows."
+        )
+
+    return df.loc[selected_indices].copy()
 
 
 def main() -> int:
@@ -332,16 +399,7 @@ def main() -> int:
 
     logger.info("Reading EP24 CSV")
     source = pd.read_csv(input_path)
-    candidates = usable_rows(source, args)
-    logger.info("rows_total=%d rows_with_resolvable_video=%d", len(source), len(candidates))
-
-    if len(candidates) < args.sample_size:
-        raise RuntimeError(
-            f"Need exactly {args.sample_size} usable rows, found {len(candidates)}. "
-            "Set --remote-column or --remote-template to match the EP24 CSV."
-        )
-
-    selected = candidates.sample(n=args.sample_size, random_state=args.seed).copy()
+    selected = select_usable_rows(source, args, logger)
     selected["vllm_video_model"] = args.model
     selected["vllm_video_analysis"] = ""
     selected["vllm_video_status"] = "pending"
