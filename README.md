@@ -59,15 +59,22 @@ Those belong in [TomiToivio/LaclauGPT-Private](https://github.com/TomiToivio/Lac
 See [AGENTS.md](AGENTS.md) for mandatory development rules and [docs/ROIHU_MIGRATION.md](docs/ROIHU_MIGRATION.md) for the current architecture.
 
 
-## Memory and country/language codebooks
+## Memory, codebooks and distributed research storage
 
-The opt-in Roihu enrichment layer is documented in [docs/MEMORY_CODEBOOKS.md](docs/MEMORY_CODEBOOKS.md). It uses SQLite memory plus private, versioned EP24 codebooks while preserving every legacy output field. Operational codebooks and research material remain private.
+The Roihu enrichment layer is documented in [docs/MEMORY_CODEBOOKS.md](docs/MEMORY_CODEBOOKS.md). Operational codebooks, researcher notes, database credentials and real research material remain in [TomiToivio/LaclauGPT-Private](https://github.com/TomiToivio/LaclauGPT-Private) and/or private CSC storage.
 
+For EP2024 reprocessing, the normal distributed data plane is:
 
-## External MongoDB storage
+- **MongoDB** for durable dataframe mirrors/results, codebooks, memory, RAG, researcher notes, embeddings, graph/RDF/DNA/SNA material, provenance and backup-oriented state;
+- **Redis** for transient coordination, cache, messaging, locks and run/worker status;
+- **CSC Allas** for source videos, downloaded on demand from their stored URL/object identifier after `allas_conf` setup;
+- **Pandas CSV/DataFrames** as the mandatory human-readable input/output and backward-compatible legacy contract;
+- **SQLite/DuckDB** only as optional local/job-local helpers or compatibility artifacts.
 
-Issue #12 adds an optional external MongoDB persistence layer for long-term memory, RAG, structured analysis outputs, entities, provenance and backup-friendly state while preserving Pandas CSV as a first-class input/output format.
+PostgreSQL is not part of the EP2024 reprocess architecture.
 
-Collection names are generated from dataset and country, for example `laclaugpt_ep24_fi_memory`, `laclaugpt_ep24_fi_rag`, `laclaugpt_ep24_pl_memory` and `laclaugpt_ep24_pl_rag`. MongoDB is disabled by default, so the added storage stage is a no-op in CSV-only runs.
+Country-specific MongoDB collections use `laclaugpt_ep2024_reprocess_<country_name>_<collection_name>`, for example `laclaugpt_ep2024_reprocess_finland_memory`, `..._rag`, `..._research_notes`, `..._rdf` and `..._dataframe`.
 
-See [docs/MONGODB_STORAGE.md](docs/MONGODB_STORAGE.md) for environment variables, Roihu usage, schemas, FI/PL examples, backup/recovery guidance and the DataFrame/CSV API.
+Every major analysis step must preserve machine-readable structured output **and** add a human-readable Markdown-formatted summary field to the CSV. Existing legacy columns are retained unchanged and new fields are additive.
+
+See [docs/MONGODB_STORAGE.md](docs/MONGODB_STORAGE.md) for the canonical storage contract.
