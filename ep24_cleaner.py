@@ -32,6 +32,7 @@ TRUE_TOKENS = {"true", "1", "yes", "y", "t"}
 FALSE_TOKENS = {"false", "0", "no", "n", "f"}
 SYNTHETIC_TOKENS = {"synthetic", "synthetic profile", "synthetic_profile"}
 TRIVIAL_NOTES = {"test"}
+UNUSABLE_NOTES = {"this is filthy garbage"}
 
 # Old machine analysis that must be regenerated rather than recycled into the new run.
 LEGACY_MODEL_OUTPUTS = {
@@ -99,7 +100,7 @@ def spreadsheet_column_name(position: int) -> str:
 def resolve_legacy_drop_columns(columns: Sequence[str]) -> dict[str, str]:
     """Resolve issue #35's letter-based legacy removals against the actual header."""
     targets = ["Y", "Z", "AA", "AB", "AE"] + [
-        spreadsheet_column_name(i) for i in range(34, 46)  # AH:AT
+        spreadsheet_column_name(i) for i in range(34, 47)  # AH:AT
     ]
     resolved: dict[str, str] = {}
     for index, name in enumerate(columns, start=1):
@@ -167,6 +168,7 @@ def _profile_is_synthetic(row: pd.Series) -> bool:
     flag_col = _first_existing(
         row.index,
         (
+            "account_type",
             "profile_type",
             "profile_kind",
             "profile_category",
@@ -238,15 +240,17 @@ def merge_human_labels(
     return " | ".join(values), json.dumps(provenance, ensure_ascii=False)
 
 
-def normalize_researcher_note(value: object) -> tuple[str, bool]:
-    """Return normalized note and whether human review is required."""
+def normalize_researcher_note(value: object) -> tuple[str, bool, bool]:
+    """Return normalized note, human-review flag, and explicit unusable-note flag."""
     if _is_blank(value):
-        return "", False
+        return "", False, False
     note = str(value).strip()
     if note.casefold() in TRIVIAL_NOTES:
-        return "", False
+        return "", False, False
+    if note.casefold() in UNUSABLE_NOTES:
+        return note, False, True
     # Free-text notes are contextual evidence, not automatic ground truth.
-    return note, True
+    return note, True, False
 
 
 def clean_dataframe(
@@ -294,7 +298,7 @@ def clean_dataframe(
         split, split_fields = _flagged(row, "researcher_split_")
         synthetic = _profile_is_synthetic(row)
 
-        note, note_review = normalize_researcher_note(row.get("researcher_note"))
+        note, note_review, note_unusable = normalize_researcher_note(row.get("researcher_note"))
         status = "KEEP"
         include = True
         needs_review = False
@@ -319,6 +323,11 @@ def clean_dataframe(
             reasons.append("researcher cut/split flag explicitly TRUE")
             evidence.extend(cut_fields + split_fields)
             recut_rows.append(row.copy())
+        elif note_unusable:
+            status = "EXCLUDE_FROM_NEW_ANALYSIS"
+            include = False
+            reasons.append("researcher_note explicitly identifies unusable content")
+            evidence.append("researcher_note")
         elif not synthetic:
             status = "EXCLUDE_FROM_NEW_ANALYSIS"
             include = False
