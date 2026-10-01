@@ -1,0 +1,1214 @@
+{
+ "faster-whisper:large-v3:int8_float16": [
+  {
+   "file": "audio/de_de_1.wav",
+   "lang": "de_de",
+   "ref": "f\u00fcr die besten aussichten auf hongkong sollten sie die insel verlassen und zum gegen\u00fcberliegenden ufer von kowloon fahren",
+   "hyp": "F\u00fcr die besten Aussichten auf Hongkong sollten Sie die Insel verlassen und zum gegen\u00fcberliegenden Ufer von Kowloon fahren.",
+   "detected": "de",
+   "sec": 1.44,
+   "dur": 17.94,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/de_de_2.wav",
+   "lang": "de_de",
+   "ref": "er griff auch alles an was ins wasser kam selbst ein gro\u00dfer dinosaurier wie der t rex war ihm nicht gewachsen",
+   "hyp": "Er griff auch alles an, was ins Wasser kam. Selbst ein gro\u00dfer Dinosaurier wie der T-Rex war ihm nicht gewachsen.",
+   "detected": "de",
+   "sec": 1.05,
+   "dur": 11.16,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/en_us_1.wav",
+   "lang": "en_us",
+   "ref": "however due to the slow communication channels styles in the west could lag behind by 25 to 30 year",
+   "hyp": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years.",
+   "detected": "en",
+   "sec": 0.9,
+   "dur": 10.56,
+   "wer": 0.05263157894736842
+  },
+  {
+   "file": "audio/en_us_2.wav",
+   "lang": "en_us",
+   "ref": "all nouns alongside the word sie for you always begin with a capital letter even in the middle of a sentence",
+   "hyp": "All nouns alongside the world say for you always begin with a capital letter even in the middle of a sentence.",
+   "detected": "en",
+   "sec": 0.84,
+   "dur": 8.76,
+   "wer": 0.09523809523809523
+  },
+  {
+   "file": "audio/es_es_1.wav",
+   "lang": "es_es",
+   "ref": "se recomienda enf\u00e1ticamente a los viajeros que se informen sobre cualquier riesgo de clima extremo en el \u00e1rea que visitan dado que ello puede afectar sus planes de viaje",
+   "hyp": "Se recomienda enf\u00e1ticamente a los viajeros que se informen sobre cualquier  riesgo del clima extremo en el \u00e1rea que visitan, dado que ello puede afectar sus  planes de viaje.",
+   "detected": "es",
+   "sec": 1.35,
+   "dur": 12.84,
+   "wer": 0.034482758620689655
+  },
+  {
+   "file": "audio/es_es_2.wav",
+   "lang": "es_es",
+   "ref": "el uso adecuado de los blogs \u00abpuede empoderar a los alumnos para que sean m\u00e1s anal\u00edticos y cr\u00edticos a trav\u00e9s de la respuesta activa a los contenidos de internet pueden definir sus posturas en el contexto de los escritos de otros adem\u00e1s de establecer sus perspectivas sobre temas espec\u00edficos\u00bb oravec 2002",
+   "hyp": "El uso adecuado de los blogs puede empoderar a los alumnos para que sean m\u00e1s anal\u00edticos y cr\u00edticos a trav\u00e9s de la respuesta activa a los contenidos de Internet.  Pueden definir sus posturas en el contexto de los escritos de otros, adem\u00e1s de establecer sus perspectivas sobre temas espec\u00edficos.  Oravec 2002",
+   "detected": "es",
+   "sec": 2.0,
+   "dur": 21.36,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/fi_fi_1.wav",
+   "lang": "fi_fi",
+   "ref": "yhdysvaltojen ilmailuviranomainen v\u00e4itt\u00e4\u00e4 ett\u00e4 nextgen on j\u00e4rjestelm\u00e4 jonka ansiosta lentokoneet voivat lent\u00e4\u00e4 lyhyempi\u00e4 reittej\u00e4 s\u00e4\u00e4st\u00e4\u00e4 vuosittain miljoonia gallonia polttoainetta ja v\u00e4hent\u00e4\u00e4 hiilidioksidip\u00e4\u00e4st\u00f6j\u00e4",
+   "hyp": "Yhdysvaltojen ilmailuviranomainen v\u00e4itt\u00e4\u00e4, ett\u00e4 NextGen on j\u00e4rjestelm\u00e4, jonka ansiosta lentokoneet voivat lent\u00e4\u00e4 lyhyempi\u00e4 reittej\u00e4, s\u00e4\u00e4st\u00e4\u00e4 vuosittain miljoonia gallonia polttoainetta ja v\u00e4hent\u00e4\u00e4 hiilidioksidip\u00e4\u00e4st\u00f6j\u00e4.",
+   "detected": "fi",
+   "sec": 1.97,
+   "dur": 18.6,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/fi_fi_2.wav",
+   "lang": "fi_fi",
+   "ref": "sundarban on julistettu unescon maailmanperint\u00f6kohteeksi mets\u00e4n intian puolella sijaitsevaa osaa kutsutaan sundarbanin kansallispuistoksi",
+   "hyp": "Sundarban on julistettu Unescon maailmanperint\u00f6kohteeksi. Mets\u00e4n Intian puolella sijaitsevaa osaa kutsutaan Sundarbaniin kaunsallispuistoksi.",
+   "detected": "fi",
+   "sec": 1.48,
+   "dur": 15.24,
+   "wer": 0.15384615384615385
+  },
+  {
+   "file": "audio/fr_fr_1.wav",
+   "lang": "fr_fr",
+   "ref": "l'accident a eu lieu en terrain montagneux et il semblerait que cela ait \u00e9t\u00e9 caus\u00e9 par un incendie malveillant",
+   "hyp": "L'accident a eu lieu en terrain montagneux et il semblerait que cela ait \u00e9t\u00e9 caus\u00e9 par un incendie malveillant.",
+   "detected": "fr",
+   "sec": 1.08,
+   "dur": 10.2,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/fr_fr_2.wav",
+   "lang": "fr_fr",
+   "ref": "nous sommes d'accord avec la d\u00e9claration de l'usoc comit\u00e9 olympique des \u00e9tats-unis selon laquelle les int\u00e9r\u00eats de nos athl\u00e8tes et de nos clubs ainsi que de leur sport pourraient \u00eatre mieux servis. cela peut \u00eatre fait en allant de l'avant et en proc\u00e9dant plut\u00f4t \u00e0 des changements significatifs au sein de notre organisation qu'\u00e0 la r\u00e9vocation d'accr\u00e9ditation",
+   "hyp": "Nous sommes d'accord avec la d\u00e9claration de l'USOC, comit\u00e9 olympique des Etats-Unis,  selon laquelle les int\u00e9r\u00eats de nos athl\u00e8tes et de nos clubs ainsi que de leur sport pourraient  \u00eatre mieux servis. Cela peut \u00eatre fait en allant de l'avant et en proc\u00e9dant plut\u00f4t  \u00e0 des changements significatifs au sein de notre organisation qu'\u00e0 la r\u00e9vocation d'accr\u00e9ditation.",
+   "detected": "fr",
+   "sec": 2.48,
+   "dur": 23.4,
+   "wer": 0.015873015873015872
+  },
+  {
+   "file": "audio/hr_hr_1.wav",
+   "lang": "hr_hr",
+   "ref": "tijekom no\u0107i izra\u0111eno je izme\u0111u 150 i 200 kopija koje su sada poznate pod nazivom dunlap broadsides",
+   "hyp": "Tikom no\u0107i izra\u0111eno je izme\u0111u 150 i 200 kopija koje su sada poznate pod nazivom Dunlap Broadside.",
+   "detected": "hr",
+   "sec": 1.19,
+   "dur": 8.04,
+   "wer": 0.11764705882352941
+  },
+  {
+   "file": "audio/hr_hr_2.wav",
+   "lang": "hr_hr",
+   "ref": "iako se pokazalo da jedno eksperimentalno cjepivo mo\u017ee smanjiti smrtnost od ebole dosad nijedan lijek nije dokazano prikladan za lije\u010denje postoje\u0107e infekcije",
+   "hyp": "Iako se pokazalo da jedno eksperimentalno cijepivo mo\u017ee smanjiti smrtnost ode bole,  do sad nijedan lijek nije dokazano prikladan za lije\u010denje postoje\u0107e infekcije.",
+   "detected": "hr",
+   "sec": 1.61,
+   "dur": 11.94,
+   "wer": 0.22727272727272727
+  },
+  {
+   "file": "audio/hu_hu_1.wav",
+   "lang": "hu_hu",
+   "ref": "hongkong nev\u00e9t a hongkong szigetr\u0151l kapta \u00e9s ez a hely sok turista sz\u00e1m\u00e1ra a figyelem k\u00f6z\u00e9ppontj\u00e1ban \u00e1ll",
+   "hyp": "Hong Kong nev\u00e9t a Hong Kong szigetr\u0151l kapta \u00e9s ez a hely sok turista sz\u00e1m\u00e1ra a figyelem k\u00f6z\u00e9ppontj\u00e1ban \u00e1ll.",
+   "detected": "hu",
+   "sec": 1.18,
+   "dur": 12.06,
+   "wer": 0.23529411764705882
+  },
+  {
+   "file": "audio/hu_hu_2.wav",
+   "lang": "hu_hu",
+   "ref": "n\u00e9h\u00e1nyan \u00fagy v\u00e9lt\u00e9k igaza volt de sokan hitt\u00e9k az ellenkez\u0151j\u00e9t; hogy a naprendszer a f\u00f6ld k\u00f6r\u00fcl forog bele\u00e9rtve a napot s\u0151t a t\u00f6bbi csillagot is",
+   "hyp": "N\u00e9h\u00e1nyan \u00fagy v\u00e9rt\u00e9k, igaza volt, de sokkal hitt\u00e9k az ellenkez\u0151j\u00e9t, hogy a naprendszer a f\u00f6ldszer\u0171 forog, bele\u00e9rtve a napot, s\u0151t a t\u00f6bbi csillagot is.",
+   "detected": "hu",
+   "sec": 1.69,
+   "dur": 12.12,
+   "wer": 0.16
+  },
+  {
+   "file": "audio/pl_pl_1.wav",
+   "lang": "pl_pl",
+   "ref": "podr\u00f3\u017cni zwiedzaj\u0105cy pa\u0144stwa ob\u0142o\u017cone szczeg\u00f3lnie wysokimi podatkami mog\u0105 czasem zaoszcz\u0119dzi\u0107 sporo pieni\u0119dzy szczeg\u00f3lnie na takich towarach jak alkohol i tyto\u0144",
+   "hyp": "Podr\u00f3\u017cni zwiedzaj\u0105cy pa\u0144stwa ob\u0142o\u017cone szczeg\u00f3lnie wysokimi podatkami mog\u0105 czasem zaoszcz\u0119dzi\u0107 sporo pieni\u0119dzy, szczeg\u00f3lnie na takich towarach jak alkohol i tyto\u0144.",
+   "detected": "pl",
+   "sec": 1.37,
+   "dur": 12.12,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/pl_pl_2.wav",
+   "lang": "pl_pl",
+   "ref": "wi\u0119kszo\u015b\u0107 mniejszych wysp to narody niezale\u017cne lub sprzymierzone z francj\u0105 i s\u0142yn\u0105ce jako luksusowe nadmorskie miejscowo\u015bci wypoczynkowe",
+   "hyp": "Wi\u0119kszo\u015b\u0107 mniejszych wysp to narody niezale\u017cne lub sprzymierzone z Francj\u0105 i s\u0142yn\u0105ce jako luksusowe nadbalskie miejscowo\u015bci wypoczynkowe.",
+   "detected": "pl",
+   "sec": 1.3,
+   "dur": 7.68,
+   "wer": 0.058823529411764705
+  },
+  {
+   "file": "audio/pt_pt_1.wav",
+   "lang": "pt_pt",
+   "ref": "segundo informa\u00e7\u00f5es ele estava na casa dos 20 anos em uma declara\u00e7\u00e3o bieber disse que embora eu n\u00e3o estivesse presente nem diretamente envolvido neste tr\u00e1gico incidente meus pensamentos e ora\u00e7\u00f5es est\u00e3o com a fam\u00edlia da v\u00edtima",
+   "hyp": "Segundo informa\u00e7\u00f5es, ele estava na casa dos 20 anos.  Em uma declara\u00e7\u00e3o, Bieber disse que, embora eu n\u00e3o estivesse presente nem diretamente envolvido neste tr\u00e1gico incidente,  meus pensamentos e ora\u00e7\u00f5es est\u00e3o com a fam\u00edlia da v\u00edtima.",
+   "detected": "pt",
+   "sec": 1.62,
+   "dur": 17.76,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/pt_pt_2.wav",
+   "lang": "pt_pt",
+   "ref": "constru\u00edda pelos eg\u00edpcios no s\u00e9culo 3 a.c. a grande pir\u00e2mide \u00e9 uma das muitas grandes estruturas de pir\u00e2mide constru\u00eddas para honrar fara\u00f3s mortos",
+   "hyp": "Constru\u00edda pelos eg\u00edpcios no s\u00e9culo 3 a.C., a Grande Pir\u00e2mide \u00e9 uma das muitas grandes estruturas da pir\u00e2mide constru\u00eddas para honrar fara\u00f3s mortos.",
+   "detected": "pt",
+   "sec": 1.23,
+   "dur": 13.62,
+   "wer": 0.041666666666666664
+  },
+  {
+   "file": "audio/sv_se_1.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nens yta utg\u00f6rs av stenar och stoft m\u00e5nens yttre lager kallas skorpan",
+   "hyp": "M\u00e5nans yta utg\u00f6rs av stenar och stoft. M\u00e5nans yttre lager kallas skorpan.",
+   "detected": "sv",
+   "sec": 1.03,
+   "dur": 5.76,
+   "wer": 0.16666666666666666
+  },
+  {
+   "file": "audio/sv_se_2.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nga tyska bakverk har ocks\u00e5 mandlar hasseln\u00f6tter och andra n\u00f6tter popul\u00e4ra kakor passar ofta s\u00e4rskilt bra med en kopp starkt kaffe",
+   "hyp": "M\u00e5nga tyska bakverk har ocks\u00e5 mandlar, hasseln\u00f6tter och andra n\u00f6tter.  Popul\u00e4ra kakor passar ofta s\u00e4rskilt bra med en kopp starkt kaffe.",
+   "detected": "sv",
+   "sec": 1.38,
+   "dur": 12.78,
+   "wer": 0.0
+  }
+ ],
+ "faster-whisper:large-v3:float16": [
+  {
+   "file": "audio/de_de_1.wav",
+   "lang": "de_de",
+   "ref": "f\u00fcr die besten aussichten auf hongkong sollten sie die insel verlassen und zum gegen\u00fcberliegenden ufer von kowloon fahren",
+   "hyp": "F\u00fcr die besten Aussichten auf Hongkong sollten Sie die Insel verlassen und zum gegen\u00fcberliegenden Ufer von Kowloon fahren.",
+   "detected": "de",
+   "sec": 0.95,
+   "dur": 17.94,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/de_de_2.wav",
+   "lang": "de_de",
+   "ref": "er griff auch alles an was ins wasser kam selbst ein gro\u00dfer dinosaurier wie der t rex war ihm nicht gewachsen",
+   "hyp": "Er griff auch alles an, was ins Wasser kam. Selbst ein gro\u00dfer Dinosaurier wie der T-Rex war ihm nicht gewachsen.",
+   "detected": "de",
+   "sec": 0.91,
+   "dur": 11.16,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/en_us_1.wav",
+   "lang": "en_us",
+   "ref": "however due to the slow communication channels styles in the west could lag behind by 25 to 30 year",
+   "hyp": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years.",
+   "detected": "en",
+   "sec": 0.77,
+   "dur": 10.56,
+   "wer": 0.05263157894736842
+  },
+  {
+   "file": "audio/en_us_2.wav",
+   "lang": "en_us",
+   "ref": "all nouns alongside the word sie for you always begin with a capital letter even in the middle of a sentence",
+   "hyp": "All nouns alongside the world say for you always begin with a capital letter even in the middle of a sentence.",
+   "detected": "en",
+   "sec": 0.74,
+   "dur": 8.76,
+   "wer": 0.09523809523809523
+  },
+  {
+   "file": "audio/es_es_1.wav",
+   "lang": "es_es",
+   "ref": "se recomienda enf\u00e1ticamente a los viajeros que se informen sobre cualquier riesgo de clima extremo en el \u00e1rea que visitan dado que ello puede afectar sus planes de viaje",
+   "hyp": "Se recomienda enf\u00e1ticamente a los viajeros que se informen sobre cualquier  riesgo del clima extremo en el \u00e1rea que visitan, dado que ello puede afectar sus  planes de viaje.",
+   "detected": "es",
+   "sec": 1.17,
+   "dur": 12.84,
+   "wer": 0.034482758620689655
+  },
+  {
+   "file": "audio/es_es_2.wav",
+   "lang": "es_es",
+   "ref": "el uso adecuado de los blogs \u00abpuede empoderar a los alumnos para que sean m\u00e1s anal\u00edticos y cr\u00edticos a trav\u00e9s de la respuesta activa a los contenidos de internet pueden definir sus posturas en el contexto de los escritos de otros adem\u00e1s de establecer sus perspectivas sobre temas espec\u00edficos\u00bb oravec 2002",
+   "hyp": "El uso adecuado de los blogs puede empoderar a los alumnos para que sean m\u00e1s anal\u00edticos y cr\u00edticos a trav\u00e9s de la respuesta activa a los contenidos de Internet.  Pueden definir sus posturas en el contexto de los escritos de otros, adem\u00e1s de establecer sus perspectivas sobre temas espec\u00edficos.  Oravec 2002",
+   "detected": "es",
+   "sec": 1.6,
+   "dur": 21.36,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/fi_fi_1.wav",
+   "lang": "fi_fi",
+   "ref": "yhdysvaltojen ilmailuviranomainen v\u00e4itt\u00e4\u00e4 ett\u00e4 nextgen on j\u00e4rjestelm\u00e4 jonka ansiosta lentokoneet voivat lent\u00e4\u00e4 lyhyempi\u00e4 reittej\u00e4 s\u00e4\u00e4st\u00e4\u00e4 vuosittain miljoonia gallonia polttoainetta ja v\u00e4hent\u00e4\u00e4 hiilidioksidip\u00e4\u00e4st\u00f6j\u00e4",
+   "hyp": "Yhdysvaltojen ilmailuviranomainen v\u00e4itt\u00e4\u00e4, ett\u00e4 NextGen on j\u00e4rjestelm\u00e4, jonka ansiosta lentokoneet voivat lent\u00e4\u00e4 lyhyempi\u00e4 reittej\u00e4, s\u00e4\u00e4st\u00e4\u00e4 vuosittain miljoonia gallonia polttoainetta ja v\u00e4hent\u00e4\u00e4 hiilidioksidip\u00e4\u00e4st\u00f6j\u00e4.",
+   "detected": "fi",
+   "sec": 1.44,
+   "dur": 18.6,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/fi_fi_2.wav",
+   "lang": "fi_fi",
+   "ref": "sundarban on julistettu unescon maailmanperint\u00f6kohteeksi mets\u00e4n intian puolella sijaitsevaa osaa kutsutaan sundarbanin kansallispuistoksi",
+   "hyp": "Sundarban on julistettu Unescon maailmanperint\u00f6kohteeksi. Mets\u00e4n Intian puolella sijaitsevaa osaa kutsutaan Sundarbaniin kaunsallispuistoksi.",
+   "detected": "fi",
+   "sec": 1.07,
+   "dur": 15.24,
+   "wer": 0.15384615384615385
+  },
+  {
+   "file": "audio/fr_fr_1.wav",
+   "lang": "fr_fr",
+   "ref": "l'accident a eu lieu en terrain montagneux et il semblerait que cela ait \u00e9t\u00e9 caus\u00e9 par un incendie malveillant",
+   "hyp": "L'accident a eu lieu en terrain montagneux et il semblerait que cela ait \u00e9t\u00e9 caus\u00e9 par un incendie malveillant.",
+   "detected": "fr",
+   "sec": 0.79,
+   "dur": 10.2,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/fr_fr_2.wav",
+   "lang": "fr_fr",
+   "ref": "nous sommes d'accord avec la d\u00e9claration de l'usoc comit\u00e9 olympique des \u00e9tats-unis selon laquelle les int\u00e9r\u00eats de nos athl\u00e8tes et de nos clubs ainsi que de leur sport pourraient \u00eatre mieux servis. cela peut \u00eatre fait en allant de l'avant et en proc\u00e9dant plut\u00f4t \u00e0 des changements significatifs au sein de notre organisation qu'\u00e0 la r\u00e9vocation d'accr\u00e9ditation",
+   "hyp": "Nous sommes d'accord avec la d\u00e9claration de l'Usoc, comit\u00e9 olympique des Etats-Unis,  selon laquelle les int\u00e9r\u00eats de nos athl\u00e8tes et de nos clubs ainsi que de leur sport pourraient  \u00eatre mieux servis. Cela peut \u00eatre fait en allant de l'avant et en proc\u00e9dant plut\u00f4t  \u00e0 des changements significatifs au sein de notre organisation qu'\u00e0 la r\u00e9vocation d'accr\u00e9ditation.",
+   "detected": "fr",
+   "sec": 1.76,
+   "dur": 23.4,
+   "wer": 0.015873015873015872
+  },
+  {
+   "file": "audio/hr_hr_1.wav",
+   "lang": "hr_hr",
+   "ref": "tijekom no\u0107i izra\u0111eno je izme\u0111u 150 i 200 kopija koje su sada poznate pod nazivom dunlap broadsides",
+   "hyp": "Tikom no\u0107i izra\u0111eno je izme\u0111u 150 i 200 kopija koje su sada poznate pod nazivom Dunlap Broadside.",
+   "detected": "hr",
+   "sec": 0.86,
+   "dur": 8.04,
+   "wer": 0.11764705882352941
+  },
+  {
+   "file": "audio/hr_hr_2.wav",
+   "lang": "hr_hr",
+   "ref": "iako se pokazalo da jedno eksperimentalno cjepivo mo\u017ee smanjiti smrtnost od ebole dosad nijedan lijek nije dokazano prikladan za lije\u010denje postoje\u0107e infekcije",
+   "hyp": "Iako se pokazalo da jedno eksperimentalno cijepivo mo\u017ee smanjiti smrtnost ode bole,  do sad nijedan lijek nije dokazano prikladan za lije\u010denje postoje\u0107e infekcije.",
+   "detected": "hr",
+   "sec": 1.2,
+   "dur": 11.94,
+   "wer": 0.22727272727272727
+  },
+  {
+   "file": "audio/hu_hu_1.wav",
+   "lang": "hu_hu",
+   "ref": "hongkong nev\u00e9t a hongkong szigetr\u0151l kapta \u00e9s ez a hely sok turista sz\u00e1m\u00e1ra a figyelem k\u00f6z\u00e9ppontj\u00e1ban \u00e1ll",
+   "hyp": "Hong Kong nev\u00e9t a Hong Kong szigetr\u0151l kapta \u00e9s ez a hely sok turista sz\u00e1m\u00e1ra a figyelem k\u00f6z\u00e9ppontj\u00e1ban \u00e1ll.",
+   "detected": "hu",
+   "sec": 0.87,
+   "dur": 12.06,
+   "wer": 0.23529411764705882
+  },
+  {
+   "file": "audio/hu_hu_2.wav",
+   "lang": "hu_hu",
+   "ref": "n\u00e9h\u00e1nyan \u00fagy v\u00e9lt\u00e9k igaza volt de sokan hitt\u00e9k az ellenkez\u0151j\u00e9t; hogy a naprendszer a f\u00f6ld k\u00f6r\u00fcl forog bele\u00e9rtve a napot s\u0151t a t\u00f6bbi csillagot is",
+   "hyp": "N\u00e9h\u00e1nyan \u00fagy v\u00e9rt\u00e9k, igaza volt, de sokkal hitt\u00e9k az ellenkez\u0151j\u00e9t, hogy a naprendszer a f\u00f6ldszer\u0171 forog, bele\u00e9rtve a napot, s\u0151t a t\u00f6bbi csillagot is.",
+   "detected": "hu",
+   "sec": 1.26,
+   "dur": 12.12,
+   "wer": 0.16
+  },
+  {
+   "file": "audio/pl_pl_1.wav",
+   "lang": "pl_pl",
+   "ref": "podr\u00f3\u017cni zwiedzaj\u0105cy pa\u0144stwa ob\u0142o\u017cone szczeg\u00f3lnie wysokimi podatkami mog\u0105 czasem zaoszcz\u0119dzi\u0107 sporo pieni\u0119dzy szczeg\u00f3lnie na takich towarach jak alkohol i tyto\u0144",
+   "hyp": "Podr\u00f3\u017cni zwiedzaj\u0105cy pa\u0144stwa ob\u0142o\u017cone szczeg\u00f3lnie wysokimi podatkami mog\u0105 czasem zaoszcz\u0119dzi\u0107 sporo pieni\u0119dzy, szczeg\u00f3lnie na takich towarach jak alkohol i tyto\u0144.",
+   "detected": "pl",
+   "sec": 1.01,
+   "dur": 12.12,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/pl_pl_2.wav",
+   "lang": "pl_pl",
+   "ref": "wi\u0119kszo\u015b\u0107 mniejszych wysp to narody niezale\u017cne lub sprzymierzone z francj\u0105 i s\u0142yn\u0105ce jako luksusowe nadmorskie miejscowo\u015bci wypoczynkowe",
+   "hyp": "Wi\u0119kszo\u015b\u0107 mniejszych wysp to narody niezale\u017cne lub zmierzone z Francj\u0105 i s\u0142yn\u0105ce jako luksusowe nadbalskie miejscowo\u015bci wypoczynkowe.",
+   "detected": "pl",
+   "sec": 0.95,
+   "dur": 7.68,
+   "wer": 0.11764705882352941
+  },
+  {
+   "file": "audio/pt_pt_1.wav",
+   "lang": "pt_pt",
+   "ref": "segundo informa\u00e7\u00f5es ele estava na casa dos 20 anos em uma declara\u00e7\u00e3o bieber disse que embora eu n\u00e3o estivesse presente nem diretamente envolvido neste tr\u00e1gico incidente meus pensamentos e ora\u00e7\u00f5es est\u00e3o com a fam\u00edlia da v\u00edtima",
+   "hyp": "Segundo informa\u00e7\u00f5es, ele estava na casa dos 20 anos.  Em uma declara\u00e7\u00e3o, Bieber disse que, embora eu n\u00e3o estivesse presente nem diretamente envolvido neste tr\u00e1gico incidente,  meus pensamentos e ora\u00e7\u00f5es est\u00e3o com a fam\u00edlia da v\u00edtima.",
+   "detected": "pt",
+   "sec": 1.22,
+   "dur": 17.76,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/pt_pt_2.wav",
+   "lang": "pt_pt",
+   "ref": "constru\u00edda pelos eg\u00edpcios no s\u00e9culo 3 a.c. a grande pir\u00e2mide \u00e9 uma das muitas grandes estruturas de pir\u00e2mide constru\u00eddas para honrar fara\u00f3s mortos",
+   "hyp": "Constru\u00edda pelos eg\u00edpcios no s\u00e9culo 3 a.C., a Grande Pir\u00e2mide \u00e9 uma das muitas grandes estruturas da pir\u00e2mide constru\u00eddas para honrar fara\u00f3s mortos.",
+   "detected": "pt",
+   "sec": 0.93,
+   "dur": 13.62,
+   "wer": 0.041666666666666664
+  },
+  {
+   "file": "audio/sv_se_1.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nens yta utg\u00f6rs av stenar och stoft m\u00e5nens yttre lager kallas skorpan",
+   "hyp": "M\u00e5nans yta utg\u00f6rs av stenar och stoft. M\u00e5nans yttre lager kallas skorpan.",
+   "detected": "sv",
+   "sec": 0.76,
+   "dur": 5.76,
+   "wer": 0.16666666666666666
+  },
+  {
+   "file": "audio/sv_se_2.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nga tyska bakverk har ocks\u00e5 mandlar hasseln\u00f6tter och andra n\u00f6tter popul\u00e4ra kakor passar ofta s\u00e4rskilt bra med en kopp starkt kaffe",
+   "hyp": "M\u00e5nga tyska bakverk har ocks\u00e5 mandlar, hasseln\u00f6tter och andra n\u00f6tter.  Popul\u00e4ra kakor passar ofta s\u00e4rskilt bra med en kopp starkt kaffe.",
+   "detected": "sv",
+   "sec": 1.03,
+   "dur": 12.78,
+   "wer": 0.0
+  }
+ ],
+ "faster-whisper:large-v3-turbo:int8_float16": [
+  {
+   "file": "audio/de_de_1.wav",
+   "lang": "de_de",
+   "ref": "f\u00fcr die besten aussichten auf hongkong sollten sie die insel verlassen und zum gegen\u00fcberliegenden ufer von kowloon fahren",
+   "hyp": "F\u00fcr die besten Aussichten auf Hongkong sollten Sie die Insel verlassen und zum gegen\u00fcberliegenden Ufer von Kowloon fahren.",
+   "detected": "de",
+   "sec": 0.43,
+   "dur": 17.94,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/de_de_2.wav",
+   "lang": "de_de",
+   "ref": "er griff auch alles an was ins wasser kam selbst ein gro\u00dfer dinosaurier wie der t rex war ihm nicht gewachsen",
+   "hyp": "Er griff auch alles an, was ins Wasser kam. Selbst ein gro\u00dfer Dinosaurier wie der T-Rex war ihm nicht gewachsen.",
+   "detected": "de",
+   "sec": 0.43,
+   "dur": 11.16,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/en_us_1.wav",
+   "lang": "en_us",
+   "ref": "however due to the slow communication channels styles in the west could lag behind by 25 to 30 year",
+   "hyp": "However, due to the slow communication channels, styles in the west could lag behind by 25-30 years.",
+   "detected": "en",
+   "sec": 0.38,
+   "dur": 10.56,
+   "wer": 0.10526315789473684
+  },
+  {
+   "file": "audio/en_us_2.wav",
+   "lang": "en_us",
+   "ref": "all nouns alongside the word sie for you always begin with a capital letter even in the middle of a sentence",
+   "hyp": "All nouns alongside the words say for you always begin with a capital letter, even in the middle of a sentence.",
+   "detected": "en",
+   "sec": 0.39,
+   "dur": 8.76,
+   "wer": 0.09523809523809523
+  },
+  {
+   "file": "audio/es_es_1.wav",
+   "lang": "es_es",
+   "ref": "se recomienda enf\u00e1ticamente a los viajeros que se informen sobre cualquier riesgo de clima extremo en el \u00e1rea que visitan dado que ello puede afectar sus planes de viaje",
+   "hyp": "Se recomienda enf\u00e1ticamente a los viajeros que se informen sobre cualquier riesgo del  clima extremo en el \u00e1rea que visitan, dado que ello puede afectar sus planes de viaje.",
+   "detected": "es",
+   "sec": 0.46,
+   "dur": 12.84,
+   "wer": 0.034482758620689655
+  },
+  {
+   "file": "audio/es_es_2.wav",
+   "lang": "es_es",
+   "ref": "el uso adecuado de los blogs \u00abpuede empoderar a los alumnos para que sean m\u00e1s anal\u00edticos y cr\u00edticos a trav\u00e9s de la respuesta activa a los contenidos de internet pueden definir sus posturas en el contexto de los escritos de otros adem\u00e1s de establecer sus perspectivas sobre temas espec\u00edficos\u00bb oravec 2002",
+   "hyp": "El uso adecuado de los blogs puede empoderar a los alumnos para que sean m\u00e1s anal\u00edticos y cr\u00edticos a trav\u00e9s de la respuesta activa a los contenidos de Internet.  Pueden definir sus posturas en el contexto de los escritos de otros, adem\u00e1s de establecer sus perspectivas sobre temas espec\u00edficos.  ORAVEC 2002",
+   "detected": "es",
+   "sec": 0.64,
+   "dur": 21.36,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/fi_fi_1.wav",
+   "lang": "fi_fi",
+   "ref": "yhdysvaltojen ilmailuviranomainen v\u00e4itt\u00e4\u00e4 ett\u00e4 nextgen on j\u00e4rjestelm\u00e4 jonka ansiosta lentokoneet voivat lent\u00e4\u00e4 lyhyempi\u00e4 reittej\u00e4 s\u00e4\u00e4st\u00e4\u00e4 vuosittain miljoonia gallonia polttoainetta ja v\u00e4hent\u00e4\u00e4 hiilidioksidip\u00e4\u00e4st\u00f6j\u00e4",
+   "hyp": "Yhdysvaltojen ilmailuviranomainen v\u00e4itt\u00e4\u00e4, ett\u00e4 NextGen on j\u00e4rjestelm\u00e4, jonka asiosta lentokoneet voivat lent\u00e4\u00e4 lyhyempi\u00e4 reittej\u00e4, s\u00e4\u00e4st\u00e4\u00e4 vuosittain miljoonia gallonia polttoainetta ja v\u00e4hent\u00e4\u00e4 hiilidioksidip\u00e4\u00e4st\u00f6j\u00e4.",
+   "detected": "fi",
+   "sec": 0.56,
+   "dur": 18.6,
+   "wer": 0.045454545454545456
+  },
+  {
+   "file": "audio/fi_fi_2.wav",
+   "lang": "fi_fi",
+   "ref": "sundarban on julistettu unescon maailmanperint\u00f6kohteeksi mets\u00e4n intian puolella sijaitsevaa osaa kutsutaan sundarbanin kansallispuistoksi",
+   "hyp": "Sundarban on julistettu Unescon maailmanperint\u00f6kohteeksi.  Mets\u00e4n Intian puolella sijaitsevaa osaa kutsutaan Sundarbaniin kaunsallispuistoksi.",
+   "detected": "fi",
+   "sec": 0.5,
+   "dur": 15.24,
+   "wer": 0.15384615384615385
+  },
+  {
+   "file": "audio/fr_fr_1.wav",
+   "lang": "fr_fr",
+   "ref": "l'accident a eu lieu en terrain montagneux et il semblerait que cela ait \u00e9t\u00e9 caus\u00e9 par un incendie malveillant",
+   "hyp": "l'accident a eu lieu en terrain montagneux et il semblerait que cela ait \u00e9t\u00e9 caus\u00e9 par un incendie malveillant",
+   "detected": "fr",
+   "sec": 0.41,
+   "dur": 10.2,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/fr_fr_2.wav",
+   "lang": "fr_fr",
+   "ref": "nous sommes d'accord avec la d\u00e9claration de l'usoc comit\u00e9 olympique des \u00e9tats-unis selon laquelle les int\u00e9r\u00eats de nos athl\u00e8tes et de nos clubs ainsi que de leur sport pourraient \u00eatre mieux servis. cela peut \u00eatre fait en allant de l'avant et en proc\u00e9dant plut\u00f4t \u00e0 des changements significatifs au sein de notre organisation qu'\u00e0 la r\u00e9vocation d'accr\u00e9ditation",
+   "hyp": "Nous sommes d'accord avec la d\u00e9claration de l'USOC, Comit\u00e9 Olympique des \u00c9tats-Unis,  selon laquelle les int\u00e9r\u00eats de nos athl\u00e8tes et de nos clubs, ainsi que de leurs sports,  pourraient \u00eatre mieux servis. Cela peut \u00eatre fait en allant de l'avant et en proc\u00e9dant plut\u00f4t  \u00e0 des changements significatifs au sein de notre organisation qu'\u00e0 la r\u00e9vocation d'accr\u00e9ditation.",
+   "detected": "fr",
+   "sec": 0.71,
+   "dur": 23.4,
+   "wer": 0.031746031746031744
+  },
+  {
+   "file": "audio/hr_hr_1.wav",
+   "lang": "hr_hr",
+   "ref": "tijekom no\u0107i izra\u0111eno je izme\u0111u 150 i 200 kopija koje su sada poznate pod nazivom dunlap broadsides",
+   "hyp": "Tikom no\u0107i izra\u0111eno je izme\u0111u 150 i 200 kopija koje su sada poznate pod nazivom Dunlap Broad Sides.",
+   "detected": "hr",
+   "sec": 0.43,
+   "dur": 8.04,
+   "wer": 0.17647058823529413
+  },
+  {
+   "file": "audio/hr_hr_2.wav",
+   "lang": "hr_hr",
+   "ref": "iako se pokazalo da jedno eksperimentalno cjepivo mo\u017ee smanjiti smrtnost od ebole dosad nijedan lijek nije dokazano prikladan za lije\u010denje postoje\u0107e infekcije",
+   "hyp": "Iako se pokazalo da jedno eksperimentalno cijepivo mo\u017ee smanjiti smrtnost odebole,  do sad nijedan lijek nije dokazano prikladan za lije\u010denje postoje\u0107e infekcije.",
+   "detected": "hr",
+   "sec": 0.54,
+   "dur": 11.94,
+   "wer": 0.18181818181818182
+  },
+  {
+   "file": "audio/hu_hu_1.wav",
+   "lang": "hu_hu",
+   "ref": "hongkong nev\u00e9t a hongkong szigetr\u0151l kapta \u00e9s ez a hely sok turista sz\u00e1m\u00e1ra a figyelem k\u00f6z\u00e9ppontj\u00e1ban \u00e1ll",
+   "hyp": "Hongkong nev\u00e9t a Hongkong szigetr\u0151l kapta, \u00e9s ez a hely sok turista sz\u00e1m\u00e1ra a figyelem k\u00f6z\u00e9ppontj\u00e1ban \u00e1ll.",
+   "detected": "hu",
+   "sec": 0.47,
+   "dur": 12.06,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/hu_hu_2.wav",
+   "lang": "hu_hu",
+   "ref": "n\u00e9h\u00e1nyan \u00fagy v\u00e9lt\u00e9k igaza volt de sokan hitt\u00e9k az ellenkez\u0151j\u00e9t; hogy a naprendszer a f\u00f6ld k\u00f6r\u00fcl forog bele\u00e9rtve a napot s\u0151t a t\u00f6bbi csillagot is",
+   "hyp": "N\u00e9h\u00e1nyan \u00fagy v\u00e9rt\u00e9k, igaza volt, de sokkal hitt\u00e9k az ellenkez\u0151j\u00e9t, hogy a naprendszer a f\u00f6lt\u00f6r\u0151 forog, bele\u00e9rtve a napot, s\u0151t a t\u00f6bbi csillagot is.",
+   "detected": "hu",
+   "sec": 0.53,
+   "dur": 12.12,
+   "wer": 0.16
+  },
+  {
+   "file": "audio/pl_pl_1.wav",
+   "lang": "pl_pl",
+   "ref": "podr\u00f3\u017cni zwiedzaj\u0105cy pa\u0144stwa ob\u0142o\u017cone szczeg\u00f3lnie wysokimi podatkami mog\u0105 czasem zaoszcz\u0119dzi\u0107 sporo pieni\u0119dzy szczeg\u00f3lnie na takich towarach jak alkohol i tyto\u0144",
+   "hyp": "Podr\u00f3\u017cni zwiedzaj\u0105cy pa\u0144stwa ob\u0142o\u017cone szczeg\u00f3lnie wysokimi podatkami mog\u0105 czasem zaoszcz\u0119dzi\u0107 sporo pieni\u0119dzy, szczeg\u00f3lnie na takich towarach jak alkohol i tyto\u0144.",
+   "detected": "pl",
+   "sec": 0.55,
+   "dur": 12.12,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/pl_pl_2.wav",
+   "lang": "pl_pl",
+   "ref": "wi\u0119kszo\u015b\u0107 mniejszych wysp to narody niezale\u017cne lub sprzymierzone z francj\u0105 i s\u0142yn\u0105ce jako luksusowe nadmorskie miejscowo\u015bci wypoczynkowe",
+   "hyp": "Wi\u0119kszo\u015b\u0107 mniejszych wysp to narody niezale\u017cne lub sprzymierzone z Francj\u0105 i s\u0142yn\u0105ce jako luksusowe nadbalskie miejscowo\u015bci wypoczynkowe.",
+   "detected": "pl",
+   "sec": 0.46,
+   "dur": 7.68,
+   "wer": 0.058823529411764705
+  },
+  {
+   "file": "audio/pt_pt_1.wav",
+   "lang": "pt_pt",
+   "ref": "segundo informa\u00e7\u00f5es ele estava na casa dos 20 anos em uma declara\u00e7\u00e3o bieber disse que embora eu n\u00e3o estivesse presente nem diretamente envolvido neste tr\u00e1gico incidente meus pensamentos e ora\u00e7\u00f5es est\u00e3o com a fam\u00edlia da v\u00edtima",
+   "hyp": "segundo informa\u00e7\u00f5es ele estava na casa dos 20 anos em uma declara\u00e7\u00e3o bieber  disse que embora eu n\u00e3o tivesse presente nem diretamente envolvido neste  tr\u00e1gico incidente meus pensamentos e ora\u00e7\u00f5es est\u00e3o com a fam\u00edlia da v\u00edtima",
+   "detected": "pt",
+   "sec": 0.53,
+   "dur": 17.76,
+   "wer": 0.027777777777777776
+  },
+  {
+   "file": "audio/pt_pt_2.wav",
+   "lang": "pt_pt",
+   "ref": "constru\u00edda pelos eg\u00edpcios no s\u00e9culo 3 a.c. a grande pir\u00e2mide \u00e9 uma das muitas grandes estruturas de pir\u00e2mide constru\u00eddas para honrar fara\u00f3s mortos",
+   "hyp": "Constru\u00edda pelos eg\u00edpcios no s\u00e9culo III a.C., a Grande Pir\u00e2mide \u00e9 uma das muitas grandes estruturas da pir\u00e2mide constru\u00eddas para honrar fara\u00f3s mortos.",
+   "detected": "pt",
+   "sec": 0.45,
+   "dur": 13.62,
+   "wer": 0.08333333333333333
+  },
+  {
+   "file": "audio/sv_se_1.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nens yta utg\u00f6rs av stenar och stoft m\u00e5nens yttre lager kallas skorpan",
+   "hyp": "M\u00e5nads yta utg\u00f6rs av stenar och stoft. M\u00e5nads yttre lager kallas skorpan.",
+   "detected": "sv",
+   "sec": 0.42,
+   "dur": 5.76,
+   "wer": 0.16666666666666666
+  },
+  {
+   "file": "audio/sv_se_2.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nga tyska bakverk har ocks\u00e5 mandlar hasseln\u00f6tter och andra n\u00f6tter popul\u00e4ra kakor passar ofta s\u00e4rskilt bra med en kopp starkt kaffe",
+   "hyp": "M\u00e5nga tyska bakverk har ocks\u00e5 mandlar, hasseln\u00f6tter och andra n\u00f6tter.  Popul\u00e4ra kakor passar ofta s\u00e4rskilt bra med en kopp starkt kaffe.",
+   "detected": "sv",
+   "sec": 0.48,
+   "dur": 12.78,
+   "wer": 0.0
+  }
+ ],
+ "faster-whisper:large-v3-turbo:float16": [
+  {
+   "file": "audio/de_de_1.wav",
+   "lang": "de_de",
+   "ref": "f\u00fcr die besten aussichten auf hongkong sollten sie die insel verlassen und zum gegen\u00fcberliegenden ufer von kowloon fahren",
+   "hyp": "F\u00fcr die besten Aussichten auf Hongkong sollten Sie die Insel verlassen und zum gegen\u00fcberliegenden Ufer von Kowloon fahren.",
+   "detected": "de",
+   "sec": 0.4,
+   "dur": 17.94,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/de_de_2.wav",
+   "lang": "de_de",
+   "ref": "er griff auch alles an was ins wasser kam selbst ein gro\u00dfer dinosaurier wie der t rex war ihm nicht gewachsen",
+   "hyp": "Er griff auch alles an, was ins Wasser kam. Selbst ein gro\u00dfer Dinosaurier wie der T-Rex war ihm nicht gewachsen.",
+   "detected": "de",
+   "sec": 0.38,
+   "dur": 11.16,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/en_us_1.wav",
+   "lang": "en_us",
+   "ref": "however due to the slow communication channels styles in the west could lag behind by 25 to 30 year",
+   "hyp": "However, due to the slow communication channels, styles in the west could lag behind by 25-30 years.",
+   "detected": "en",
+   "sec": 0.33,
+   "dur": 10.56,
+   "wer": 0.10526315789473684
+  },
+  {
+   "file": "audio/en_us_2.wav",
+   "lang": "en_us",
+   "ref": "all nouns alongside the word sie for you always begin with a capital letter even in the middle of a sentence",
+   "hyp": "All nouns alongside the words say for you always begin with a capital letter, even in the middle of a sentence.",
+   "detected": "en",
+   "sec": 0.33,
+   "dur": 8.76,
+   "wer": 0.09523809523809523
+  },
+  {
+   "file": "audio/es_es_1.wav",
+   "lang": "es_es",
+   "ref": "se recomienda enf\u00e1ticamente a los viajeros que se informen sobre cualquier riesgo de clima extremo en el \u00e1rea que visitan dado que ello puede afectar sus planes de viaje",
+   "hyp": "Se recomienda enf\u00e1ticamente a los viajeros que se informen sobre cualquier riesgo del  clima extremo en el \u00e1rea que visitan, dado que ello puede afectar sus planes de viaje.",
+   "detected": "es",
+   "sec": 0.45,
+   "dur": 12.84,
+   "wer": 0.034482758620689655
+  },
+  {
+   "file": "audio/es_es_2.wav",
+   "lang": "es_es",
+   "ref": "el uso adecuado de los blogs \u00abpuede empoderar a los alumnos para que sean m\u00e1s anal\u00edticos y cr\u00edticos a trav\u00e9s de la respuesta activa a los contenidos de internet pueden definir sus posturas en el contexto de los escritos de otros adem\u00e1s de establecer sus perspectivas sobre temas espec\u00edficos\u00bb oravec 2002",
+   "hyp": "El uso adecuado de los blogs puede empoderar a los alumnos para que sean m\u00e1s anal\u00edticos  y cr\u00edticos a trav\u00e9s de la respuesta activa a los contenidos de internet. Pueden definir  sus posturas en el contexto de los escritos de otros, adem\u00e1s de establecer sus perspectivas  sobre temas espec\u00edficos.  ORAVEC 2002",
+   "detected": "es",
+   "sec": 0.61,
+   "dur": 21.36,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/fi_fi_1.wav",
+   "lang": "fi_fi",
+   "ref": "yhdysvaltojen ilmailuviranomainen v\u00e4itt\u00e4\u00e4 ett\u00e4 nextgen on j\u00e4rjestelm\u00e4 jonka ansiosta lentokoneet voivat lent\u00e4\u00e4 lyhyempi\u00e4 reittej\u00e4 s\u00e4\u00e4st\u00e4\u00e4 vuosittain miljoonia gallonia polttoainetta ja v\u00e4hent\u00e4\u00e4 hiilidioksidip\u00e4\u00e4st\u00f6j\u00e4",
+   "hyp": "Yhdysvaltojen ilmailuviranomainen v\u00e4itt\u00e4\u00e4, ett\u00e4 NextGen on j\u00e4rjestelm\u00e4, jonka asiosta lentokoneet voivat lent\u00e4\u00e4 lyhyempi\u00e4 reittej\u00e4, s\u00e4\u00e4st\u00e4\u00e4 vuosittain miljoonia gallonia polttoainetta ja v\u00e4hent\u00e4\u00e4 hiilidioksidip\u00e4\u00e4st\u00f6j\u00e4.",
+   "detected": "fi",
+   "sec": 0.49,
+   "dur": 18.6,
+   "wer": 0.045454545454545456
+  },
+  {
+   "file": "audio/fi_fi_2.wav",
+   "lang": "fi_fi",
+   "ref": "sundarban on julistettu unescon maailmanperint\u00f6kohteeksi mets\u00e4n intian puolella sijaitsevaa osaa kutsutaan sundarbanin kansallispuistoksi",
+   "hyp": "Sundarban on julistettu Unescon maailmanperint\u00f6kohteeksi. Mets\u00e4n Intian puolella sijaitsevaa osaa kutsutaan Sundarbaniin kaunsallispuistoksi.",
+   "detected": "fi",
+   "sec": 0.45,
+   "dur": 15.24,
+   "wer": 0.15384615384615385
+  },
+  {
+   "file": "audio/fr_fr_1.wav",
+   "lang": "fr_fr",
+   "ref": "l'accident a eu lieu en terrain montagneux et il semblerait que cela ait \u00e9t\u00e9 caus\u00e9 par un incendie malveillant",
+   "hyp": "L'accident a eu lieu en terrain montagneux et il semblerait que cela ait \u00e9t\u00e9 caus\u00e9 par un incendie malveillant.",
+   "detected": "fr",
+   "sec": 0.37,
+   "dur": 10.2,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/fr_fr_2.wav",
+   "lang": "fr_fr",
+   "ref": "nous sommes d'accord avec la d\u00e9claration de l'usoc comit\u00e9 olympique des \u00e9tats-unis selon laquelle les int\u00e9r\u00eats de nos athl\u00e8tes et de nos clubs ainsi que de leur sport pourraient \u00eatre mieux servis. cela peut \u00eatre fait en allant de l'avant et en proc\u00e9dant plut\u00f4t \u00e0 des changements significatifs au sein de notre organisation qu'\u00e0 la r\u00e9vocation d'accr\u00e9ditation",
+   "hyp": "Nous sommes d'accord avec la d\u00e9claration de l'USOC, Comit\u00e9 Olympique des Etats-Unis,  selon laquelle les int\u00e9r\u00eats de nos athl\u00e8tes et de nos clubs, ainsi que de leur sport,  pourraient \u00eatre mieux servis. Cela peut \u00eatre fait en allant de l'avant et en proc\u00e9dant plut\u00f4t  \u00e0 des changements significatifs au sein de notre organisation qu'\u00e0 la r\u00e9vocation d'accr\u00e9ditation.",
+   "detected": "fr",
+   "sec": 0.64,
+   "dur": 23.4,
+   "wer": 0.015873015873015872
+  },
+  {
+   "file": "audio/hr_hr_1.wav",
+   "lang": "hr_hr",
+   "ref": "tijekom no\u0107i izra\u0111eno je izme\u0111u 150 i 200 kopija koje su sada poznate pod nazivom dunlap broadsides",
+   "hyp": "Tikom no\u0107i izra\u0111eno je izme\u0111u 150 i 200 kopija koje su sada poznate pod nazivom Dunlap Broad Sides.",
+   "detected": "hr",
+   "sec": 0.38,
+   "dur": 8.04,
+   "wer": 0.17647058823529413
+  },
+  {
+   "file": "audio/hr_hr_2.wav",
+   "lang": "hr_hr",
+   "ref": "iako se pokazalo da jedno eksperimentalno cjepivo mo\u017ee smanjiti smrtnost od ebole dosad nijedan lijek nije dokazano prikladan za lije\u010denje postoje\u0107e infekcije",
+   "hyp": "Iako se pokazalo da jedno eksperimentalno cijepivo mo\u017ee smanjiti smrtnost od ebole,  do sad nijedan lijek nije dokazano prikladan za lije\u010denje postoje\u0107e infekcije.",
+   "detected": "hr",
+   "sec": 0.47,
+   "dur": 11.94,
+   "wer": 0.13636363636363635
+  },
+  {
+   "file": "audio/hu_hu_1.wav",
+   "lang": "hu_hu",
+   "ref": "hongkong nev\u00e9t a hongkong szigetr\u0151l kapta \u00e9s ez a hely sok turista sz\u00e1m\u00e1ra a figyelem k\u00f6z\u00e9ppontj\u00e1ban \u00e1ll",
+   "hyp": "Hongkong nev\u00e9t a Hongkong szigetr\u0151l kapta, \u00e9s ez a hely sok turista sz\u00e1m\u00e1ra a figyelem k\u00f6z\u00e9ppontj\u00e1ban \u00e1ll.",
+   "detected": "hu",
+   "sec": 0.42,
+   "dur": 12.06,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/hu_hu_2.wav",
+   "lang": "hu_hu",
+   "ref": "n\u00e9h\u00e1nyan \u00fagy v\u00e9lt\u00e9k igaza volt de sokan hitt\u00e9k az ellenkez\u0151j\u00e9t; hogy a naprendszer a f\u00f6ld k\u00f6r\u00fcl forog bele\u00e9rtve a napot s\u0151t a t\u00f6bbi csillagot is",
+   "hyp": "N\u00e9h\u00e1nyan \u00fagy v\u00e9rt\u00e9k, igaza volt, de sokkal hitt\u00e9k az ellenkez\u0151j\u00e9t, hogy a naprendszer a f\u00f6lt\u00f6r\u0151 forog, bele\u00e9rtve a napot, s\u0151t a t\u00f6bbi csillagot is.",
+   "detected": "hu",
+   "sec": 0.45,
+   "dur": 12.12,
+   "wer": 0.16
+  },
+  {
+   "file": "audio/pl_pl_1.wav",
+   "lang": "pl_pl",
+   "ref": "podr\u00f3\u017cni zwiedzaj\u0105cy pa\u0144stwa ob\u0142o\u017cone szczeg\u00f3lnie wysokimi podatkami mog\u0105 czasem zaoszcz\u0119dzi\u0107 sporo pieni\u0119dzy szczeg\u00f3lnie na takich towarach jak alkohol i tyto\u0144",
+   "hyp": "Podr\u00f3\u017cni zwiedzaj\u0105cy pa\u0144stwa ob\u0142o\u017cone szczeg\u00f3lnie wysokimi podatkami mog\u0105 czasem zaoszcz\u0119dzi\u0107 sporo pieni\u0119dzy, szczeg\u00f3lnie na takich towarach jak alkohol i tyto\u0144.",
+   "detected": "pl",
+   "sec": 0.41,
+   "dur": 12.12,
+   "wer": 0.0
+  },
+  {
+   "file": "audio/pl_pl_2.wav",
+   "lang": "pl_pl",
+   "ref": "wi\u0119kszo\u015b\u0107 mniejszych wysp to narody niezale\u017cne lub sprzymierzone z francj\u0105 i s\u0142yn\u0105ce jako luksusowe nadmorskie miejscowo\u015bci wypoczynkowe",
+   "hyp": "Wi\u0119kszo\u015b\u0107 mniejszych wysp to narody niezale\u017cne lub sprzymierzone z Francj\u0105 i s\u0142yn\u0105ce jako luksusowe nadbalskie miejscowo\u015bci wypoczynkowe.",
+   "detected": "pl",
+   "sec": 0.4,
+   "dur": 7.68,
+   "wer": 0.058823529411764705
+  },
+  {
+   "file": "audio/pt_pt_1.wav",
+   "lang": "pt_pt",
+   "ref": "segundo informa\u00e7\u00f5es ele estava na casa dos 20 anos em uma declara\u00e7\u00e3o bieber disse que embora eu n\u00e3o estivesse presente nem diretamente envolvido neste tr\u00e1gico incidente meus pensamentos e ora\u00e7\u00f5es est\u00e3o com a fam\u00edlia da v\u00edtima",
+   "hyp": "segundo informa\u00e7\u00f5es ele estava na casa dos 20 anos em uma declara\u00e7\u00e3o bieber  disse que embora eu n\u00e3o tivesse presente nem diretamente envolvido neste  tr\u00e1gico incidente meus pensamentos e ora\u00e7\u00f5es est\u00e3o com a fam\u00edlia da v\u00edtima",
+   "detected": "pt",
+   "sec": 0.46,
+   "dur": 17.76,
+   "wer": 0.027777777777777776
+  },
+  {
+   "file": "audio/pt_pt_2.wav",
+   "lang": "pt_pt",
+   "ref": "constru\u00edda pelos eg\u00edpcios no s\u00e9culo 3 a.c. a grande pir\u00e2mide \u00e9 uma das muitas grandes estruturas de pir\u00e2mide constru\u00eddas para honrar fara\u00f3s mortos",
+   "hyp": "Constru\u00edda pelos eg\u00edpcios no s\u00e9culo 3 a.C., a Grande Pir\u00e2mide \u00e9 uma das muitas grandes estruturas da pir\u00e2mide constru\u00eddas para honrar fara\u00f3s mortos.",
+   "detected": "pt",
+   "sec": 0.39,
+   "dur": 13.62,
+   "wer": 0.041666666666666664
+  },
+  {
+   "file": "audio/sv_se_1.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nens yta utg\u00f6rs av stenar och stoft m\u00e5nens yttre lager kallas skorpan",
+   "hyp": "M\u00e5nads yta utg\u00f6rs av stenar och stoft. M\u00e5nads yttre lager kallas skorpan.",
+   "detected": "sv",
+   "sec": 0.35,
+   "dur": 5.76,
+   "wer": 0.16666666666666666
+  },
+  {
+   "file": "audio/sv_se_2.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nga tyska bakverk har ocks\u00e5 mandlar hasseln\u00f6tter och andra n\u00f6tter popul\u00e4ra kakor passar ofta s\u00e4rskilt bra med en kopp starkt kaffe",
+   "hyp": "M\u00e5nga tyska bakverk har ocks\u00e5 mandlar, hasseln\u00f6tter och andra n\u00f6tter.  Popul\u00e4ra kakor passar ofta s\u00e4rskilt bra med en kopp starkt kaffe.",
+   "detected": "sv",
+   "sec": 0.43,
+   "dur": 12.78,
+   "wer": 0.0
+  }
+ ],
+ "faster-whisper:distil-large-v3:int8_float16": [
+  {
+   "file": "audio/de_de_1.wav",
+   "lang": "de_de",
+   "ref": "f\u00fcr die besten aussichten auf hongkong sollten sie die insel verlassen und zum gegen\u00fcberliegenden ufer von kowloon fahren",
+   "hyp": "For the best outsteads on Hong Kong,  should they the Insel  for the Insel,  and to the over-leging-upon-of-the-ofer from Kowloon  Farran.  Thank you.",
+   "detected": "en",
+   "sec": 0.78,
+   "dur": 17.94,
+   "wer": 1.4444444444444444
+  },
+  {
+   "file": "audio/de_de_2.wav",
+   "lang": "de_de",
+   "ref": "er griff auch alles an was ins wasser kam selbst ein gro\u00dfer dinosaurier wie der t rex war ihm nicht gewachsen",
+   "hyp": "He griff all of all of what in the water came.  Even a great dinosauria, like the T-Rex, was not grown.",
+   "detected": "en",
+   "sec": 0.48,
+   "dur": 11.16,
+   "wer": 0.9523809523809523
+  },
+  {
+   "file": "audio/en_us_1.wav",
+   "lang": "en_us",
+   "ref": "however due to the slow communication channels styles in the west could lag behind by 25 to 30 year",
+   "hyp": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years.",
+   "detected": "en",
+   "sec": 0.4,
+   "dur": 10.56,
+   "wer": 0.05263157894736842
+  },
+  {
+   "file": "audio/en_us_2.wav",
+   "lang": "en_us",
+   "ref": "all nouns alongside the word sie for you always begin with a capital letter even in the middle of a sentence",
+   "hyp": "All nouns alongside the world say for you always begin with a capital letter, even in the middle of a sentence.",
+   "detected": "en",
+   "sec": 0.37,
+   "dur": 8.76,
+   "wer": 0.09523809523809523
+  },
+  {
+   "file": "audio/es_es_1.wav",
+   "lang": "es_es",
+   "ref": "se recomienda enf\u00e1ticamente a los viajeros que se informen sobre cualquier riesgo de clima extremo en el \u00e1rea que visitan dado que ello puede afectar sus planes de viaje",
+   "hyp": "It's recommend emphatically to the  that the people who are informed about  any risk of the climate extreme in the area that visit,  given that it can affect their plans of the  voyage.",
+   "detected": "en",
+   "sec": 0.56,
+   "dur": 12.84,
+   "wer": 1.1724137931034482
+  },
+  {
+   "file": "audio/es_es_2.wav",
+   "lang": "es_es",
+   "ref": "el uso adecuado de los blogs \u00abpuede empoderar a los alumnos para que sean m\u00e1s anal\u00edticos y cr\u00edticos a trav\u00e9s de la respuesta activa a los contenidos de internet pueden definir sus posturas en el contexto de los escritos de otros adem\u00e1s de establecer sus perspectivas sobre temas espec\u00edficos\u00bb oravec 2002",
+   "hyp": "The use adequate of the blogs can empower  to the students for that are more analytical and critical  through the response active to the content of internet.  They can define their postures in the context of the  the scripted of others,  and establishes their perspectives  on the topics specific.  Orabeck, 2002",
+   "detected": "en",
+   "sec": 0.71,
+   "dur": 21.36,
+   "wer": 0.9607843137254902
+  },
+  {
+   "file": "audio/fi_fi_1.wav",
+   "lang": "fi_fi",
+   "ref": "yhdysvaltojen ilmailuviranomainen v\u00e4itt\u00e4\u00e4 ett\u00e4 nextgen on j\u00e4rjestelm\u00e4 jonka ansiosta lentokoneet voivat lent\u00e4\u00e4 lyhyempi\u00e4 reittej\u00e4 s\u00e4\u00e4st\u00e4\u00e4 vuosittain miljoonia gallonia polttoainetta ja v\u00e4hent\u00e4\u00e4 hiilidioksidip\u00e4\u00e4st\u00f6j\u00e4",
+   "hyp": "The U.S. VALOVILUVIRANEMAYN  VIII is a system,  which on the next-gen-en  can't let's lander  leantphernipyreighter,  saise to  millions of gallons  paltto-aannet and  tovents and  to hilly-dioxidepastroes.  Thank you.",
+   "detected": "en",
+   "sec": 1.0,
+   "dur": 18.6,
+   "wer": 1.5454545454545454
+  },
+  {
+   "file": "audio/fi_fi_2.wav",
+   "lang": "fi_fi",
+   "ref": "sundarban on julistettu unescon maailmanperint\u00f6kohteeksi mets\u00e4n intian puolella sijaitsevaa osaa kutsutaan sundarbanin kansallispuistoksi",
+   "hyp": "Sundarban is announced UNESCO's world-perintoctees.  Metsan-Intyrean-Polelea,  called Sundarbanin Kaunsalispuistooks.  I'm",
+   "detected": "fi",
+   "sec": 0.69,
+   "dur": 15.24,
+   "wer": 1.0
+  },
+  {
+   "file": "audio/fr_fr_1.wav",
+   "lang": "fr_fr",
+   "ref": "l'accident a eu lieu en terrain montagneux et il semblerait que cela ait \u00e9t\u00e9 caus\u00e9 par un incendie malveillant",
+   "hyp": "The accident had been in a terrain mountaineuse, and it would be caused by an incandes malveillance.",
+   "detected": "en",
+   "sec": 0.41,
+   "dur": 10.2,
+   "wer": 0.9
+  },
+  {
+   "file": "audio/fr_fr_2.wav",
+   "lang": "fr_fr",
+   "ref": "nous sommes d'accord avec la d\u00e9claration de l'usoc comit\u00e9 olympique des \u00e9tats-unis selon laquelle les int\u00e9r\u00eats de nos athl\u00e8tes et de nos clubs ainsi que de leur sport pourraient \u00eatre mieux servis. cela peut \u00eatre fait en allant de l'avant et en proc\u00e9dant plut\u00f4t \u00e0 des changements significatifs au sein de notre organisation qu'\u00e0 la r\u00e9vocation d'accr\u00e9ditation",
+   "hyp": "We are with the declaration of the Usoc, Committee Olympic of the United,  which the interests of our athletes and of our clubs,  and of their sports, for their own better served.  It can be made in going to the advance and in proceeding  more to the changements significant in our organization  than the revocation of accreditation.  Thank you.",
+   "detected": "en",
+   "sec": 0.83,
+   "dur": 23.4,
+   "wer": 0.9523809523809523
+  },
+  {
+   "file": "audio/hr_hr_1.wav",
+   "lang": "hr_hr",
+   "ref": "tijekom no\u0107i izra\u0111eno je izme\u0111u 150 i 200 kopija koje su sada poznate pod nazivom dunlap broadsides",
+   "hyp": "Ticom noche is made between 150 and 200 copies,  which are now known to the name Danlep Broad Sides.",
+   "detected": "en",
+   "sec": 0.43,
+   "dur": 8.04,
+   "wer": 1.0
+  },
+  {
+   "file": "audio/hr_hr_2.wav",
+   "lang": "hr_hr",
+   "ref": "iako se pokazalo da jedno eksperimentalno cjepivo mo\u017ee smanjiti smrtnost od ebole dosad nijedan lijek nije dokazano prikladan za lije\u010denje postoje\u0107e infekcije",
+   "hyp": "Even if it was also  that one experimental  Cepiovo  can smutness  from the bole,  do not  not yet any  lyeck is  not done  for the  treatment",
+   "detected": "en",
+   "sec": 1.04,
+   "dur": 11.94,
+   "wer": 1.1818181818181819
+  },
+  {
+   "file": "audio/hu_hu_1.wav",
+   "lang": "hu_hu",
+   "ref": "hongkong nev\u00e9t a hongkong szigetr\u0151l kapta \u00e9s ez a hely sok turista sz\u00e1m\u00e1ra a figyelem k\u00f6z\u00e9ppontj\u00e1ban \u00e1ll",
+   "hyp": "Hong Kong name is the Hong Kong's Siketrault, and this is a hell isoch tourists  at the time on the FILEM KOSIPPONCYBAN-SYBANL.",
+   "detected": "en",
+   "sec": 0.68,
+   "dur": 12.06,
+   "wer": 1.3529411764705883
+  },
+  {
+   "file": "audio/hu_hu_2.wav",
+   "lang": "hu_hu",
+   "ref": "n\u00e9h\u00e1nyan \u00fagy v\u00e9lt\u00e9k igaza volt de sokan hitt\u00e9k az ellenkez\u0151j\u00e9t; hogy a naprendszer a f\u00f6ld k\u00f6r\u00fcl forog bele\u00e9rtve a napot s\u0151t a t\u00f6bbi csillagot is",
+   "hyp": "Some of them would beerted it, it was a good, but they  they'd like to hit the other thaneuvre,  belegered from, belegered the night,  and the other stargillogs,  and the other stars.  Thank you.",
+   "detected": "en",
+   "sec": 0.76,
+   "dur": 12.12,
+   "wer": 1.4
+  },
+  {
+   "file": "audio/pl_pl_1.wav",
+   "lang": "pl_pl",
+   "ref": "podr\u00f3\u017cni zwiedzaj\u0105cy pa\u0144stwa ob\u0142o\u017cone szczeg\u00f3lnie wysokimi podatkami mog\u0105 czasem zaoszcz\u0119dzi\u0107 sporo pieni\u0119dzy szczeg\u00f3lnie na takich towarach jak alkohol i tyto\u0144",
+   "hyp": "Podrujury, zviedzziahs,  especially withsotk,  many,  may sometimes,  to be able toshendied  sporeau  particularly on  such as  alcohol and tyton.  Thank you.",
+   "detected": "en",
+   "sec": 0.84,
+   "dur": 12.12,
+   "wer": 1.05
+  },
+  {
+   "file": "audio/pl_pl_2.wav",
+   "lang": "pl_pl",
+   "ref": "wi\u0119kszo\u015b\u0107 mniejszych wysp to narody niezale\u017cne lub sprzymierzone z francj\u0105 i s\u0142yn\u0105ce jako luksusowe nadmorskie miejscowo\u015bci wypoczynkowe",
+   "hyp": "The most of the Mnishish Vizp is the Naredesne or  spruised and are known as luxus-nabas-boskian  Miltboskian Miltboskwowsi Vipchinko.",
+   "detected": "en",
+   "sec": 0.55,
+   "dur": 7.68,
+   "wer": 1.2352941176470589
+  },
+  {
+   "file": "audio/pt_pt_1.wav",
+   "lang": "pt_pt",
+   "ref": "segundo informa\u00e7\u00f5es ele estava na casa dos 20 anos em uma declara\u00e7\u00e3o bieber disse que embora eu n\u00e3o estivesse presente nem diretamente envolvido neste tr\u00e1gico incidente meus pensamentos e ora\u00e7\u00f5es est\u00e3o com a fam\u00edlia da v\u00edtima",
+   "hyp": "According to informations, he was in the house of 20 years.  In a declaration, Biber said that,  \"...embor said that,  \"...n't even directly involved in this tragic incident,  my thoughts and orations are with the family of the victim.\"  Thank you.",
+   "detected": "en",
+   "sec": 0.76,
+   "dur": 17.76,
+   "wer": 1.1388888888888888
+  },
+  {
+   "file": "audio/pt_pt_2.wav",
+   "lang": "pt_pt",
+   "ref": "constru\u00edda pelos eg\u00edpcios no s\u00e9culo 3 a.c. a grande pir\u00e2mide \u00e9 uma das muitas grandes estruturas de pir\u00e2mide constru\u00eddas para honrar fara\u00f3s mortos",
+   "hyp": "Construed by the Egyptians in the century 3 before Christ, the Grand Pyramid is one of  the many great structures of the Pyramid, constructed to honor the pharaos  mortals.",
+   "detected": "en",
+   "sec": 0.5,
+   "dur": 13.62,
+   "wer": 1.1666666666666667
+  },
+  {
+   "file": "audio/sv_se_1.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nens yta utg\u00f6rs av stenar och stoft m\u00e5nens yttre lager kallas skorpan",
+   "hyp": "Monas utgues of steno and stoff, monas utterlager called Scorpan.",
+   "detected": "en",
+   "sec": 0.39,
+   "dur": 5.76,
+   "wer": 1.0
+  },
+  {
+   "file": "audio/sv_se_2.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nga tyska bakverk har ocks\u00e5 mandlar hasseln\u00f6tter och andra n\u00f6tter popul\u00e4ra kakor passar ofta s\u00e4rskilt bra med en kopp starkt kaffe",
+   "hyp": "Many Tyska bakwerk have also mandler, hasslenutters and other nutter.  Popular cackers are often especially good with a cup-starct coffee.  Thank you.",
+   "detected": "en",
+   "sec": 0.63,
+   "dur": 12.78,
+   "wer": 1.0476190476190477
+  }
+ ],
+ "faster-whisper:distil-large-v3:float16": [
+  {
+   "file": "audio/de_de_1.wav",
+   "lang": "de_de",
+   "ref": "f\u00fcr die besten aussichten auf hongkong sollten sie die insel verlassen und zum gegen\u00fcberliegenden ufer von kowloon fahren",
+   "hyp": "For the best outsteads on Hong Kong,  should they leave the island and to the  over-leging the Ufer of Kowloon  Farran.  Thank you.",
+   "detected": "en",
+   "sec": 0.65,
+   "dur": 17.94,
+   "wer": 1.2222222222222223
+  },
+  {
+   "file": "audio/de_de_2.wav",
+   "lang": "de_de",
+   "ref": "er griff auch alles an was ins wasser kam selbst ein gro\u00dfer dinosaurier wie der t rex war ihm nicht gewachsen",
+   "hyp": "He griff all of all of what in the water came.  Even a great dinosauria, like the T-Rex, was not grown.",
+   "detected": "en",
+   "sec": 0.39,
+   "dur": 11.16,
+   "wer": 0.9523809523809523
+  },
+  {
+   "file": "audio/en_us_1.wav",
+   "lang": "en_us",
+   "ref": "however due to the slow communication channels styles in the west could lag behind by 25 to 30 year",
+   "hyp": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years.",
+   "detected": "en",
+   "sec": 0.32,
+   "dur": 10.56,
+   "wer": 0.05263157894736842
+  },
+  {
+   "file": "audio/en_us_2.wav",
+   "lang": "en_us",
+   "ref": "all nouns alongside the word sie for you always begin with a capital letter even in the middle of a sentence",
+   "hyp": "All nouns alongside the world say for you always begin with a capital letter, even in the middle of a sentence.",
+   "detected": "en",
+   "sec": 0.32,
+   "dur": 8.76,
+   "wer": 0.09523809523809523
+  },
+  {
+   "file": "audio/es_es_1.wav",
+   "lang": "es_es",
+   "ref": "se recomienda enf\u00e1ticamente a los viajeros que se informen sobre cualquier riesgo de clima extremo en el \u00e1rea que visitan dado que ello puede afectar sus planes de viaje",
+   "hyp": "It's recommend emphatically to the  that the people who are informed  about any risk of the climate extreme in the area that visit,  given that it can affect their plans of a voyage.  Thank you.",
+   "detected": "en",
+   "sec": 0.6,
+   "dur": 12.84,
+   "wer": 1.2413793103448276
+  },
+  {
+   "file": "audio/es_es_2.wav",
+   "lang": "es_es",
+   "ref": "el uso adecuado de los blogs \u00abpuede empoderar a los alumnos para que sean m\u00e1s anal\u00edticos y cr\u00edticos a trav\u00e9s de la respuesta activa a los contenidos de internet pueden definir sus posturas en el contexto de los escritos de otros adem\u00e1s de establecer sus perspectivas sobre temas espec\u00edficos\u00bb oravec 2002",
+   "hyp": "The use adequate of the blogs can empower  to the students for that are more analytical and critiques  a tritutes,  to the response active to the content of internet.  They can define their postures in the context of the  scripted of others,  and establishes their perspectives  on topics specific.  Orabeck, 2002",
+   "detected": "en",
+   "sec": 0.61,
+   "dur": 21.36,
+   "wer": 0.9215686274509803
+  },
+  {
+   "file": "audio/fi_fi_1.wav",
+   "lang": "fi_fi",
+   "ref": "yhdysvaltojen ilmailuviranomainen v\u00e4itt\u00e4\u00e4 ett\u00e4 nextgen on j\u00e4rjestelm\u00e4 jonka ansiosta lentokoneet voivat lent\u00e4\u00e4 lyhyempi\u00e4 reittej\u00e4 s\u00e4\u00e4st\u00e4\u00e4 vuosittain miljoonia gallonia polttoainetta ja v\u00e4hent\u00e4\u00e4 hiilidioksidip\u00e4\u00e4st\u00f6j\u00e4",
+   "hyp": "The U.S. VALTOVILVIRANOMAYN  VIII is a system,  which on the next-gen-enottened,  can't lettings  millions of gallons of  paltto-aannet and  tovents and  to hillyoxidipaestoes.  Thank you.",
+   "detected": "en",
+   "sec": 0.8,
+   "dur": 18.6,
+   "wer": 1.3181818181818181
+  },
+  {
+   "file": "audio/fi_fi_2.wav",
+   "lang": "fi_fi",
+   "ref": "sundarban on julistettu unescon maailmanperint\u00f6kohteeksi mets\u00e4n intian puolella sijaitsevaa osaa kutsutaan sundarbanin kansallispuistoksi",
+   "hyp": "Sundarban is announced UNESCO's world-perintoctees.  Metsan-Intian-pola-siaeusiedsevae-aughts,  called Sundarbanin Kaunsallis puistok.",
+   "detected": "fi",
+   "sec": 0.62,
+   "dur": 15.24,
+   "wer": 1.0
+  },
+  {
+   "file": "audio/fr_fr_1.wav",
+   "lang": "fr_fr",
+   "ref": "l'accident a eu lieu en terrain montagneux et il semblerait que cela ait \u00e9t\u00e9 caus\u00e9 par un incendie malveillant",
+   "hyp": "The accident had been in a terrain mountaineuse, and it would be caused by an incandes malveillance.",
+   "detected": "en",
+   "sec": 0.33,
+   "dur": 10.2,
+   "wer": 0.9
+  },
+  {
+   "file": "audio/fr_fr_2.wav",
+   "lang": "fr_fr",
+   "ref": "nous sommes d'accord avec la d\u00e9claration de l'usoc comit\u00e9 olympique des \u00e9tats-unis selon laquelle les int\u00e9r\u00eats de nos athl\u00e8tes et de nos clubs ainsi que de leur sport pourraient \u00eatre mieux servis. cela peut \u00eatre fait en allant de l'avant et en proc\u00e9dant plut\u00f4t \u00e0 des changements significatifs au sein de notre organisation qu'\u00e0 la r\u00e9vocation d'accr\u00e9ditation",
+   "hyp": "We are with the declaration of the USOC, Committee Olympic of the US-UIC,  which the interests of our clubs, and of their sports,  for their own better served.  It can be made, in allant to the advance and in proceeding  more to the changements significant in our organization  than the revocation of accreditation.  Thank you.",
+   "detected": "en",
+   "sec": 0.72,
+   "dur": 23.4,
+   "wer": 0.9365079365079365
+  },
+  {
+   "file": "audio/hr_hr_1.wav",
+   "lang": "hr_hr",
+   "ref": "tijekom no\u0107i izra\u0111eno je izme\u0111u 150 i 200 kopija koje su sada poznate pod nazivom dunlap broadsides",
+   "hyp": "Ticom noche is made between 150 and 200 copies,  which are now known under Danlep Broad Sides.",
+   "detected": "en",
+   "sec": 0.35,
+   "dur": 8.04,
+   "wer": 0.8823529411764706
+  },
+  {
+   "file": "audio/hr_hr_2.wav",
+   "lang": "hr_hr",
+   "ref": "iako se pokazalo da jedno eksperimentalno cjepivo mo\u017ee smanjiti smrtnost od ebole dosad nijedan lijek nije dokazano prikladan za lije\u010denje postoje\u0107e infekcije",
+   "hyp": "If it's been  that one experimental  Cepivo  can smertness  from the bole,  do not  not one  lique not  done for  for the  posteating  infection.",
+   "detected": "en",
+   "sec": 1.05,
+   "dur": 11.94,
+   "wer": 1.1363636363636365
+  },
+  {
+   "file": "audio/hu_hu_1.wav",
+   "lang": "hu_hu",
+   "ref": "hongkong nev\u00e9t a hongkong szigetr\u0151l kapta \u00e9s ez a hely sok turista sz\u00e1m\u00e1ra a figyelem k\u00f6z\u00e9ppontj\u00e1ban \u00e1ll",
+   "hyp": "Hong Kong name is the Hong Kong's Siketrault, and this is a Hellsok tourists  at the time on the FILEM KOSIEPONT-BANL.",
+   "detected": "en",
+   "sec": 0.54,
+   "dur": 12.06,
+   "wer": 1.2941176470588236
+  },
+  {
+   "file": "audio/hu_hu_2.wav",
+   "lang": "hu_hu",
+   "ref": "n\u00e9h\u00e1nyan \u00fagy v\u00e9lt\u00e9k igaza volt de sokan hitt\u00e9k az ellenkez\u0151j\u00e9t; hogy a naprendszer a f\u00f6ld k\u00f6r\u00fcl forog bele\u00e9rtve a napot s\u0151t a t\u00f6bbi csillagot is",
+   "hyp": "Some of them weretick, it was a good, but they thought they'd  the other people, they'd, that the NAPRENCERING, BELEJARDE THE NAPOT,  SUTE THEIRTHER OF THE NAPOT, SHUT THE TUMBING THEIRBING CHILOGOT IS.",
+   "detected": "en",
+   "sec": 0.48,
+   "dur": 12.12,
+   "wer": 1.32
+  },
+  {
+   "file": "audio/pl_pl_1.wav",
+   "lang": "pl_pl",
+   "ref": "podr\u00f3\u017cni zwiedzaj\u0105cy pa\u0144stwa ob\u0142o\u017cone szczeg\u00f3lnie wysokimi podatkami mog\u0105 czasem zaoszcz\u0119dzi\u0107 sporo pieni\u0119dzy szczeg\u00f3lnie na takich towarach jak alkohol i tyto\u0144",
+   "hyp": "Prodrujee, zviedzaii,  people, overlazoned,  especially with high-kidkim and  sometimes,  to be able toshendize  sporeau  on such products like alcohol and tyton.  Thank you.",
+   "detected": "en",
+   "sec": 0.69,
+   "dur": 12.12,
+   "wer": 1.2
+  },
+  {
+   "file": "audio/pl_pl_2.wav",
+   "lang": "pl_pl",
+   "ref": "wi\u0119kszo\u015b\u0107 mniejszych wysp to narody niezale\u017cne lub sprzymierzone z francj\u0105 i s\u0142yn\u0105ce jako luksusowe nadmorskie miejscowo\u015bci wypoczynkowe",
+   "hyp": "Most of the Mnishish Vizp are the Nogesne or  sprulysm, and are known as a luxus-nabas-boskian  Miltboskian Miltboskwowsi Vipchinko.",
+   "detected": "en",
+   "sec": 0.44,
+   "dur": 7.68,
+   "wer": 1.2352941176470589
+  },
+  {
+   "file": "audio/pt_pt_1.wav",
+   "lang": "pt_pt",
+   "ref": "segundo informa\u00e7\u00f5es ele estava na casa dos 20 anos em uma declara\u00e7\u00e3o bieber disse que embora eu n\u00e3o estivesse presente nem diretamente envolvido neste tr\u00e1gico incidente meus pensamentos e ora\u00e7\u00f5es est\u00e3o com a fam\u00edlia da v\u00edtima",
+   "hyp": "According to informations, he was in the house of 20 years.  In a declaration, Biber said that,  \"...emore I didn't have present,  ...in directly involved in this tragic incident,  my thoughts and orations are with the family of the victim.\"  Thank you.",
+   "detected": "en",
+   "sec": 0.63,
+   "dur": 17.76,
+   "wer": 1.1666666666666667
+  },
+  {
+   "file": "audio/pt_pt_2.wav",
+   "lang": "pt_pt",
+   "ref": "constru\u00edda pelos eg\u00edpcios no s\u00e9culo 3 a.c. a grande pir\u00e2mide \u00e9 uma das muitas grandes estruturas de pir\u00e2mide constru\u00eddas para honrar fara\u00f3s mortos",
+   "hyp": "Construed by the Egyptians in the century 3 before Christ, the Grand Pyramid is one of  the many great structures of the Pyramid constructed to honor for a faroes  mortals.",
+   "detected": "en",
+   "sec": 0.41,
+   "dur": 13.62,
+   "wer": 1.2083333333333333
+  },
+  {
+   "file": "audio/sv_se_1.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nens yta utg\u00f6rs av stenar och stoft m\u00e5nens yttre lager kallas skorpan",
+   "hyp": "Mona's utger's outgues of stener and stoft, Mona's utterrugher, called Scorpan.",
+   "detected": "en",
+   "sec": 0.34,
+   "dur": 5.76,
+   "wer": 1.0833333333333333
+  },
+  {
+   "file": "audio/sv_se_2.wav",
+   "lang": "sv_se",
+   "ref": "m\u00e5nga tyska bakverk har ocks\u00e5 mandlar hasseln\u00f6tter och andra n\u00f6tter popul\u00e4ra kakor passar ofta s\u00e4rskilt bra med en kopp starkt kaffe",
+   "hyp": "Many Tyska bakwerk have also mandler, hasslenutters and other nutter.  Popular cackers are often especially good with a cup-stark coffee.  Thank you.",
+   "detected": "en",
+   "sec": 0.51,
+   "dur": 12.78,
+   "wer": 1.0476190476190477
+  }
+ ]
+}

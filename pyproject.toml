@@ -1,0 +1,50 @@
+[project]
+name = "laclaungpt-multimodal-analysis"
+version = "0.1.0"
+description = "Phase 2 LaclauGPT multimodal analysis pipeline for EP2024 research on CSC Roihu, with legacy-compatible outputs."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "CC0-1.0" }
+authors = [{ name = "Tomi Toivio" }]
+dependencies = [
+  "deep-translator>=1.11,<2",
+  "easyocr>=1.7,<2",
+  "ollama>=0.4,<1",
+  "opencv-python-headless>=4.10,<5",
+  "openai-whisper>=20240930",
+  "pandas>=2.2,<3",
+  "pydantic>=2.9,<3",
+]
+
+[project.optional-dependencies]
+mongo = [
+  "pymongo>=4.10,<5",
+]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff>=0.11,<1",
+]
+# What the test suite imports at collection time. CI installs this extra so the
+# dependency list lives in exactly one place: a test that needs a new package
+# means declaring it here, not editing the workflow (see python-quality.yml).
+test = [
+  "pytest>=8.3,<9",
+  "pandas>=2.2,<3",
+  "rdflib>=7,<8",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["Keyframes", "Allas", "database", "logs", "whisper"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+# UP017 suggests `datetime.UTC` (3.11+). This repository targets >=3.11, but
+# keeping `timezone.utc` means the stage stays importable and smoke-testable
+# on an older local interpreter too. No behaviour difference.
+ignore = ["E501", "UP017"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

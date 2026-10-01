@@ -1,5 +1,6 @@
 from os import name, system
 import pandas as pd
+import os
 import ollama
 import json
 import logging
@@ -8,7 +9,6 @@ from datetime import datetime
 from pydantic import BaseModel
 from logging.handlers import RotatingFileHandler
 
-from streamlit import video
 logger = logging.getLogger(__name__)
 logging.basicConfig(handlers=[RotatingFileHandler('formula.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -23,6 +23,47 @@ c.execute('''CREATE TABLE IF NOT EXISTS populism
                 formula_of_populism_us text,
                 formula_of_populism_frontier text)''')
 conn.commit()
+
+DATASET_COUNTRY = {
+    "fi": ("FI", "fi"), "sv": ("SE", "sv"), "pl": ("PL", "pl"),
+    "pt": ("PT", "pt"), "de": ("DE", "de"), "es": ("ES", "es"),
+    "hu": ("HU", "hu"), "hr": ("HR", "hr"), "fr": ("FR", "fr"),
+    "bg": ("BG", "bg"),
+}
+_CODEBOOK_CACHE = {}
+
+
+def codebook_context_enabled():
+    return os.getenv("LACLAUGPT_ENRICHMENT_ENABLED", "0").casefold() in {"1", "true", "yes", "on"}
+
+
+def add_codebook_context(dataset_code, source_text):
+    """Append opt-in bilingual background context without changing source evidence."""
+    if not codebook_context_enabled():
+        return str(source_text), "", ""
+    try:
+        from roihu_codebooks import context_block, load_profile
+
+        country, language = DATASET_COUNTRY[dataset_code]
+        private_root = os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", ".")
+        cache_key = (private_root, country, language)
+        if cache_key not in _CODEBOOK_CACHE:
+            _CODEBOOK_CACHE[cache_key] = load_profile(private_root, country, language=language)
+        entries, profile = _CODEBOOK_CACHE[cache_key]
+        block, selection = context_block(
+            str(source_text), entries, country=country, language=language
+        )
+        if not block:
+            return str(source_text), json.dumps(selection, ensure_ascii=False, sort_keys=True), profile["fingerprint"]
+        return (
+            str(source_text) + "\n\n" + block,
+            json.dumps(selection, ensure_ascii=False, sort_keys=True),
+            profile["fingerprint"],
+        )
+    except Exception as exc:
+        logger.warning("Codebook context unavailable for %s: %s", dataset_code, exc)
+        return str(source_text), "", ""
+
 
 
 system_prompt = """
@@ -301,7 +342,7 @@ def get_response(user_prompt, system_prompt):
                "num_predict": 2048}
     try:
         # llama3.3:70b or gemma3:27b or qwen3:32b or mistral-large:123b or llama4:latest
-        response = ollama.chat(model="gemma3:27b", messages=[
+        response = ollama.chat(model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"), messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ], options=options, format=FormulaOfPopulism.model_json_schema())
@@ -325,6 +366,9 @@ def get_formula_of_populism(country):
         df["formula_of_populism_analysis"] = ""
         df["formula_of_populism_us"] = ""
         df["formula_of_populism_frontier"] = ""
+        if codebook_context_enabled():
+            df["formula_of_populism_codebook_context_json"] = ""
+            df["formula_of_populism_codebook_fingerprint"] = ""
         for index, row in df.iterrows():
           logger.info(f"Processing row {index} of {filename}")
           video_file = row['video_filename']
@@ -335,6 +379,10 @@ def get_formula_of_populism(country):
               formula_of_populism_us_text = ""
               formula_of_populism_frontier_text = ""
               user_prompt = row['summary_analysis']
+              user_prompt, codebook_context_json, codebook_fingerprint = add_codebook_context(country, user_prompt)
+              if codebook_context_enabled():
+                df.at[index, 'formula_of_populism_codebook_context_json'] = codebook_context_json
+                df.at[index, 'formula_of_populism_codebook_fingerprint'] = codebook_fingerprint
               logger.debug(user_prompt) 
               response = get_response(user_prompt, system_prompt)
               # Print response
@@ -380,6 +428,9 @@ def get_formula_of_populism(country):
               df.at[index, 'formula_of_populism_analysis'] = str(formula_of_populism_analysis)
               df.at[index, 'formula_of_populism_us'] = str(formula_of_populism_us_text)
               df.at[index, 'formula_of_populism_frontier'] = str(formula_of_populism_frontier_text)
+              if codebook_context_enabled():
+                df.at[index, 'formula_of_populism_codebook_context_json'] = json.dumps({'cache_status': 'legacy_cached_result', 'context_applied': False}, sort_keys=True)
+                df.at[index, 'formula_of_populism_codebook_fingerprint'] = ''
               new_filename = f'ep24_{country}.csv'
               # Save the dataframe to csv
               df.to_csv(new_filename, index=False)
