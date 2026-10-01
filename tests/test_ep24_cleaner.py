@@ -10,6 +10,7 @@ from ep24_cleaner import (
     resolve_legacy_drop_columns,
     spreadsheet_column_name,
     validate_country,
+    write_outputs,
 )
 
 
@@ -224,3 +225,22 @@ def test_same_keep_schema_applies_to_other_country():
     )
     assert summary.country == "Poland"
     assert export.columns.tolist()[0] == "video_id"
+
+
+def test_write_outputs_uses_canonical_cleaned_suffix(tmp_path):
+    source_csv = tmp_path / "ep24_finland_with_researcher_notes.csv"
+    keep_schema_csv = tmp_path / "keep_schema.csv"
+    output_dir = tmp_path / "to_reprocess"
+
+    _source().to_csv(source_csv, index=False)
+    pd.DataFrame(columns=_keep_schema()).to_csv(keep_schema_csv, index=False)
+
+    write_outputs(
+        source_csv=source_csv,
+        keep_schema_path=keep_schema_csv,
+        output_dir=output_dir,
+        country="Finland",
+    )
+
+    assert (output_dir / "ep24_finland_cleaned.csv").exists()
+    assert not (output_dir / "ep24_finland.csv").exists()
