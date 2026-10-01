@@ -75,3 +75,30 @@ def test_enrichment_appends_columns_without_rewriting_legacy_values(tmp_path):
     assert out.loc[0, "topics"] == "demokratia"
     assert obj_id in out.loc[0, "ep24_memory_entity_ids"]
     assert "ep24_codebook_context_json" in out.columns
+
+
+def test_seed_memory_does_not_attach_conflicting_alias(tmp_path):
+    pytest = __import__("pytest")
+    pytest.importorskip("pandas")
+    from roihu_enrich import seed_memory
+
+    codebooks = tmp_path / "codebooks"
+    codebooks.mkdir()
+    _write_book(codebooks / "ep24_common_private.json", {"schema": "fixture", "country_code": "COMMON", "entries": []})
+    for code, filename in {
+        "FI": "ep24_finland_private.json", "SE": "ep24_se_private.json", "PL": "ep24_poland_private.json",
+        "PT": "ep24_pt_private.json", "DE": "ep24_de_private.json", "ES": "ep24_es_private.json",
+        "HU": "ep24_hu_private.json", "HR": "ep24_hr_private.json", "FR": "ep24_fr_private.json",
+        "BG": "ep24_bg_private.json",
+    }.items():
+        entries = []
+        if code == "FI":
+            entries = [{"id": "cb-fi-new", "kind": "actor", "label": "New Actor", "aliases": ["Taken Alias"], "status": "researcher-grounded", "locked": True}]
+        _write_book(codebooks / filename, {"schema": "fixture", "country_code": code, "entries": entries})
+
+    memory = EP24Memory(tmp_path / "memory.sqlite3")
+    existing = memory.add_object("actor", "Existing Actor", country="FI", state="CANONICAL", locked=True)
+    memory.add_alias(existing, "Taken Alias", country="FI")
+    result = seed_memory(tmp_path, memory)
+    assert result["alias_conflicts"] == 1
+    assert memory.resolve("Taken Alias", "actor", country="FI").obj_id == existing
