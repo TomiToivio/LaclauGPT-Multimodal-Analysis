@@ -183,11 +183,9 @@ class EP24Memory:
         with self.connect() as db:
             rows = list(db.execute(sql, params))
         if country:
-            scoped = [r for r in rows if r["country"] in ("", country.upper())]
-            rows = scoped or rows
+            rows = [r for r in rows if r["country"] in ("", country.upper())]
         if language:
-            scoped = [r for r in rows if r["language"] in ("", language.lower())]
-            rows = scoped or rows
+            rows = [r for r in rows if r["language"] in ("", language.lower())]
         if len(rows) == 1:
             row = rows[0]
             return Resolution(raw, kind, "EXISTING", row["obj_id"], row["canonical_label"], "alias")
