@@ -42,6 +42,19 @@ The EP24 data covers multimodal social-media material related to the 2024 Europe
 
 Active reprocessing uses the researcher-feed 15-column schema and an additive dataframe through every stage. Scraper-era field names are compatibility-only. See [docs/EP24_CANONICAL_SCHEMA.md](docs/EP24_CANONICAL_SCHEMA.md).
 
+## Restartable MongoDB orchestration
+
+The numbered Roihu steps now have an additive restartable orchestration layer: bootstrap merges researcher entity/theme fields **before Step 1**, MongoDB tracks per-record stage state, Redis provides optional coordination/cache, and CSV + SQLite cumulative checkpoints are written after every durable batch. Countries run Finland -> Poland -> Portugal -> remaining countries. See [docs/EP24_RESTARTABLE_PIPELINE.md](docs/EP24_RESTARTABLE_PIPELINE.md) and [config/ep24_pipeline_columns.json](config/ep24_pipeline_columns.json).
+
+Typical operation:
+
+```bash
+python scripts/ep24/bootstrap_ep24_mongodb.py
+bash scripts/roihu/run_step_1.sh
+bash scripts/roihu/run_step_2.sh
+python scripts/ep24/ep24_status.py
+```
+
 ## Current Roihu pipeline
 
 The active Roihu interface is deliberately numbered because each stage is submitted as a separate Slurm batch job. The canonical demo limit is **100 rows/videos per language** via `LACLAUGPT_MAX_ROWS=100`; set it to `0` for the full corpus where supported.
