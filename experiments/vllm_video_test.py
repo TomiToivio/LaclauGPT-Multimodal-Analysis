@@ -214,6 +214,44 @@ _SECRET_KEY_VALUE_RE = re.compile(
 _BASIC_AUTH_URL_RE = re.compile(r"://[^/\s:@]+:[^/\s:@]+@")
 
 
+def _package_version(name: str) -> str:
+    """Version of an installed package, or a marker. Never raises.
+
+    A missing package on one host must not hide the versions that are available
+    (this harness runs on both Roihu and Laskin).
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version(name)
+    except PackageNotFoundError:
+        return "<not installed>"
+    except Exception as exc:  # noqa: BLE001 - diagnostics only
+        return f"<unavailable: {type(exc).__name__}>"
+
+
+def parse_structured_output(raw: str) -> tuple[str, str, str, str]:
+    """Split a structured-output reply into (analysis, json, status, error).
+
+    ``status`` is ``ok`` when a JSON object was parsed, otherwise ``parse_failed``.
+    The caller always keeps the raw text, so a parse failure is a diagnostic and
+    never a lost result.
+    """
+    if not raw:
+        return raw, "", "empty", "no model output"
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        return raw, "", "parse_failed", "no JSON object in model output"
+    candidate = match.group(0)
+    try:
+        parsed = json.loads(candidate)
+    except Exception as exc:  # noqa: BLE001 - the fallback is the point
+        return raw, candidate, "parse_failed", f"{type(exc).__name__}: {exc}"
+    if not isinstance(parsed, dict):
+        return raw, candidate, "parse_failed", "JSON was not an object"
+    return raw, candidate, "ok", ""
+
+
 def redact_secret_like(text: object) -> str:
     """Mask obvious credential-shaped substrings before they reach a log line.
 
@@ -647,6 +685,41 @@ def build_video_messages(local_path: Path, args: argparse.Namespace) -> list[dic
 DEFAULT_VIDEO_API = "mm_processor_kwargs"
 
 
+def _vllm_version_tuple(logger: logging.Logger) -> tuple[int, int]:
+    """Best-effort (major, minor) of the installed vLLM, or (0, 0) if unknown."""
+    try:
+        import re as _re
+
+        import vllm
+
+        match = _re.match(r"(\d+)\.(\d+)", str(getattr(vllm, "__version__", "") or ""))
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    except Exception as exc:  # noqa: BLE001 - never fatal, only selects an API
+        logger.debug("could not determine vLLM version: %s", exc)
+    return 0, 0
+
+
+def resolve_video_api(video_api: str, logger: logging.Logger) -> str:
+    """Resolve ``auto`` to the request shape the installed vLLM accepts.
+
+    The two shapes are not interchangeable: ``mm_processor_kwargs`` is fatal on
+    vLLM 0.8.5 (the processor cache hashes the kwargs dict and raises
+    ``TypeError: unhashable type: 'dict'``). Guessing wrong therefore kills the
+    whole run on the Laskin/Volta stack, so ``auto`` exists to prevent an
+    operator from having to remember which host needs which shape.
+
+    Rule: vLLM >= 0.9 supports the metadata path; 0.8.x and anything unreadable
+    fall back to ``direct``, the shape that cannot crash.
+    """
+    if video_api in ("direct", "mm_processor_kwargs"):
+        return video_api
+    major, minor = _vllm_version_tuple(logger)
+    resolved = "mm_processor_kwargs" if (major, minor) >= (0, 9) else "direct"
+    logger.info("video_api auto-resolved to %s for vLLM %s.%s", resolved, major, minor)
+    return resolved
+
+
 def prepare_vllm_request(
     messages: list[dict],
     processor,
@@ -674,17 +747,24 @@ def prepare_vllm_request(
 
     prompt = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
+    video_api = resolve_video_api(video_api, logger)
+
     if video_api == "direct":
-        image_inputs, video_inputs, video_kwargs = process_vision_info(
+        # Do NOT ask for video kwargs here. vLLM 0.8.5's processor cache does
+        # ``hash(tuple(...))`` on mm_processor_kwargs and raises
+        # ``TypeError: unhashable type: 'dict'`` for the mapping this returns,
+        # so any non-empty dict is fatal on Laskin. The video tensors go to
+        # vLLM directly instead, which is what 0.8.x supports.
+        image_inputs, video_inputs, _ = process_vision_info(
             messages,
             image_patch_size=16,
-            return_video_kwargs=True,
         )
         mm_data: dict = {}
         if image_inputs is not None:
             mm_data["image"] = image_inputs
         if video_inputs is not None:
             mm_data["video"] = video_inputs
+        video_kwargs = None
     else:
         image_inputs, video_inputs, video_kwargs = process_vision_info(
             messages,
@@ -843,8 +923,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model-backend", choices=("vllm", "stub"), default="vllm")
     parser.add_argument(
         "--video-api",
-        choices=("mm_processor_kwargs", "direct"),
-        default=os.environ.get("LACLAUGPT_VLLM_TEST_VIDEO_API", DEFAULT_VIDEO_API),
+        choices=("auto", "mm_processor_kwargs", "direct"),
+        default=os.environ.get("LACLAUGPT_VLLM_TEST_VIDEO_API", "auto"),
         help=(
             "vLLM multi-modal request shape. 'mm_processor_kwargs' is the "
             "Roihu/current-vLLM default (Qwen3-VL). 'direct' is the Laskin/"
@@ -887,6 +967,13 @@ def main(argv: list[str] | None = None) -> int:
 
     logger = setup_logging(log_path)
     log_environment(logger)
+
+    # Resolve ``auto`` once, before the value is logged or used to build a
+    # request. Both request shapes are not interchangeable: ``mm_processor_kwargs``
+    # is fatal on vLLM 0.8.5, so the resolved value must be the one the run
+    # actually uses -- not the operator's unexpanded ``auto``.
+    args.video_api = resolve_video_api(args.video_api, logger)
+
     logger.info("=== configuration ===")
     for key, value in sorted(vars(args).items()):
         logger.info("  %-24s %s", key, redact_secret_like(str(value)))
@@ -947,7 +1034,7 @@ def main(argv: list[str] | None = None) -> int:
         record = {column: "" for column in OUTPUT_COLUMNS}
         record["vllm_video_model"] = args.model
         record["vllm_video_version"] = runtime_versions["vllm_version"]
-        record["vllm_video_api"] = args.video_api
+        record["vllm_video_api"] = resolve_video_api(args.video_api, logger)
         record["vllm_version"] = runtime_versions["vllm_version"]
         record["vllm_torch_version"] = runtime_versions["torch_version"]
         record["vllm_cuda_version"] = runtime_versions["cuda_version"]

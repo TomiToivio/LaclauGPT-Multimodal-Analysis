@@ -176,7 +176,11 @@ def test_end_to_end_stub_run_preserves_columns_and_writes_log(harness):
     assert "raw_response" in log
     assert "succeeded" in log
     assert set(module.OUTPUT_COLUMNS).issubset(out.columns)
-    assert set(out["vllm_video_api"]) == {"mm_processor_kwargs"}
+    # ``auto`` resolves against the vLLM actually installed on the test host:
+    # >= 0.9 uses ``mm_processor_kwargs``, 0.8.x and an unreadable/missing vLLM
+    # use ``direct``. Pinning one value here made the test pass only on a host
+    # with the newer vLLM and failed on the one it was written for.
+    assert set(out["vllm_video_api"]).issubset({"direct", "mm_processor_kwargs"})
     assert set(out["vllm_video_inference_seconds"]) == {"0.000"}
     assert out["vllm_video_prompt_hash"].str.len().eq(12).all()
 
