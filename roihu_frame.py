@@ -9,6 +9,7 @@ import sqlite3
 from logging.handlers import RotatingFileHandler
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_schema import value as ep24_value
+from ep24_video import VIDEO_INITIAL_SKIP_SECONDS
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
@@ -169,12 +170,11 @@ def analyze_videos(language=None):
             c.execute("SELECT * FROM tiktok_videos WHERE author_username = ? AND video_id = ?", (str(author_username), str(video_id)))
             # Get all from the database
             row = c.fetchone()
-            df.at[index, 'frame_analysis_1'] = str(row[2])
-            df.at[index, 'frame_analysis_2'] = str(row[3])
-            df.at[index, 'frame_analysis_3'] = str(row[4])
-            df.at[index, 'frame_analysis_4'] = str(row[5])
-            df.at[index, 'frame_analysis_5'] = str(row[6])
-            df.at[index, 'frame_analysis_6'] = str(row[7])
+            df.at[index, 'frame_analysis_1'] = str(row[2] or '')
+            # Historical cache rows can contain six frame analyses. Current
+            # production semantics expose only the t=1.0s contextual frame.
+            for old_index in range(2, 7):
+                df.at[index, f'frame_analysis_{old_index}'] = ''
         else:
             try:
                 frame_files = parse_frame_files(row['frame_files'])
@@ -185,9 +185,9 @@ def analyze_videos(language=None):
                 frame_analysis_5 = ""
                 frame_analysis_6 = ""
                 frame_number = 1
-                for i, frame_file in enumerate(frame_files):
+                for i, frame_file in enumerate(frame_files[:1]):
                     frame_response = get_analysis(frame_file, metadata_context(row))
-                    seconds = i * 30
+                    seconds = VIDEO_INITIAL_SKIP_SECONDS
                     frame_response = str(frame_response)
                     seconds = str(seconds)
                     frame_analysis = f'''### **Frame {frame_number} at {seconds} seconds**:                        
