@@ -379,7 +379,12 @@ def test_prompt_receives_real_researcher_feed_metadata(harness):
     assert f"- author_username: {row['author_username']}" in text_part
     assert f"- source_recording: {row['source_recording']}" in text_part
     assert f"- researcher_note: {row['researcher_note']}" in text_part
-    assert "future_added_field" not in text_part
+    # Issue #60 makes the cumulative contract explicit: the input CSV is
+    # authoritative and every incoming column must reach the prompt. A column
+    # added upstream after this harness was written therefore has to appear by
+    # name, not be dropped. What must NOT appear are legacy scraper aliases
+    # that no column in the file actually carries.
+    assert f"- future_added_field: {row['future_added_field']}" in text_part
     assert "authorUniqueId" not in text_part
     assert "scrapedCountry" not in text_part
 
