@@ -243,6 +243,10 @@ def load_profile(root: str | Path, country: str, *, language: str = "") -> tuple
             if old.locked and not entry.locked:
                 conflicts.append({"kept": old.entry_id, "rejected": entry.entry_id, "reason": "human_lock"})
                 continue
+            if entry.locked and not old.locked:
+                conflicts.append({"kept": entry.entry_id, "rejected": old.entry_id, "reason": "human_lock"})
+                merged[key] = entry
+                continue
             if old.locked and entry.locked and asdict(old) != asdict(entry):
                 conflicts.append({"kept": old.entry_id, "rejected": entry.entry_id, "reason": "locked_conflict_needs_review"})
                 continue

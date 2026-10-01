@@ -54,6 +54,52 @@ def test_private_profile_merge_keeps_locked_human_entry_and_bilingual_context(tm
     assert provenance["evidence_role"] == "background_context_not_source_evidence"
 
 
+def test_locked_human_entry_wins_regardless_of_layer_merge_order(tmp_path, monkeypatch):
+    import roihu_codebooks
+
+    codebooks = tmp_path / "codebooks"
+    codebooks.mkdir()
+    common = codebooks / "ep24_common_private.json"
+    country = codebooks / "ep24_finland_private.json"
+    _write_book(common, {
+        "schema": "fixture", "country_code": "FI", "entries": [
+            {"id": "human-1", "kind": "actor", "label": "Example Party",
+             "definition": "Researcher-coded definition", "status": "researcher-grounded",
+             "locked": True}
+        ]
+    })
+    _write_book(country, {
+        "schema": "fixture", "country_code": "FI", "entries": [
+            {"id": "external-1", "kind": "actor", "label": "Example Party",
+             "definition": "External-source definition", "status": "PROVISIONAL"}
+        ]
+    })
+    monkeypatch.setattr(
+        roihu_codebooks,
+        "profile_paths",
+        lambda _root, _country: [(country, "country"), (common, "common")],
+    )
+
+    entries, meta = load_profile(tmp_path, "FI")
+
+    assert len(entries) == 1
+    assert entries[0].entry_id == "human-1"
+    assert entries[0].definition == "Researcher-coded definition"
+    assert meta["conflicts"] == [
+        {"kept": "human-1", "rejected": "external-1", "reason": "human_lock"}
+    ]
+
+    monkeypatch.setattr(
+        roihu_codebooks,
+        "profile_paths",
+        lambda _root, _country: [(common, "common"), (country, "country")],
+    )
+    entries, _meta = load_profile(tmp_path, "FI")
+
+    assert entries[0].entry_id == "human-1"
+    assert entries[0].definition == "Researcher-coded definition"
+
+
 
 
 def test_enrichment_appends_columns_without_rewriting_legacy_values(tmp_path):
