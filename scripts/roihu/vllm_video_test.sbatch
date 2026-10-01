@@ -1,116 +1,107 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=laclaugpt-vllm-video
+#SBATCH --job-name=ep24-vllm-video-test
 #SBATCH --partition=gpumedium
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=72
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=64G
 #SBATCH --gres=gpu:gh200:1
-#SBATCH --time=02:00:00
-#SBATCH --output=vllm_video_test_%j.out
-#SBATCH --error=vllm_video_test_%j.err
+#SBATCH --time=01:00:00
+#SBATCH --output=vllm-video-test-%j.out
+#SBATCH --error=vllm-video-test-%j.err
+
+# Standalone smoke test: native whole-video analysis with vLLM/Qwen3-VL-8B on
+# CSC Roihu-GPU. Deliberately NOT part of the production pipeline: it does not
+# call run_pipeline.sh and does not write to the pipeline CSVs.
+#
+# One full GH200 (96 GB) is ample for an 8B model.
+#
+# Submit from a directory you are happy to hold the Slurm logs (private project
+# storage is the safe choice, because the log mentions dataset paths):
+#
+#   sbatch scripts/roihu/vllm_video_test.sbatch
 
 set -euo pipefail
 
-PUBLIC_ROOT=${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-${SLURM_SUBMIT_DIR:-$PWD}}
-: "${LACLAUGPT_VLLM_INPUT_CSV:?Set LACLAUGPT_VLLM_INPUT_CSV to the private EP24 CSV}"
-: "${LACLAUGPT_VLLM_WORK_ROOT:?Set LACLAUGPT_VLLM_WORK_ROOT to project scratch}"
+# ---- required configuration (never hard-coded, never committed) -----------
+: "${LACLAUGPT_VLLM_TEST_INPUT_CSV:?Set the private EP24 input CSV path}"
+: "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:?Set the public repository checkout path}"
+: "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:?Set the private runtime root}"
 
-WORK_ROOT=${LACLAUGPT_VLLM_WORK_ROOT}
-VENV=${LACLAUGPT_VLLM_VENV:-${WORK_ROOT}/.venv-vllm-video}
-MODEL=${LACLAUGPT_VLLM_MODEL:-Qwen/Qwen3-VL-8B-Instruct}
-SEED=${LACLAUGPT_VLLM_SEED:-19}
-SAMPLE_SIZE=${LACLAUGPT_VLLM_SAMPLE_SIZE:-5}
-FPS=${LACLAUGPT_VLLM_FPS:-1.0}
-ALLAS_ROOT=${LACLAUGPT_VLLM_ALLAS_ROOT:-s3allas:}
-REMOTE_COLUMN=${LACLAUGPT_VLLM_VIDEO_REMOTE_COLUMN:-}
-REMOTE_TEMPLATE=${LACLAUGPT_VLLM_VIDEO_REMOTE_TEMPLATE:-}
+PUBLIC_ROOT=${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}
+PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}
+VENV=${LACLAUGPT_VLLM_TEST_VENV:-${PRIVATE_ROOT}/.venv-roihu-vllm}
+MODEL=${LACLAUGPT_VLLM_TEST_MODEL:-Qwen/Qwen3-VL-8B-Instruct}
 
-JOB_DIR=${WORK_ROOT}/vllm-video-test/${SLURM_JOB_ID}
-TMP_VIDEO_DIR=${JOB_DIR}/videos
-OUTPUT_CSV=${LACLAUGPT_VLLM_OUTPUT_CSV:-${JOB_DIR}/vllm_video_results.csv}
-DEBUG_LOG=${LACLAUGPT_VLLM_DEBUG_LOG:-${JOB_DIR}/vllm_video_debug.log}
+# Working locations: private scratch, not HOME.
+DOWNLOAD_DIR=${LACLAUGPT_VLLM_TEST_DOWNLOAD_DIR:-${PRIVATE_ROOT}/vllm_video_downloads}
+LOG_PATH=${LACLAUGPT_VLLM_TEST_LOG:-${PRIVATE_ROOT}/logs/vllm_video_test_${SLURM_JOB_ID}.log}
+OUTPUT_CSV=${LACLAUGPT_VLLM_TEST_OUTPUT_CSV:-${PRIVATE_ROOT}/csv/ep24_vllm_video_test_${SLURM_JOB_ID}.csv}
+export HF_HOME=${HF_HOME:-${PRIVATE_ROOT}/.hf_cache}
+export HF_HUB_CACHE=${HF_HUB_CACHE:-${HF_HOME}/hub}
 
-mkdir -p "${JOB_DIR}" "${TMP_VIDEO_DIR}" "${WORK_ROOT}/hf-cache"
+mkdir -p "${PRIVATE_ROOT}"/{logs,csv,vllm_video_downloads,"${HF_HOME##*/}"}
 
+[[ -d "${PUBLIC_ROOT}" ]] || { echo "Missing public checkout: ${PUBLIC_ROOT}" >&2; exit 2; }
+[[ -f "${LACLAUGPT_VLLM_TEST_INPUT_CSV}" ]] || {
+  echo "Missing input CSV: ${LACLAUGPT_VLLM_TEST_INPUT_CSV}" >&2; exit 2; }
+
+# ---- CSC module environment ----------------------------------------------
+# vLLM is a separate module on Roihu-GPU (python-vllm). Do not also load
+# python-pytorch: the vLLM module already brings its own PyTorch build.
 module --force purge
 module load python-vllm
-module load allas
-module load ffmpeg
+
+# Roihu is aarch64; never reuse a Puhti x86 virtualenv here.
+if [[ -x "${VENV}/bin/python" ]]; then
+  source "${VENV}/bin/activate"
+else
+  echo "NOTE: no project venv at ${VENV}; using the module python directly." >&2
+  echo "      If extra packages are needed, create it as documented in" >&2
+  echo "      docs/VLLM_VIDEO_TEST.md and re-submit." >&2
+fi
+
+# Keep the job off any user site-packages.
 unset PYTHONPATH
 unset PYTHONHOME
 
-if [[ ! -x "${VENV}/bin/python" ]]; then
-  echo "Missing project-local venv: ${VENV}" >&2
-  echo "Create it on roihu-gpu.csc.fi with --system-site-packages; see docs/VLLM_VIDEO_TEST.md" >&2
-  exit 2
-fi
-source "${VENV}/bin/activate"
+echo "=== job ${SLURM_JOB_ID:-?} on $(hostname) ==="
+echo "python   : $(command -v python)"
+python --version || true
+echo "input    : ${LACLAUGPT_VLLM_TEST_INPUT_CSV}"
+echo "output   : ${OUTPUT_CSV}"
+echo "log      : ${LOG_PATH}"
 
-export HF_HOME=${HF_HOME:-${WORK_ROOT}/hf-cache}
-export HUGGINGFACE_HUB_CACHE=${HUGGINGFACE_HUB_CACHE:-${HF_HOME}/hub}
-export TMPDIR=${TMPDIR:-${JOB_DIR}/tmp}
-export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
-export OMP_PLACES=cores
-export OMP_PROC_BIND=spread
-mkdir -p "${TMPDIR}" "${HUGGINGFACE_HUB_CACHE}"
-
-command -v rclone >/dev/null 2>&1 || {
-  echo "rclone not found after 'module load allas'" >&2
-  exit 2
-}
-command -v ffprobe >/dev/null 2>&1 || {
-  echo "ffprobe not found after 'module load ffmpeg'" >&2
-  exit 2
-}
-
-python - <<'PY'
-import importlib
-required = ["pandas", "qwen_vl_utils", "transformers", "vllm"]
-missing = []
-for name in required:
-    try:
-        module = importlib.import_module(name)
-        print(f"{name}: {getattr(module, '__version__', 'version n/a')}")
-    except Exception as exc:
-        missing.append(f"{name}: {exc}")
-if missing:
-    raise SystemExit("Missing Python dependencies:\n" + "\n".join(missing))
-PY
-
-echo "Checking Allas rclone configuration..."
-rclone lsd "${ALLAS_ROOT%%/*}" >/dev/null || {
-  echo "Cannot access Allas remote via rclone: ${ALLAS_ROOT}" >&2
-  echo "Run 'module load allas' and 'allas-conf' on roihu-gpu.csc.fi before submitting." >&2
-  exit 3
-}
-
-echo "Job directory: ${JOB_DIR}"
-echo "Result CSV: ${OUTPUT_CSV}"
-echo "Debug log: ${DEBUG_LOG}"
-echo "SLURM stdout: vllm_video_test_${SLURM_JOB_ID}.out"
-echo "SLURM stderr: vllm_video_test_${SLURM_JOB_ID}.err"
-
-ARGS=(
-  --input-csv "${LACLAUGPT_VLLM_INPUT_CSV}"
-  --output-csv "${OUTPUT_CSV}"
-  --log "${DEBUG_LOG}"
-  --tmp-dir "${TMP_VIDEO_DIR}"
-  --model "${MODEL}"
-  --sample-size "${SAMPLE_SIZE}"
-  --seed "${SEED}"
-  --fps "${FPS}"
-  --allas-root "${ALLAS_ROOT}"
-)
-
-if [[ -n "${REMOTE_COLUMN}" ]]; then
-  ARGS+=(--remote-column "${REMOTE_COLUMN}")
-fi
-if [[ -n "${REMOTE_TEMPLATE}" ]]; then
-  ARGS+=(--remote-template "${REMOTE_TEMPLATE}")
-fi
-if [[ "${LACLAUGPT_VLLM_KEEP_VIDEOS:-0}" == "1" ]]; then
-  ARGS+=(--keep-videos)
+# ---- optional Allas plumbing ----------------------------------------------
+# Allas is S3-compatible. Configure an rclone remote in the job environment
+# (e.g. via RCLONE_CONFIG pointing at a private rclone.conf) and pass the bucket
+# through ALLAS_BUCKET. Credentials stay in that private config: they are never
+# in this repository and never on the command line.
+#
+# To stage the videos without Allas, mount/copy them under ALLAS_LOCAL_ROOT and
+# run with --fetch-backend local.
+if ! command -v rclone >/dev/null 2>&1; then
+  echo "NOTE: rclone not on PATH. Use --fetch-backend local with a staged mirror," >&2
+  echo "      or load the Allas tooling documented for Roihu." >&2
 fi
 
-cd "${PUBLIC_ROOT}"
-srun --ntasks=1 python experiments/vllm_video_test.py "${ARGS[@]}"
+# ---- run ------------------------------------------------------------------
+cd "${PRIVATE_ROOT}"
+set -x
+python "${PUBLIC_ROOT}/experiments/vllm_video_test.py" \
+  --input-csv "${LACLAUGPT_VLLM_TEST_INPUT_CSV}" \
+  --output-csv "${OUTPUT_CSV}" \
+  --log-path "${LOG_PATH}" \
+  --download-dir "${DOWNLOAD_DIR}" \
+  --model "${MODEL}" \
+  --sample-size "${LACLAUGPT_VLLM_TEST_SAMPLE_SIZE:-5}" \
+  --seed "${LACLAUGPT_VLLM_TEST_SEED:-20261001}" \
+  --fetch-backend "${LACLAUGPT_VLLM_TEST_FETCH_BACKEND:-rclone}" \
+  "$@"
+set +x
+
+echo
+echo "=== done ==="
+echo "result CSV : ${OUTPUT_CSV}"
+echo "debug log  : ${LOG_PATH}"
+echo "slurm out  : slurm-${SLURM_JOB_ID:-?}.out (or as configured)"

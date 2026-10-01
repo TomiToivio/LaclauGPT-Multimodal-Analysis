@@ -1,372 +1,239 @@
-# Standalone Qwen3-VL vLLM video smoke test on CSC Roihu
+# vLLM whole-video smoke test (Qwen3-VL-8B) on CSC Roihu
 
-This experiment answers one narrow question: can Roihu download five real EP24 videos from CSC Allas and analyze each **whole video** with `Qwen/Qwen3-VL-8B-Instruct` through vLLM?
+An **isolated experiment**. It does not touch the five-stage EP24 pipeline, the
+Ollama backend, or any legacy CSV contract. It answers one question:
 
-It is deliberately isolated from the production EP24 pipeline. It does not replace or modify `roihu_frame.py`, `roihu_summary.py`, the legacy-compatible five-stage flow, Ollama, MongoDB, memory, RDF, DNA, SNA, or `scripts/roihu/run_pipeline.sh`.
+> Can we submit a clean sbatch job on CSC Roihu, download five real EP24 videos
+> from CSC Allas, analyze the videos directly with Qwen3-VL-8B through vLLM, and
+> write readable CSV + debug-log output?
 
-## What the experiment does
+Files:
 
-`experiments/vllm_video_test.py`:
+| Path | Role |
+| --- | --- |
+| `experiments/vllm_video_test.py` | the standalone test |
+| `scripts/roihu/vllm_video_test.sbatch` | the Slurm batch file |
+| `docs/VLLM_VIDEO_TEST.md` | this document |
 
-1. reads the real EP24 CSV with Pandas;
-2. resolves a video object for each usable row;
-3. selects exactly five rows by default with a reproducible random seed;
-4. downloads only those selected videos from Allas with `rclone copyto`;
-5. passes each local source video through Qwen3-VL's video preprocessing and vLLM's multimodal `video` input;
-6. writes the selected legacy rows plus `vllm_video_*` fields to a new CSV;
-7. checkpoints the CSV after every video;
-8. logs environment details, remote/local paths, video metadata, prompt, raw response, runtime, and tracebacks;
-9. continues after an individual download or inference failure.
+Nothing here is wired into `run_pipeline.sh`. A future issue decides whether
+native whole-video analysis joins the production pipeline.
 
-The input CSV is never changed.
+## What it does
 
-The default model is exactly:
+1. Reads the EP24 CSV with pandas (`dtype=str`, so IDs are never coerced).
+2. Selects **five usable rows** — reproducible for a given `--seed`.
+3. Derives each video's Allas object path from the row metadata.
+4. Downloads only those five objects into job-local scratch.
+5. Loads **`Qwen/Qwen3-VL-8B-Instruct`** through vLLM.
+6. Sends each video as **native video input**, one video per request, in
+   temporal order.
+7. Writes the selected rows plus `vllm_video_*` columns to a new CSV.
+8. Keeps the source CSV untouched.
+9. Logs a failure and continues when a single video cannot be fetched or
+   analyzed.
+10. Writes a verbose debug log throughout.
 
-```text
-Qwen/Qwen3-VL-8B-Instruct
+## Object path convention
+
+The repository already fixes the Allas layout, so this test reuses it rather
+than inventing a second one (`docs/LEGACY_PIPELINE_CONTRACT.md` §1,
+`roihu_preprocess.py`):
+
+```
+Allas/Scraper/TikTok/Videos/<scrapedCountry>/<authorUniqueId>/<videoId>.mp4
 ```
 
-The application treats the input as one temporally ordered video. It does **not** call the model on six unrelated JPEG frames. Internally, Qwen/vLLM may sample frames according to their video preprocessing implementation.
+Only the part **inside** the bucket is composed by the script
+(`--allas-path-template`); the endpoint and bucket stay in the environment.
 
-## Current Roihu assumptions
+## vLLM video-input path (documented as required by §4)
 
-These instructions target **Roihu-GPU**. CSC currently documents full Nvidia GH200 allocation in `gpumedium` with:
+vLLM's offline `LLM.generate` with a `video` modality — not six image prompts:
 
-```text
---gres=gpu:gh200:1
+```python
+from vllm import LLM, SamplingParams
+from transformers import AutoProcessor
+from qwen_vl_utils import process_vision_info
+
+llm = LLM(model="Qwen/Qwen3-VL-8B-Instruct", limit_mm_per_prompt={"video": 1})
+prompt = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+_, video_inputs, video_kwargs = process_vision_info(
+    messages, image_patch_size=16, return_video_kwargs=True, return_video_metadata=True)
+videos, metadatas = zip(*video_inputs)
+llm.generate([{
+    "prompt": prompt,
+    "multi_modal_data": {"video": list(videos)},
+    "mm_processor_kwargs": {**video_kwargs, "video_metadata": list(metadatas)},
+}], SamplingParams(max_tokens=2048))
 ```
 
-and 72 CPU cores per one-GPU allocation. The batch file follows that layout.
+The application-level API receives the source as a **video**; frame sampling
+happens inside the Qwen preprocessing stack and temporal order is preserved.
+This is what makes it a whole-video analysis rather than six stills.
 
-CSC provides vLLM as the `python-vllm` module. Do not install a second pip vLLM into the project environment unless CSC's module is proven incompatible. The project venv is created with `--system-site-packages` so it inherits CSC's vLLM stack and only adds small missing Python dependencies.
+**Qwen3-VL specifics** the code relies on, and which the debug log records from
+the real job so a version difference is visible rather than hidden:
 
-CSC's current Roihu Allas module defaults to S3-style access. The experiment uses the `rclone` command supplied by `module load allas`.
+- `process_vision_info` needs `image_patch_size=16` and
+  `return_video_metadata=True` for the Qwen3-VL series.
+- Qwen3-VL-era vLLM expects the per-video metadata to travel as
+  `mm_processor_kwargs` on the request.
+- The video decode backend is vLLM's default. If the module's default cannot
+  decode a given container, set `VLLM_VIDEO_LOADER_BACKEND` (e.g. `torchcodec`)
+  or `--media-io-kwargs '{"video": {"backend": ...}}'` and note it here.
 
-## 1. Log in to the correct Roihu login node
+CSC documents `python-vllm` with default **0.29.0** and also 0.19.1 / 0.18.0
+(<https://docs.csc.fi/apps/vllm>). If the installed version exposes a slightly
+different API, **adapt to the observed Roihu version** rather than pinning an
+incompatible external vLLM.
 
-GPU software on Roihu is ARM64, so create the environment on the GPU login node:
+## From zero to a test run on Roihu
+
+Assumes you are logged into Roihu and have a private project directory. Replace
+`project_200xxxx` with your own allocation.
 
 ```bash
-ssh roihu-gpu.csc.fi
-```
-
-Do not reuse an old Puhti/x86 Python environment.
-
-## 2. Clone or update this repository in project scratch
-
-Replace `project_200xxxx` with your own CSC project.
-
-```bash
-mkdir -p /scratch/project_200xxxx
-cd /scratch/project_200xxxx
-
+# 1. clone or update the public repository
+cd "$HOME"
 git clone https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis.git
-cd LaclauGPT-Multimodal-Analysis
-git pull
-```
+cd LaclauGPT-Multimodal-Analysis && git pull
 
-If the repository already exists:
-
-```bash
-cd /scratch/project_200xxxx/LaclauGPT-Multimodal-Analysis
-git pull
-```
-
-## 3. Load CSC vLLM and create a tiny project-local venv
-
-```bash
-module --force purge
-module load python-vllm
-
-export LACLAUGPT_VLLM_WORK_ROOT=/scratch/project_200xxxx/laclaugpt-vllm-video
-mkdir -p "$LACLAUGPT_VLLM_WORK_ROOT"
-
-python3 -m venv --system-site-packages "$LACLAUGPT_VLLM_WORK_ROOT/.venv-vllm-video"
-source "$LACLAUGPT_VLLM_WORK_ROOT/.venv-vllm-video/bin/activate"
-
-python -m pip install --upgrade pip
-python -m pip install "qwen-vl-utils>=0.0.14" pandas
-```
-
-The Qwen3-VL upstream vLLM recipe requires `qwen-vl-utils>=0.0.14` for its video preprocessing path. If CSC's `python-vllm` module already contains a compatible package, pip will normally leave the working dependency in place.
-
-Do **not** run `pip install vllm` here by default. The point is to use CSC's supported vLLM build.
-
-## 4. Configure Hugging Face/model cache in project scratch
-
-```bash
-export HF_HOME="$LACLAUGPT_VLLM_WORK_ROOT/hf-cache"
-export HUGGINGFACE_HUB_CACHE="$HF_HOME/hub"
-mkdir -p "$HUGGINGFACE_HUB_CACHE"
-```
-
-If the model requires authentication in the future, configure Hugging Face credentials privately. Never commit tokens.
-
-## 5. Configure Allas
-
-Load CSC's Allas tools:
-
-```bash
-module load allas
-```
-
-Configure your Allas connection:
-
-```bash
-allas-conf
-```
-
-Then verify it:
-
-```bash
-rclone lsd s3allas:
-```
-
-If your old EP24 objects require Swift access instead, CSC supports:
-
-```bash
-allas-conf --swift
-rclone lsd allas:
-```
-
-and you can later set `LACLAUGPT_VLLM_ALLAS_ROOT` to an `allas:` path.
-
-Do not put Allas credentials in this repository.
-
-## 6. Point the job at the private EP24 CSV
-
-For example:
-
-```bash
-export LACLAUGPT_VLLM_INPUT_CSV=/scratch/project_200xxxx/private/ep24_reprocess/data/tiktok_fi.csv
-```
-
-The experiment preserves all columns in the five selected rows. Fields such as `authorUniqueId`, `videoId`, `scrapedCountry`, `language`, and `videoDescription` remain untouched.
-
-## 7. Tell the test how EP24 rows map to Allas objects
-
-The script first looks for an explicit video-object column with one of these names:
-
-```text
-allas_path
-allasPath
-video_path
-videoPath
-video_file
-videoFile
-object_path
-objectPath
-```
-
-If your CSV already has one of those fields, set only the Allas root if needed:
-
-```bash
-export LACLAUGPT_VLLM_ALLAS_ROOT='s3allas:YOUR_BUCKET'
-```
-
-If the real remote path is stored in another CSV column:
-
-```bash
-export LACLAUGPT_VLLM_VIDEO_REMOTE_COLUMN='yourActualVideoPathColumn'
-export LACLAUGPT_VLLM_ALLAS_ROOT='s3allas:YOUR_BUCKET'
-```
-
-If the object path must be constructed from EP24 metadata, use a format template. Example only:
-
-```bash
-export LACLAUGPT_VLLM_ALLAS_ROOT='s3allas:YOUR_BUCKET'
-export LACLAUGPT_VLLM_VIDEO_REMOTE_TEMPLATE='ep24/{scrapedCountry}/{authorUniqueId}/{videoId}.mp4'
-```
-
-The example is **not** a claim about the private EP24 bucket layout. Use the actual layout from private data/configuration.
-
-Rows without a resolvable remote video are excluded before sampling. The job refuses to start inference unless it can select exactly five usable rows by default.
-
-## 8. Optional import/version sanity test
-
-On the GPU login node:
-
-```bash
-module --force purge
-module load python-vllm
-source "$LACLAUGPT_VLLM_WORK_ROOT/.venv-vllm-video/bin/activate"
-
-python - <<'PY'
-import pandas
-import qwen_vl_utils
-import transformers
-import vllm
-
-print("pandas", pandas.__version__)
-print("transformers", transformers.__version__)
-print("vllm", vllm.__version__)
-print("qwen_vl_utils import OK")
-PY
-```
-
-This is only an import test. Do not load the 8B model on the login node.
-
-## 9. Submit the job
-
-From the public repository checkout:
-
-```bash
-cd /scratch/project_200xxxx/LaclauGPT-Multimodal-Analysis
+# 2. go to private project/scratch storage (never HOME for outputs)
 export LACLAUGPT_MULTIMODAL_PUBLIC_ROOT="$PWD"
-```
+export LACLAUGPT_MULTIMODAL_PRIVATE_ROOT="/scratch/project_200xxxx/ep24-multimodal"
+mkdir -p "$LACLAUGPT_MULTIMODAL_PRIVATE_ROOT"/{logs,csv,vllm_video_downloads,.hf_cache}
 
-Then submit:
+# 3. load the CSC vLLM module
+module --force purge
+module load python-vllm
 
-```bash
-sbatch scripts/roihu/vllm_video_test.sbatch
-```
+# 4. create the project-local venv for the few extra packages
+#    (Roihu is aarch64 — never copy a Puhti x86 venv here)
+python -m venv --system-site-packages "$LACLAUGPT_MULTIMODAL_PRIVATE_ROOT/.venv-roihu-vllm"
+source "$LACLAUGPT_MULTIMODAL_PRIVATE_ROOT/.venv-roihu-vllm/bin/activate"
 
-If your CSC setup requires an explicit account and no default account is configured, use:
+# 5. install only the missing video/Qwen dependencies, pinned and minimal
+pip install "qwen-vl-utils>=0.0.14" "av>=13,<16"
+#    Add a decoder only if the default backend fails on your container, e.g.
+#    pip install "torchcodec>=0.2"   # and set VLLM_VIDEO_LOADER_BACKEND=torchcodec
 
-```bash
-sbatch --account=project_200xxxx scripts/roihu/vllm_video_test.sbatch
-```
+# 6. keep model downloads on project scratch, not HOME
+export HF_HOME="$LACLAUGPT_MULTIMODAL_PRIVATE_ROOT/.hf_cache"
+export HF_HUB_CACHE="$HF_HOME/hub"
 
-The batch file requests one full GH200 in `gpumedium`.
+# 7. configure Allas (S3-compatible) for rclone; credentials stay private
+export RCLONE_CONFIG="$LACLAUGPT_MULTIMODAL_PRIVATE_ROOT/rclone.conf"
+export ALLAS_BUCKET="<your-bucket>"
+rclone lsd allas:            # sanity check the remote
 
-## 10. Check the queue
+# 8. point at the private EP24 input CSV
+export LACLAUGPT_VLLM_TEST_INPUT_CSV="$LACLAUGPT_MULTIMODAL_PRIVATE_ROOT/csv/tiktok_videos.csv"
 
-```bash
+# 9. tiny sanity check that the module and extras import
+python -c "import vllm, torch, transformers, qwen_vl_utils; \
+print('vllm', vllm.__version__, '| torch', torch.__version__, '| cuda', torch.cuda.is_available())"
+
+# 10. submit
+sbatch "$LACLAUGPT_MULTIMODAL_PUBLIC_ROOT/scripts/roihu/vllm_video_test.sbatch"
+
+# 11. check the queue
 squeue -u "$USER"
+
+# 12. follow Slurm stdout/stderr
+tail -f vllm-video-test-*.out vllm-video-test-*.err
+
+# 13. follow the Python debug log (the detailed one)
+tail -f "$LACLAUGPT_MULTIMODAL_PRIVATE_ROOT"/logs/vllm_video_test_*.log
+
+# 14. find the result CSV when the job finishes
+ls -l "$LACLAUGPT_MULTIMODAL_PRIVATE_ROOT"/csv/ep24_vllm_video_test_*.csv
 ```
 
-## 11. Follow SLURM stdout/stderr
+### Rerunning with a fixed seed
 
-From the submit directory, replace `JOBID`:
+Selection is deterministic, so a fixed seed reproduces the same five videos:
 
 ```bash
-tail -f "vllm_video_test_JOBID.out"
-```
-
-and in another shell if needed:
-
-```bash
-tail -f "vllm_video_test_JOBID.err"
-```
-
-The batch output prints the exact result CSV and Python debug-log paths near startup.
-
-## 12. Follow the Python debug log
-
-By default the job writes under:
-
-```text
-$LACLAUGPT_VLLM_WORK_ROOT/vllm-video-test/$SLURM_JOB_ID/
-```
-
-For example:
-
-```bash
-tail -f "$LACLAUGPT_VLLM_WORK_ROOT/vllm-video-test/JOBID/vllm_video_debug.log"
-```
-
-The log includes:
-
-- hostname and SLURM job ID;
-- Python, PyTorch, CUDA, vLLM and GPU information where available;
-- input/output paths, seed and model;
-- selected EP24 identifiers;
-- Allas remote and local paths;
-- downloaded file size and `ffprobe` metadata;
-- model initialization;
-- the full descriptive prompt;
-- Qwen video-processing kwargs;
-- raw model response;
-- per-video runtime;
-- full traceback on errors;
-- final success/failure counts.
-
-## 13. Locate the result CSV
-
-Default:
-
-```text
-$LACLAUGPT_VLLM_WORK_ROOT/vllm-video-test/$SLURM_JOB_ID/vllm_video_results.csv
-```
-
-The output contains the selected source rows plus:
-
-```text
-vllm_video_model
-vllm_video_analysis
-vllm_video_status
-vllm_video_error
-vllm_video_remote_path
-vllm_video_local_path
-vllm_video_runtime_seconds
-vllm_video_metadata
-```
-
-A failed video has `vllm_video_status=error`; later videos are still attempted.
-
-## 14. Reproduce the same five-row sample
-
-Set a fixed seed before submission:
-
-```bash
-export LACLAUGPT_VLLM_SEED=42
+export LACLAUGPT_VLLM_TEST_SEED=20261001
 sbatch scripts/roihu/vllm_video_test.sbatch
 ```
 
-With the same input CSV, remote-resolution settings, sample size, and seed, Pandas selects the same rows.
+### Testing the harness without a GPU
 
-The default sample size is five. You can override it for debugging:
-
-```bash
-export LACLAUGPT_VLLM_SAMPLE_SIZE=5
-```
-
-Issue #19's acceptance target remains five videos.
-
-## 15. Useful optional controls
-
-Keep downloaded videos after inference:
+Useful before spending a GPU hour, and the way this script is verified in CI:
 
 ```bash
-export LACLAUGPT_VLLM_KEEP_VIDEOS=1
+python experiments/vllm_video_test.py \
+  --input-csv tests/fixtures/ep24_vllm_test_sample.csv \
+  --output-csv /tmp/out.csv --log-path /tmp/out.log \
+  --fetch-backend local --allas-local-root tests/fixtures/allas \
+  --model-backend stub --sample-size 5
 ```
 
-Change temporal sampling passed to Qwen video preprocessing:
+`--model-backend stub` performs **no** inference and says so in the output
+column. It exercises selection, path derivation, fetch, logging, the CSV
+contract and per-row failure isolation.
 
-```bash
-export LACLAUGPT_VLLM_FPS=1.0
-```
+## Configuration
 
-Override result/log paths:
+Everything is a CLI flag with an environment-variable default, so the sbatch
+file stays thin and nothing private is committed.
 
-```bash
-export LACLAUGPT_VLLM_OUTPUT_CSV=/scratch/project_200xxxx/results/vllm_video_results.csv
-export LACLAUGPT_VLLM_DEBUG_LOG=/scratch/project_200xxxx/logs/vllm_video_debug.log
-```
+| Flag | Environment variable | Default |
+| --- | --- | --- |
+| `--input-csv` | `LACLAUGPT_VLLM_TEST_INPUT_CSV` | required |
+| `--output-csv` | `LACLAUGPT_VLLM_TEST_OUTPUT_CSV` | `<input>_vllm_test.csv` |
+| `--log-path` | `LACLAUGPT_VLLM_TEST_LOG` | `./logs/vllm_video_test.log` |
+| `--download-dir` | `LACLAUGPT_VLLM_TEST_DOWNLOAD_DIR` | `./vllm_video_downloads` |
+| `--model` | `LACLAUGPT_VLLM_TEST_MODEL` | `Qwen/Qwen3-VL-8B-Instruct` |
+| `--sample-size` | `LACLAUGPT_VLLM_TEST_SAMPLE_SIZE` | `5` |
+| `--seed` | `LACLAUGPT_VLLM_TEST_SEED` | `20261001` |
+| `--allas-bucket` | `ALLAS_BUCKET` | none |
+| `--fetch-backend` | `LACLAUGPT_VLLM_TEST_FETCH_BACKEND` | `rclone` |
+| `--rclone-remote` | `RCLONE_REMOTE` | `allas` |
 
-Override the model only when deliberately testing another model:
+The model default is `Qwen/Qwen3-VL-8B-Instruct` and the script will **not**
+silently substitute another model.
 
-```bash
-export LACLAUGPT_VLLM_MODEL='Qwen/Qwen3-VL-8B-Instruct'
-```
+## Output columns
 
-The script never silently substitutes a different default model.
+The selected source rows keep every original column; these are appended:
 
-## Known caveats for the first Roihu run
+`vllm_video_model`, `vllm_video_status`, `vllm_video_analysis`,
+`vllm_video_error`, `vllm_video_remote_path`, `vllm_video_local_path`,
+`vllm_video_bytes`, `vllm_video_runtime_seconds`, `vllm_video_selected_index`,
+`vllm_video_prompt`.
 
-- CSC's current `python-vllm` module/container and Qwen3-VL move faster than the production pipeline. Record the exact versions printed by the debug log.
-- The smoke test follows Qwen's direct vLLM recipe: chat template + `process_vision_info(... return_video_kwargs=True, return_video_metadata=True)` + vLLM `multi_modal_data["video"]`. If CSC's installed vLLM exposes a version-specific incompatibility, document the observed error before changing the approach.
-- Video decoding depends on codecs present in the Roihu environment. `ffprobe` metadata is logged to make decode failures inspectable.
-- Long/high-resolution videos can create large multimodal contexts. The default `fps=1.0` is intentionally conservative for a five-video capability test.
-- The model itself may internally sample/compress frames. That is still native ordered-video processing at the application level, not six independent still-image analyses.
-- Allas authentication must already be configured for the batch environment. The sbatch script validates the rclone remote and fails early with a readable message when it cannot connect.
+`vllm_video_status` is `ok` or `error`; a failed row carries the exception text
+in `vllm_video_error` and the run continues.
 
-## Files added by this experiment
+## Debug log
 
-```text
-experiments/vllm_video_test.py
-scripts/roihu/vllm_video_test.sbatch
-docs/VLLM_VIDEO_TEST.md
-```
+The log records UTC and local time, hostname, SLURM job ID, GPU (`nvidia-smi`),
+Python/vLLM/torch/CUDA versions, all paths, the seed, each selected row's
+identifiers, the remote and local path, file size, `ffprobe` metadata, model
+initialisation, per-video start/end and runtime, the prompt, the raw response,
+exceptions with tracebacks, and the final success/failure counts. It is meant to
+be verbose — this is a test harness.
 
-Nothing here is wired into the production runner.
+## Privacy
+
+No credentials, endpoints, bucket names, allocation IDs or private paths are
+committed. The EP24 CSV is real research data and stays in private storage:
+`tests/fixtures/` contains only a synthetic CSV with fake IDs for harness tests.
+The test never writes to Allas and never modifies the source CSV.
+
+## Roihu caveats to confirm on the first real run
+
+These are the assumptions most likely to differ from reality. The debug log is
+designed to answer each one from the job output:
+
+1. **Which `python-vllm` version is loaded** and whether it is the default 0.29.0.
+2. **Whether `process_vision_info` needs `image_patch_size=16`** and
+   `return_video_metadata=True` on that version, and the exact key names it returns.
+3. **Whether the module's video decode backend** reads the EP2024 containers; if
+   not, which backend (`torchcodec`, PyAV, decord) fixes it.
+4. **Whether one GH200 and the pixel budget** used here fit the chosen frame
+   count, or whether `--video-total-pixels` / `fps` must be lowered.
+5. **Whether the model is already cached** in project scratch or must be
+   downloaded on first run (a large one-off download).
