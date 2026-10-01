@@ -83,6 +83,7 @@ mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${DOWNLOAD_DIR}" "${HF_HOME}" "${TRANSFOR
 module --force purge
 module load python-vllm
 module load allas
+module load ffmpeg
 source "${VENV}/bin/activate"
 
 unset PYTHONPATH
