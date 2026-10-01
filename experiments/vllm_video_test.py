@@ -508,7 +508,8 @@ def fetch_video(
 
     remote_source = build_rclone_source(args.rclone_remote, args.allas_bucket, object_path)
     operation = "copyurl" if urlsplit(remote_source).scheme in {"http", "https"} else "copyto"
-    command = ["rclone", operation, remote_source, str(local_path)]
+    rclone_bin = os.environ.get("RCLONE_BIN", "rclone")
+    command = [rclone_bin, operation, remote_source, str(local_path)]
     logger.info("download_backend=rclone command=%s", redact_sensitive(shlex.join(command)))
     result = subprocess.run(
         command,
