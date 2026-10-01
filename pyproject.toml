@@ -1,7 +1,7 @@
 [project]
 name = "laclaungpt-multimodal-analysis"
 version = "0.1.0"
-description = "Legacy multimodal analysis scripts for EP2024 social media video research."
+description = "Phase 2 LaclauGPT multimodal analysis pipeline for EP2024 research on CSC Roihu, with legacy-compatible outputs."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "CC0-1.0" }
