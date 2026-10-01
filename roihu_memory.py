@@ -195,6 +195,18 @@ class EP24Memory:
             return Resolution(raw, kind, "AMBIGUOUS", matched_via="alias")
         return Resolution(raw, kind, "NEW")
 
+    def add_crosswalk(self, external_id: str, obj_id: str, *, reason: str) -> None:
+        """Map an upstream/codebook identifier to the actual resolved EP24 object."""
+        if not external_id:
+            return
+        with self.connect() as db:
+            if not db.execute("SELECT 1 FROM objects WHERE obj_id=?", (obj_id,)).fetchone():
+                raise KeyError(obj_id)
+            db.execute(
+                "INSERT OR IGNORE INTO id_crosswalk(upstream_id,ep24_id,reason) VALUES(?,?,?)",
+                (external_id, obj_id, reason),
+            )
+
     def set_state(self, obj_id: str, state: str, *, actor: str = "researcher") -> None:
         if state not in STATES:
             raise ValueError(state)
