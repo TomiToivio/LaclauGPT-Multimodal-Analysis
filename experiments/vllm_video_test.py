@@ -55,7 +55,7 @@ from ep24_video import (
 )
 from ep24_schema import (
     REQUIRED_MEDIA_COLUMNS,
-    source_metadata,
+    source_metadata as iter_source_metadata,
     stable_source_id,
     value as ep24_value,
 )
@@ -671,7 +671,7 @@ def ep24_metadata_context(row: pd.Series | None) -> str:
     """Render real researcher-feed metadata for the model without inventing scraper fields."""
     if row is None:
         return ""
-    lines = [f"- {column}: {value}" for column, value in source_metadata(row)]
+    lines = [f"- {column}: {value}" for column, value in iter_source_metadata(row)]
     if not lines:
         return ""
     return (
@@ -816,6 +816,13 @@ def prepare_vllm_request(
             # those pairs intact. Splitting metadata into mm_processor_kwargs
             # causes: "Video metadata is required but not found in mm input."
             mm_data["video"] = list(video_inputs)
+
+        # Transformers <5.22 leaves this unset and warns that short videos can
+        # spend far more vision tokens per frame than qwen-vl-utils. Opt into
+        # the reference implementation's per-frame cap now. v5.22 will make
+        # this behavior the default and remove the flag.
+        video_kwargs = dict(video_kwargs or {})
+        video_kwargs["cap_pixels_per_frame"] = True
 
     logger.debug(
         "prepared request: video_api=%s video_parts=%s mm_processor_kwargs_keys=%s",
@@ -1033,6 +1040,9 @@ def main(argv: list[str] | None = None) -> int:
 
         logger.info("loading processor for %s", args.model)
         processor = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
+        if hasattr(processor, "video_processor"):
+            processor.video_processor.cap_pixels_per_frame = True
+            logger.info("Qwen3-VL cap_pixels_per_frame=True (qwen-vl-utils reference behavior)")
         llm, sampling_params, args.structured_output_status = load_model(args, logger)
 
     results = []
@@ -1051,7 +1061,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("  source_row_index  : %s", index)
         logger.info("  source_id         : %s", redact_sensitive(source_id))
         logger.info("  remote_object     : %s", safe_object_path)
-        for metadata_key, metadata_value in source_metadata(row):
+        for metadata_key, metadata_value in iter_source_metadata(row):
             logger.info(
                 "  metadata.%-20s %s",
                 metadata_key + ":",
