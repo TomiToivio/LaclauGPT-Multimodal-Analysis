@@ -66,7 +66,7 @@ SCHEMA_VERSION = "ep24-rdf/1.0"
 
 #: Languages the historical pipeline iterates. Kept identical to the legacy
 #: scripts so the export covers exactly the same set of inputs.
-LANGUAGES = ["fi", "sv", "pl", "pt", "de", "es", "hu", "hr", "fr", "en"]
+LANGUAGES = ["fi", "sv", "pl", "pt", "de", "es", "hu", "hr", "fr", "bg", "en"]
 
 #: Columns the export reads, grouped by the legacy stage that creates them.
 #: This is the CSV->predicate map in code form; ``docs/RDF_EXPORT.md`` mirrors it
