@@ -8,6 +8,8 @@ import sqlite3
 from datetime import datetime
 from pydantic import BaseModel
 from logging.handlers import RotatingFileHandler
+from ep24_pipeline import ensure_columns, load_cumulative_csv, metadata_context
+from ep24_schema import stable_source_id, value as ep24_value
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(handlers=[RotatingFileHandler('formula.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
@@ -358,31 +360,34 @@ def get_response(user_prompt, system_prompt):
         logger.error(f"Error: {e}")
     return llama_response
 
-def get_formula_of_populism(country):
+def get_formula_of_populism(country=None):
     global system_prompt
-    filenames = [f'ep24_{country}.csv']
+    filenames = [os.getenv('LACLAUGPT_INPUT_CSV') or f'ep24_{country}.csv']
     for filename in filenames:
-        df = pd.read_csv(filename)
+        df = load_cumulative_csv(filename, require_canonical=bool(os.getenv('LACLAUGPT_INPUT_CSV')))
         max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
         if max_rows > 0:
             df = df.head(max_rows).copy()
             logger.info("Demo row limit active: processing first %s rows", max_rows)
-        df["formula_of_populism_analysis"] = ""
-        df["formula_of_populism_us"] = ""
-        df["formula_of_populism_frontier"] = ""
+        ensure_columns(df, (
+            "formula_of_populism_analysis",
+            "formula_of_populism_us",
+            "formula_of_populism_frontier",
+            "laclau_summary_md",
+        ))
         if codebook_context_enabled():
             df["formula_of_populism_codebook_context_json"] = ""
             df["formula_of_populism_codebook_fingerprint"] = ""
         for index, row in df.iterrows():
           logger.info(f"Processing row {index} of {filename}")
-          video_file = row['video_filename']
+          video_file = str(row.get('video_filename', '')).strip() or ep24_value(row, 'allas_filename') or stable_source_id(row)
           try:
             c.execute("SELECT * FROM populism WHERE video_file=?", (video_file,))
             if c.fetchone() is None:
               formula_of_populism = ""
               formula_of_populism_us_text = ""
               formula_of_populism_frontier_text = ""
-              user_prompt = row['summary_analysis']
+              user_prompt = metadata_context(row) + '\n\nSUMMARY EVIDENCE:\n' + str(row.get('summary_analysis', ''))
               user_prompt, codebook_context_json, codebook_fingerprint = add_codebook_context(country, user_prompt)
               if codebook_context_enabled():
                 df.at[index, 'formula_of_populism_codebook_context_json'] = codebook_context_json
@@ -413,8 +418,9 @@ def get_formula_of_populism(country):
               logger.debug(formula_of_populism_analysis)
               # Add the analysis to the dataframe
               df.at[index, 'formula_of_populism_analysis'] = str(formula_of_populism_analysis)
+              df.at[index, 'laclau_summary_md'] = str(formula_of_populism_analysis)
               # Save the dataframe to csv
-              df.to_csv(filename, index=False)
+              df.to_csv(os.getenv('LACLAUGPT_OUTPUT_CSV') or filename, index=False)
               # Save to the database
               c.execute("INSERT INTO populism (video_file, formula_of_populism, formula_of_populism_us, formula_of_populism_frontier) VALUES (?, ?, ?, ?)",(video_file, formula_of_populism_analysis, formula_of_populism_us_text, formula_of_populism_frontier_text))
               conn.commit()
@@ -435,8 +441,7 @@ def get_formula_of_populism(country):
               if codebook_context_enabled():
                 df.at[index, 'formula_of_populism_codebook_context_json'] = json.dumps({'cache_status': 'legacy_cached_result', 'context_applied': False}, sort_keys=True)
                 df.at[index, 'formula_of_populism_codebook_fingerprint'] = ''
-              new_filename = f'ep24_{country}.csv'
-              # Save the dataframe to csv
+              new_filename = os.getenv('LACLAUGPT_OUTPUT_CSV') or filename
               df.to_csv(new_filename, index=False)
           except Exception as e:
             print(f'Error processing row {index}: {e}')
@@ -449,8 +454,11 @@ countries = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg']
 
 if __name__ == '__main__':
     try:
-        for country in countries:
-            get_formula_of_populism(country)
+        if os.getenv('LACLAUGPT_INPUT_CSV'):
+            get_formula_of_populism(None)
+        else:
+            for country in countries:
+                get_formula_of_populism(country)
     finally:
         c.close()
         conn.close()
