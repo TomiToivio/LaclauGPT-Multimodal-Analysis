@@ -28,4 +28,4 @@ unset PYTHONHOME
 [[ -x "${VENV}/bin/python" ]] || { echo "Missing Roihu ARM64 venv: ${VENV}" >&2; exit 2; }
 source "${VENV}/bin/activate"
 cd "${PRIVATE_ROOT}"
-srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 1 --script "${PUBLIC_ROOT}/step_1_roihu_preprocess.py"
+srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 1 --script "${PUBLIC_ROOT}/step_1_roihu_preprocess.py" "$@"
