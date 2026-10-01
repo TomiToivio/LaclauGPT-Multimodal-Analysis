@@ -7,7 +7,7 @@ if [[ -z "${PUBLIC_ROOT}" ]]; then
 fi
 : "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:?Set LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
 PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}
-STAGES=${LACLAUGPT_MULTIMODAL_STAGES:-"preprocess frame summary postprocess populism storage"}
+STAGES=${LACLAUGPT_MULTIMODAL_STAGES:-"preprocess frame summary postprocess populism"}
 
 mkdir -p "${PRIVATE_ROOT}"/{csv,Allas,Keyframes,database,logs,whisper}
 cd "${PRIVATE_ROOT}"
@@ -36,3 +36,8 @@ for stage in ${STAGES}; do
     *) echo "Unknown stage: ${stage}" >&2; exit 2 ;;
   esac
 done
+
+if [[ "${LACLAUGPT_MONGO_ENABLED:-0}" =~ ^(1|true|yes|on)$ ]] \
+   && [[ " ${STAGES} " != *" storage "* ]]; then
+  run_stage storage
+fi
