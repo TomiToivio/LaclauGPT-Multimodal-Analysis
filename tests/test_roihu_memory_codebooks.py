@@ -79,8 +79,6 @@ def test_enrichment_appends_columns_without_rewriting_legacy_values(tmp_path):
 
 
 def test_seed_memory_does_not_attach_conflicting_alias(tmp_path):
-    pytest = __import__("pytest")
-    pytest.importorskip("pandas")
     from roihu_enrich import seed_memory
 
     codebooks = tmp_path / "codebooks"
