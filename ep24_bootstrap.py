@@ -1,197 +1,202 @@
-"""EP24 bootstrap: canonical `entities`/`themes` seeds before Step 1 (#64).
+"""EP24 country bootstrap for MongoDB-first restartable processing.
 
-The issue makes this non-negotiable:
-
-    Before Step 1 begins, bootstrap must create canonical `entities` by merging
-    `new_entity` + `researcher_new_persons`, and canonical `themes` by merging
-    `new_theme` + `researcher_new_themes`. Every analysis step must receive these
-    merged fields. Keep the four original researcher/source columns unchanged
-    alongside the merged canonical fields for provenance.
-
-Two details from the real Finland input (verified against the LFS object, not
-assumed) shape this module:
-
-- ``researcher_new_persons`` and ``researcher_new_themes`` are the literal
-  string ``'[]'`` when empty, not an empty string. A naive ``+`` join would put
-  a literal ``[]`` into the canonical field, so empty-container literals must be
-  treated as empty.
-- ``new_entity`` is frequently empty while ``new_theme`` is populated, so the two
-  merges are computed independently rather than assumed to move together.
-
-The merges are additive and lossless: the source columns are never modified or
-removed, and every original label is preserved in the canonical field as written.
-Normalization against a country codebook is applied on top where given, without
-replacing the original label.
+Private CSV/codebook contents never belong in this public repository. This module
+reads them at runtime, creates stable record IDs, merges researcher entity/theme
+fields before Step 1, and stores cumulative records in MongoDB.
 """
 from __future__ import annotations
 
+import argparse
 import ast
+import hashlib
 import json
-import re
-from collections.abc import Iterable, Mapping
-from typing import Any
+import logging
+import os
+from pathlib import Path
+import pandas as pd
 
-SEED_SEPARATOR = "; "
+from ep24_backups import write_checkpoint
+from ep24_context import bootstrap_context
+from roihu_storage import MongoStorage, StorageConfig
 
-#: Values that mean "this field carries no values". `'[]'` and `'{}'` are what the
-#: real input uses for an empty list/dict, and `nan`/`None` appear after a pandas
-#: round trip with `keep_default_na=False` off.
-_EMPTY_LITERALS = frozenset({"", "[]", "{}", "null", "none", "nan"})
+LOG = logging.getLogger("ep24_bootstrap")
+PRIORITY = ("finland", "poland", "portugal")
 
 
-def _as_text(value: Any) -> str:
+def _items(value: object) -> list[str]:
     if value is None:
-        return ""
-    return str(value).strip()
-
-
-def _looks_empty(text: str) -> bool:
-    return text.strip().lower() in _EMPTY_LITERALS
-
-
-def split_seed_values(raw: Any) -> list[str]:
-    """Split a researcher seed field into individual labels.
-
-    Handles the shapes the real data uses: a JSON list literal (``'["A", "B"]'``),
-    an empty list literal (``'[]'``), a ``;``/`,`-separated string, and a plain
-    single label. Order is preserved and duplicates are dropped.
-    """
-    text = _as_text(raw)
-    if _looks_empty(text):
         return []
-
-    parsed: list[str] | None = None
-    if text[:1] in "[{":
-        try:
-            loaded = ast.literal_eval(text)
-        except (ValueError, SyntaxError):
-            try:
-                loaded = json.loads(text)
-            except (ValueError, json.JSONDecodeError):
-                loaded = None
-        if isinstance(loaded, (list, tuple)):
-            parsed = [_as_text(item) for item in loaded]
-        elif isinstance(loaded, dict):
-            parsed = [_as_text(item) for item in loaded.values()]
-        elif isinstance(loaded, str):
-            parsed = [loaded]
-
-    if parsed is None:
-        # Not a literal: treat separators as boundaries.
-        parsed = [part for part in re.split(r"[;,]", text)]
-
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return []
+    try:
+        parsed = ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        parsed = None
+    if isinstance(parsed, (list, tuple, set)):
+        raw = [str(x).strip() for x in parsed]
+    elif isinstance(parsed, str):
+        raw = [parsed.strip()]
+    else:
+        raw = [x.strip() for x in text.replace("|", ";").split(";")]
+        if len(raw) == 1 and "," in text:
+            raw = [x.strip() for x in text.split(",")]
     out: list[str] = []
-    for value in parsed:
-        cleaned = _as_text(value)
-        if cleaned and not _looks_empty(cleaned) and cleaned not in out:
-            out.append(cleaned)
+    seen: set[str] = set()
+    for item in raw:
+        if not item:
+            continue
+        key = item.casefold()
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
     return out
 
 
-def merge_seed_fields(*fields: Any, separator: str = SEED_SEPARATOR) -> str:
-    """Merge several seed fields into one canonical, human-readable value.
-
-    Lossless: every original label appears in the result verbatim, in the order
-    the fields and their values were given. An empty result is the empty string
-    (not ``'[]'``), so a downstream stage sees a genuinely empty field.
-    """
-    seen: list[str] = []
-    for field in fields:
-        for value in split_seed_values(field):
-            if value not in seen:
-                seen.append(value)
-    return separator.join(seen)
+def merged_field(*values: object) -> str:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for item in _items(value):
+            key = item.casefold()
+            if key not in seen:
+                seen.add(key)
+                merged.append(item)
+    return json.dumps(merged, ensure_ascii=False)
 
 
-def build_entities(row: Mapping[str, Any]) -> str:
-    """Canonical `entities` = `new_entity` + `researcher_new_persons`."""
-    return merge_seed_fields(row.get("new_entity", ""), row.get("researcher_new_persons", ""))
+def country_slug(path: Path) -> str:
+    return path.stem.removeprefix("ep24_").casefold()
 
 
-def build_themes(row: Mapping[str, Any]) -> str:
-    """Canonical `themes` = `new_theme` + `researcher_new_themes`."""
-    return merge_seed_fields(row.get("new_theme", ""), row.get("researcher_new_themes", ""))
+def ordered_country_files(root: Path) -> list[Path]:
+    files = sorted(root.glob("ep24_*.csv"), key=lambda p: country_slug(p))
+    def rank(path: Path) -> tuple[int, str]:
+        slug = country_slug(path)
+        try:
+            return (PRIORITY.index(slug), slug)
+        except ValueError:
+            return (len(PRIORITY), slug)
+    return sorted(files, key=rank)
 
 
-def apply_codebook_labels(
-    canonical: str,
-    codebook: Mapping[str, Any] | None,
-    *,
-    registry_key: str = "labels",
-) -> str:
-    """Return the canonical value with codebook spelling applied where known.
-
-    Original labels are preserved: a label the codebook does not know stays
-    exactly as the researcher wrote it, and a known label is replaced by the
-    codebook's canonical spelling only when the two differ in spelling rather
-    than meaning. Never drops a label.
-    """
-    if not canonical:
-        return canonical
-    if not codebook:
-        return canonical
-
-    known = codebook.get(registry_key) or {}
-    if not isinstance(known, Mapping):
-        return canonical
-
-    # casefolded alias -> canonical spelling
-    lookup = {_as_text(alias).casefold(): _as_text(canon) for alias, canon in known.items()}
-    out: list[str] = []
-    for value in split_seed_values(canonical):
-        replacement = lookup.get(value.casefold())
-        out.append(replacement if replacement else value)
-    return SEED_SEPARATOR.join(out)
-
-
-def build_bootstrap_row(
-    row: Mapping[str, Any],
-    *,
-    country: str,
-    source_row_index: int,
-    entity_codebook: Mapping[str, Any] | None = None,
-    theme_codebook: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Return a copy of `row` with the canonical merge fields added.
-
-    The input mapping is not mutated. Every source column is carried through
-    unchanged, which is what the tests assert.
-    """
-    from ep24_db import record_id_for
-
-    enriched = dict(row)
-    video_id = _as_text(row.get("video_id", ""))
-    enriched["record_id"] = record_id_for(country, video_id, source_row_index)
-    enriched["entities"] = apply_codebook_labels(build_entities(row), entity_codebook)
-    enriched["themes"] = apply_codebook_labels(build_themes(row), theme_codebook)
-    return enriched
-
-
-def bootstrap_rows(
-    rows: Iterable[Mapping[str, Any]],
-    *,
-    country: str,
-    entity_codebook: Mapping[str, Any] | None = None,
-    theme_codebook: Mapping[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    """Bootstrap a whole country's rows, numbering them by source order."""
-    return [
-        build_bootstrap_row(
-            row,
-            country=country,
-            source_row_index=index,
-            entity_codebook=entity_codebook,
-            theme_codebook=theme_codebook,
-        )
-        for index, row in enumerate(rows)
+def stable_ep24_id(row: pd.Series, *, country: str, row_number: int) -> str:
+    parts = [
+        "ep2024_reprocess",
+        country,
+        str(row.get("video_id", "")),
+        str(row.get("source_recording", "")),
+        str(row.get("sequence_number", "")),
+        str(row.get("allas_filename", "")),
+        str(row_number),
     ]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
-def provenance_note() -> dict[str, str]:
-    """What bootstrap did, for the audit trail the issue asks for."""
-    return {
-        "entities_from": "new_entity + researcher_new_persons",
-        "themes_from": "new_theme + researcher_new_themes",
-        "sources_preserved": "new_entity, researcher_new_persons, new_theme, researcher_new_themes",
-        "researcher_note": "context/provenance, not automatic ground truth",
-    }
+def prepare_dataframe(df: pd.DataFrame, *, country: str) -> pd.DataFrame:
+    out = df.copy()
+    required = {"video_id", "allas_filename", "new_entity", "researcher_new_persons",
+                "new_theme", "researcher_new_themes"}
+    missing = sorted(required - set(out.columns))
+    if missing:
+        raise ValueError(f"{country}: missing bootstrap columns: {missing}")
+
+    # These canonical fields MUST exist before Step 1. Originals remain untouched.
+    out["entities"] = [
+        merged_field(row.get("new_entity", ""), row.get("researcher_new_persons", ""))
+        for _, row in out.iterrows()
+    ]
+    out["themes"] = [
+        merged_field(row.get("new_theme", ""), row.get("researcher_new_themes", ""))
+        for _, row in out.iterrows()
+    ]
+    out["_storage_id"] = [
+        stable_ep24_id(row, country=country, row_number=i)
+        for i, (_, row) in enumerate(out.iterrows())
+    ]
+    return out
+
+
+def bootstrap_country(path: Path, *, private_root: Path, backup_root: Path, dry_run: bool = False) -> int:
+    country = country_slug(path)
+    LOG.info("bootstrap country=%s input=%s", country, path)
+    source = pd.read_csv(path, dtype=str, keep_default_na=False)
+    prepared = prepare_dataframe(source, country=country)
+    write_checkpoint(prepared, backup_root / country / "step_00_bootstrap.csv",
+                     stage="bootstrap", country=country)
+
+    if dry_run:
+        LOG.info("dry-run country=%s rows=%d columns=%d", country, len(prepared), len(prepared.columns))
+        return len(prepared)
+
+    old_country = os.environ.get("LACLAUGPT_COUNTRY")
+    os.environ["LACLAUGPT_COUNTRY"] = country
+    try:
+        config = StorageConfig.from_env()
+        storage = MongoStorage(config)
+        try:
+            docs = []
+            for _, row in prepared.iterrows():
+                doc = row.to_dict()
+                doc["_pipeline"] = {"bootstrap": {"status": "complete"}}
+                docs.append(doc)
+            count = storage.upsert_documents("dataframe", docs)
+
+            context = bootstrap_context(
+                storage,
+                prepared,
+                private_root=private_root,
+                country=country,
+            )
+            LOG.info(
+                "Mongo bootstrap country=%s upserts=%d codebooks=%d memory_seeds=%d fingerprint=%s",
+                country,
+                count,
+                context["codebook_count"],
+                context["memory_seed_count"],
+                context["codebook_fingerprint"],
+            )
+            return count
+        finally:
+            storage.close()
+    finally:
+        if old_country is None:
+            os.environ.pop("LACLAUGPT_COUNTRY", None)
+        else:
+            os.environ["LACLAUGPT_COUNTRY"] = old_country
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-root", type=Path,
+        default=Path(os.getenv("LACLAUGPT_EP24_INPUT_ROOT",
+            "/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/data/to_reprocess")))
+    parser.add_argument("--private-root", type=Path,
+        default=Path(os.getenv(
+            "LACLAUGPT_EP24_PRIVATE_ROOT",
+            "/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess",
+        )))
+    parser.add_argument("--backup-root", type=Path,
+        default=Path(os.getenv("LACLAUGPT_EP24_OUTPUT_ROOT",
+            "/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/outputs")))
+    parser.add_argument("--country")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+
+    files = ordered_country_files(args.input_root)
+    if args.country:
+        files = [p for p in files if country_slug(p) == args.country.casefold()]
+    if not files:
+        raise SystemExit(f"No EP24 country CSVs found in {args.input_root}")
+    total = 0
+    for path in files:
+        total += bootstrap_country(path, private_root=args.private_root,
+                                   backup_root=args.backup_root, dry_run=args.dry_run)
+    LOG.info("bootstrap complete countries=%d rows=%d", len(files), total)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
