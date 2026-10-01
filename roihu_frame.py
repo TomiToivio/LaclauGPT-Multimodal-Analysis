@@ -43,7 +43,10 @@ This is an upstream descriptive stage. **Do not perform political, ideological, 
 Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Leeuwen, multimodal social semiotics, and structuralist attention to signs and relations. Separate observation from interpretation and mark uncertainty explicitly.
 
 ### Input
-- One sampled video frame. It may contain people, objects, environments, captions, subtitles, memes, screenshots, platform UI, graphics, diagrams, logos, symbols, emojis, or embedded media.
+- Exactly one keyframe sampled at original source t=1.0s, immediately after the known feed-scroll artifact.
+- Treat this as the deep visual/context still that complements the later whole-video narrative analysis.
+- It may contain people, objects, environments, captions, subtitles, memes, screenshots, platform UI, graphics, diagrams, logos, symbols, emojis, or embedded media.
+- Inspect platform/video metadata that is visibly rendered in the frame: username/handle, display name, date/time, title/caption, hashtags, subtitles, counters, labels, buttons and other interface text. Report only what is actually visible and mark uncertainty.
 
 ### Analysis categories
 
@@ -88,9 +91,13 @@ Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Le
    - List unclear identities, illegible text, ambiguous symbols, uncertain scene context, cropping limitations, or interpretations that require other frames/audio/transcript.
 
 ### Output
-Produce a compact structured description under the headings above, followed by:
+Produce a detailed structured description under the headings above, and include:
+- **Visible platform/video metadata:** username/handle, date/time, title/caption, hashtags, subtitles, interface labels and other metadata-like text actually visible on screen.
+- **Visible text transcription:** preserve exact text where legible and distinguish it from OCR/upstream transcript context.
+- **Detailed scene inventory:** people, objects, setting, clothing, gestures, graphics, logos, symbols, composition and small but potentially relevant details.
 - **Frame gist:** 1–3 neutral sentences.
-- **Preserve for downstream analysis:** a short list of exact visible words/phrases and salient signs that later stages should receive unchanged where possible.
+- **Preserve for downstream analysis:** exact visible words/phrases and salient signs that later stages should receive unchanged where possible.
+- **Uncertainty:** everything unclear, cropped, illegible or dependent on temporal context.
 '''
 
     user_prompt = f'''
