@@ -24,7 +24,7 @@ The source country CSV is historical provenance and must never be overwritten.
 
 For each country the cleaner creates derivative artifacts:
 
-- `data/to_reprocess/ep24_<country>.csv`
+- `data/to_reprocess/ep24_<country>_cleaned.csv`
 - `ep24_<country>_cleaning_decisions.csv`
 - `ep24_<country>_cleaning_report.md`
 - `ep24_<country>_cleaning_provenance.json`
@@ -103,7 +103,7 @@ python ep24_cleaner.py \
   --country Finland
 ```
 
-Use the same keep-schema argument for Poland, Germany, and every other EP24 country.
+Use the same keep-schema argument for Poland, Germany, and every other EP24 country. The canonical cleaned derivative filename is `ep24_<country>_cleaned.csv` for every country.
 
 Public tests use synthetic rows only. Never copy real researcher notes or private EP24
 rows into this repository.
