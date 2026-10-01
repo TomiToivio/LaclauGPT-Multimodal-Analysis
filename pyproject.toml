@@ -24,6 +24,14 @@ dev = [
   "pytest>=8.3,<9",
   "ruff>=0.11,<1",
 ]
+# What the test suite imports at collection time. CI installs this extra so the
+# dependency list lives in exactly one place: a test that needs a new package
+# means declaring it here, not editing the workflow (see python-quality.yml).
+test = [
+  "pytest>=8.3,<9",
+  "pandas>=2.2,<3",
+  "rdflib>=7,<8",
+]
 
 [tool.ruff]
 target-version = "py311"
