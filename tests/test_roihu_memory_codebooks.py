@@ -102,3 +102,11 @@ def test_seed_memory_does_not_attach_conflicting_alias(tmp_path):
     result = seed_memory(tmp_path, memory)
     assert result["alias_conflicts"] == 1
     assert memory.resolve("Taken Alias", "actor", country="FI").obj_id == existing
+
+
+def test_populism_context_hook_is_opt_in_and_explicit():
+    source = Path("roihu_populism.py").read_text(encoding="utf-8")
+    assert "LACLAUGPT_ENRICHMENT_ENABLED" in source
+    assert "add_codebook_context(country, user_prompt)" in source
+    assert "formula_of_populism_codebook_context_json" in source
+    assert "legacy_cached_result" in source
