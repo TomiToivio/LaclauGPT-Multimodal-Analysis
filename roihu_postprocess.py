@@ -172,5 +172,8 @@ def analyze_responses(language):
 
 
 languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
-for language in languages:
-    analyze_responses(language)
+
+
+if __name__ == '__main__':
+    for language in languages:
+        analyze_responses(language)

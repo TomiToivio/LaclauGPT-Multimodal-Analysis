@@ -8,6 +8,7 @@ by a single writer. The legacy pipeline is never rewritten by this module.
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import sqlite3
@@ -68,6 +69,7 @@ class Resolution:
     obj_id: str = ""
     label: str = ""
     matched_via: str = ""
+    candidates: tuple[dict[str, Any], ...] = ()
 
 
 class EP24Memory:
@@ -307,6 +309,110 @@ class EP24Memory:
         if len(rows) > 1:
             return Resolution(raw, kind, "AMBIGUOUS", matched_via="alias")
         return Resolution(raw, kind, "NEW")
+
+    def fuzzy_candidates(
+        self,
+        raw: str,
+        kind: str,
+        *,
+        country: str = "",
+        language: str = "",
+        accepted_only: bool = True,
+        limit: int = 3,
+        threshold: float = 0.82,
+    ) -> list[dict[str, Any]]:
+        """Propose conservative fuzzy candidates; never resolves anything.
+
+        Candidates are ranked by a plain ``difflib`` ratio over the same
+        ``surface_key`` used for exact alias lookup, so a candidate can only
+        differ from an exact alias hit by case/whitespace-insensitive spelling
+        drift, never by the accent/qualifier stripping that caused the false
+        merges fixed in known-issue #2. An exact-key match is excluded here
+        because ``resolve()`` already finds it; this method is for the
+        remaining, non-exact surface forms only. The caller decides whether a
+        candidate is ever accepted: this never mutates memory state.
+        """
+        key = surface_key(raw)
+        if not key:
+            return []
+        states = ("CANONICAL",) if accepted_only else ("CANONICAL", "PROVISIONAL")
+        qs = ",".join("?" for _ in states)
+        with self.connect() as db:
+            rows = list(
+                db.execute(
+                    f"SELECT DISTINCT obj_id, canonical_label, english_label, country, language, state "
+                    f"FROM objects WHERE kind=? AND state IN ({qs})",
+                    [kind, *states],
+                )
+            )
+        candidates: list[dict[str, Any]] = []
+        for row in rows:
+            if country and row["country"] not in ("", country.upper()):
+                continue
+            if language and row["language"] not in ("", language.lower()):
+                continue
+            label_key = surface_key(row["canonical_label"])
+            if not label_key or label_key == key:
+                continue
+            score = difflib.SequenceMatcher(None, key, label_key).ratio()
+            if score >= threshold:
+                candidates.append(
+                    {
+                        "obj_id": row["obj_id"],
+                        "label": row["canonical_label"],
+                        "english_label": row["english_label"],
+                        "score": round(score, 4),
+                        "match_method": "fuzzy_candidate",
+                    }
+                )
+        candidates.sort(key=lambda c: (-c["score"], c["label"].casefold()))
+        return candidates[: max(0, limit)]
+
+    def resolve_identity(
+        self,
+        raw: str,
+        kind: str,
+        *,
+        country: str = "",
+        language: str = "",
+        accepted_only: bool = True,
+        fuzzy_threshold: float = 0.82,
+        fuzzy_limit: int = 3,
+    ) -> dict[str, Any]:
+        """Exact-first, fuzzy-candidates-second identity resolution.
+
+        Returns a plain, JSON-serializable dict so it can be embedded directly
+        into additive enrichment columns. Decision order:
+
+        1. ``EXISTING`` -- an exact canonical/alias match; safe to use.
+        2. ``AMBIGUOUS`` -- more than one exact alias match; never resolved
+           automatically, conservative fuzzy candidates are attached for a
+           human to review but the decision itself still abstains.
+        3. ``FUZZY_CANDIDATE`` -- no exact match, but one or more conservative
+           fuzzy candidates were found; these are proposals only, never a
+           silent canonization.
+        4. ``NEW`` -- no exact or fuzzy match at all.
+        """
+        result = self.resolve(raw, kind, country=country, language=language, accepted_only=accepted_only)
+        payload: dict[str, Any] = {
+            "raw": raw,
+            "kind": kind,
+            "decision": result.decision,
+            "obj_id": result.obj_id,
+            "label": result.label,
+            "match_method": result.matched_via or ("exact_alias" if result.decision == "EXISTING" else ""),
+            "candidates": [],
+        }
+        if result.decision in ("NEW", "AMBIGUOUS"):
+            candidates = self.fuzzy_candidates(
+                raw, kind, country=country, language=language, accepted_only=accepted_only,
+                limit=fuzzy_limit, threshold=fuzzy_threshold,
+            )
+            payload["candidates"] = candidates
+            if candidates and result.decision == "NEW":
+                payload["decision"] = "FUZZY_CANDIDATE"
+                payload["match_method"] = "fuzzy_candidate"
+        return payload
 
     def add_provenance(
         self,

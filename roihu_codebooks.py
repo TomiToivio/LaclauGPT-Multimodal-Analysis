@@ -204,6 +204,75 @@ def load_codebook(path: str | Path, *, layer: str = "country") -> tuple[list[Cod
     return entries, meta
 
 
+# Researcher-note workbook columns (`research_notes.xlsx`) that researchers use
+# to jot down candidate entities/persons/themes while doing the digital
+# ethnography. These are controlled, human-authored seed columns, not finished
+# codebook entries: every seed built from them below is PROVISIONAL and
+# unlocked, so it must still be corroborated/reviewed, same as a model guess.
+RESEARCH_NOTE_SEED_FIELDS: dict[str, tuple[str, ...]] = {
+    "entity": ("new_entity", "researcher_new_persons"),
+    "topic": ("new_theme", "researcher_new_themes"),
+}
+_SEED_SPLIT_RE = re.compile(r"[;\n]+")
+
+
+def seed_entries_from_research_notes(
+    rows: Iterable[dict[str, Any]],
+    *,
+    country: str,
+    language: str = "",
+    fields: dict[str, tuple[str, ...]] | None = None,
+) -> list[CodebookEntry]:
+    """Build PROVISIONAL codebook entries from free-text researcher-note seed columns.
+
+    ``rows`` is any iterable of plain dicts (for example from
+    ``research_notes.xlsx`` read into records) that may contain the columns
+    named in ``fields`` (default: :data:`RESEARCH_NOTE_SEED_FIELDS`). A cell
+    may hold more than one candidate label separated by ``;`` or a newline;
+    each non-empty candidate becomes its own provisional entry so it can later
+    be reviewed, merged with an existing canonical entry, or rejected. Nothing
+    here is ever marked ``CANONICAL`` or ``locked``: researcher free text is a
+    seed, not authoritative evidence, exactly like model-discovered guesses
+    elsewhere in this module.
+    """
+    field_map = fields or RESEARCH_NOTE_SEED_FIELDS
+    country_code = country.upper()
+    seen: set[tuple[str, str]] = set()
+    entries: list[CodebookEntry] = []
+    for row_index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        for kind, columns in field_map.items():
+            for column in columns:
+                raw_value = row.get(column)
+                cell = _clean(raw_value)
+                if not cell:
+                    continue
+                for candidate in _SEED_SPLIT_RE.split(cell):
+                    label = _clean(candidate)
+                    if not label:
+                        continue
+                    dedupe_key = (kind, identity_key(label))
+                    if dedupe_key in seen:
+                        continue
+                    seen.add(dedupe_key)
+                    entries.append(
+                        CodebookEntry(
+                            entry_id=_entry_id({}, kind, label, country_code),
+                            kind=kind,
+                            label=label,
+                            country=country_code,
+                            source_languages=[language.lower()] if language else [],
+                            review_state="PROVISIONAL",
+                            origin="research_notes_seed",
+                            locked=False,
+                            layer="researcher",
+                            metadata={"source_field": column, "source_row_index": row_index},
+                        )
+                    )
+    return entries
+
+
 def private_root() -> Path:
     configured = os.getenv("LACLAUGPT_EP24_PRIVATE_ROOT") or os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT")
     if configured:
@@ -242,6 +311,10 @@ def load_profile(root: str | Path, country: str, *, language: str = "") -> tuple
                 continue
             if old.locked and not entry.locked:
                 conflicts.append({"kept": old.entry_id, "rejected": entry.entry_id, "reason": "human_lock"})
+                continue
+            if entry.locked and not old.locked:
+                conflicts.append({"kept": entry.entry_id, "rejected": old.entry_id, "reason": "human_lock"})
+                merged[key] = entry
                 continue
             if old.locked and entry.locked and asdict(old) != asdict(entry):
                 conflicts.append({"kept": old.entry_id, "rejected": entry.entry_id, "reason": "locked_conflict_needs_review"})
