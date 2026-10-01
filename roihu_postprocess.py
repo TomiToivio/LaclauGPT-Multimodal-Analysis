@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 
@@ -108,6 +109,20 @@ def ensure_video_filename(df):
     return df
 
 
+def _existing_list(value):
+    """Parse cumulative list-like fields without discarding researcher seeds."""
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, list):
+        return [str(item).strip() for item in parsed if str(item).strip()]
+    return [item.strip() for item in text.split(",") if item.strip()]
+
+
 def analyze_responses(language=None):
     filename = os.getenv('LACLAUGPT_INPUT_CSV') or source_filename(language)
     if filename is None:
@@ -148,8 +163,11 @@ def analyze_responses(language=None):
             'negative': response.negative,
         }
         for column, items in values.items():
-            # Preserve order while removing exact duplicates.
-            unique_items = list(dict.fromkeys(str(item) for item in items if str(item)))
+            # Preserve upstream cumulative values (especially bootstrap entities)
+            # and append model discoveries without exact duplicates.
+            existing = _existing_list(row.get(column, ""))
+            combined = [*existing, *(str(item) for item in items if str(item))]
+            unique_items = list(dict.fromkeys(item for item in combined if item))
             df.at[index, column] = ', '.join(unique_items)
         df.at[index, 'postprocess_summary_md'] = (
             '**Entities:** ' + df.at[index, 'entities'] + '\n\n'
