@@ -58,14 +58,13 @@ LOG_PATH="${LACLAUGPT_VLLM_TEST_LOG:-${LOG_DIR}/vllm_video_test_${SLURM_JOB_ID}.
 
 export HF_HOME="${HF_HOME:-${PRIVATE_ROOT}/hf-cache}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-${HF_HOME}/hub}"
-export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-${HF_HOME}/transformers}"
 export TOKENIZERS_PARALLELISM=false
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export NUMEXPR_MAX_THREADS="${SLURM_CPUS_PER_TASK:-64}"
 export OMP_PLACES=cores
 export OMP_PROC_BIND=spread
 
-mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${DOWNLOAD_DIR}" "${HF_HOME}" "${TRANSFORMERS_CACHE}"
+mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${DOWNLOAD_DIR}" "${HF_HOME}" "${HF_HUB_CACHE}"
 
 [[ -f "${PUBLIC_ROOT}/experiments/vllm_video_test.py" ]] || {
   echo "ERROR: experiment script missing under detected public repo root: ${PUBLIC_ROOT}" >&2
