@@ -189,6 +189,11 @@ def analyze_videos(language=None):
         df = df.head(max_rows).copy()
         logger.info("Demo row limit active: processing first %s rows", max_rows)
 
+    # Historical per-language mode keeps the documented legacy row filter.
+    # Canonical EP24 mode keeps every researcher-feed row and appends results.
+    if not os.getenv('LACLAUGPT_INPUT_CSV') and 'whisperResult' in df.columns:
+        df = df.dropna(subset=['whisperResult'])
+
     if 'summary_analysis' not in df.columns:
         df['summary_analysis'] = ''
     if 'summary_summary_md' not in df.columns:
