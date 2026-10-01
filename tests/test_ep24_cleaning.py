@@ -552,3 +552,76 @@ def test_country_is_taken_from_data_not_from_the_filename(tmp_path):
     rows = [_row("V-1", country="Poland")]
     outcome = rc.clean_dataframe(_write(tmp_path / "ep24_finland_with_researcher_notes.csv", rows))
     assert outcome.country == "Poland"
+
+
+# --- safety assertions named verbatim in issue #35 -------------------------
+#
+# The issue lists eight failures the cleaner must never cause ("fail if cleaning
+# accidentally..."). Two of them had no test at all, so they are pinned here.
+
+def test_cleaning_never_changes_the_row_identifier(tmp_path):
+    """#35: fail if cleaning 'changes row identifiers'.
+
+    The cleaner may add columns but the identifier column must survive
+    byte-for-byte and in order, so a cleaned row can always be joined back to
+    the historical dataframe it came from.
+    """
+    ids = ["V-A", "V-B", "V-C"]
+    rows = [_row("V-A"), _row("V-B", researcher_delete_video="TRUE"), _row("V-C")]
+    source = _write(tmp_path / "ep24_finland_with_researcher_notes.csv", rows)
+
+    before = [r["video_id"] for r in rc.load_source(source)[1]]
+    outcome = rc.clean_dataframe(source)
+
+    after = [r["video_id"] for r in outcome.rows]
+    assert before == ids, "fixture precondition"
+    assert after == before, "cleaning changed or reordered row identifiers"
+
+
+def test_cleaning_never_rewrites_the_source_file_in_place(tmp_path):
+    """#35: fail if cleaning 'rewrites the private source file in place'.
+
+    The source CSV is publication provenance. It must be byte-identical after a
+    cleaning pass, so this compares digests rather than only reloading the rows.
+    """
+    import hashlib
+
+    def digest(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    rows = [_row("V-1"), _row("V-2", researcher_delete_video="TRUE"), _row("V-3")]
+    source = _write(tmp_path / "ep24_finland_with_researcher_notes.csv", rows)
+    before = digest(source)
+
+    outcome = rc.clean_dataframe(source)
+    rc.write_outputs(
+        outcome,
+        output_dir=tmp_path / "by_country",
+        to_reprocess_dir=tmp_path / "to_reprocess",
+        recut_worklist=tmp_path / "recut.csv",
+    )
+
+    assert digest(source) == before, "the source CSV was modified in place"
+
+
+def test_cleaning_never_overwrites_a_private_source_outside_the_output_dir(tmp_path):
+    """#35: derived artifacts are additive and must land beside the source.
+
+    Guards the destructive failure mode directly: every path the cleaner writes
+    has to be one it was given, never a path derived from the input filename.
+    """
+    src_dir = tmp_path / "by_country"
+    rows = [_row("V-1")]
+    source = _write(src_dir / "ep24_finland_with_researcher_notes.csv", rows)
+
+    outcome = rc.clean_dataframe(source)
+    files = rc.write_outputs(
+        outcome,
+        output_dir=src_dir,
+        to_reprocess_dir=tmp_path / "to_reprocess",
+        recut_worklist=tmp_path / "recut.csv",
+    )
+
+    for kind, path in files.items():
+        assert path != source, f"{kind} was written over the source file"
+        assert Path(path).resolve() != source.resolve(), f"{kind} overwrote the source"
