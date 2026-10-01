@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""Load and retrieve private bilingual EP24 codebooks on CSC Roihu.
+
+Operational codebooks stay outside this public repository. This loader supports
+existing EP24 private JSON shapes and adds deterministic, auditable context
+selection without treating background knowledge as evidence from a post/video.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Iterable
+
+_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+COUNTRY_PROFILES = {
+    "FI": {"country": "Finland", "languages": ["fi", "sv", "en"], "file": "ep24_finland_private.json"},
+    "SE": {"country": "Sweden", "languages": ["sv", "en"], "file": "ep24_se_private.json"},
+    "PL": {"country": "Poland", "languages": ["pl", "en"], "file": "ep24_poland_private.json"},
+    "PT": {"country": "Portugal", "languages": ["pt", "en"], "file": "ep24_pt_private.json"},
+    "DE": {"country": "Germany", "languages": ["de", "en"], "file": "ep24_de_private.json"},
+    "ES": {"country": "Spain", "languages": ["es", "en"], "file": "ep24_es_private.json"},
+    "HU": {"country": "Hungary", "languages": ["hu", "en"], "file": "ep24_hu_private.json"},
+    "HR": {"country": "Croatia", "languages": ["hr", "en"], "file": "ep24_hr_private.json"},
+    "FR": {"country": "France", "languages": ["fr", "en"], "file": "ep24_fr_private.json"},
+    "BG": {"country": "Bulgaria", "languages": ["bg", "en"], "file": "ep24_bg_private.json"},
+}
+LAYER_ORDER = {"common": 0, "eu": 1, "country": 2, "language": 3, "researcher": 4}
+
+
+def _clean(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return "" if text.casefold() in {"nan", "none", "null"} else text
+
+
+def _tokens(text: str) -> set[str]:
+    return {token for token in _TOKEN_RE.findall(text.casefold()) if len(token) > 2}
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@dataclass(frozen=True)
+class SourceRef:
+    source_type: str = ""
+    url: str = ""
+    title: str = ""
+    language: str = ""
+    publication_date: str = ""
+    retrieval_date: str = ""
+    evidence_locator: str = ""
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CodebookEntry:
+    entry_id: str
+    kind: str
+    label: str
+    aliases: list[str] = field(default_factory=list)
+    country: str = ""
+    source_languages: list[str] = field(default_factory=list)
+    english_label: str = ""
+    definition: str = ""
+    english_definition: str = ""
+    disambiguation: str = ""
+    entity_type: str = ""
+    review_state: str = "PROVISIONAL"
+    origin: str = "public_context"
+    locked: bool = False
+    valid_from: str = ""
+    valid_to: str = ""
+    layer: str = "country"
+    sources: list[SourceRef] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def forms(self) -> list[str]:
+        values = [self.label, self.english_label, *self.aliases]
+        return list(dict.fromkeys(v for v in (_clean(x) for x in values) if v))
+
+
+def _entry_id(item: dict[str, Any], kind: str, label: str, country: str) -> str:
+    explicit = _clean(item.get("canonical_id") or item.get("id") or item.get("entry_id"))
+    if explicit:
+        return explicit
+    disambiguation = _clean(item.get("disambiguation"))
+    seed = "|".join((country.upper(), kind, label.casefold(), disambiguation.casefold()))
+    return f"CB-{hashlib.sha256(seed.encode()).hexdigest()[:18]}"
+
+
+def _source_ref(value: Any) -> SourceRef:
+    if isinstance(value, str):
+        return SourceRef(url=value if value.startswith("http") else "", evidence_locator="" if value.startswith("http") else value, raw={"value": value})
+    if not isinstance(value, dict):
+        return SourceRef(raw={"value": value})
+    return SourceRef(
+        source_type=_clean(value.get("source_type") or value.get("type") or value.get("origin")),
+        url=_clean(value.get("url") or value.get("doi")),
+        title=_clean(value.get("title")),
+        language=_clean(value.get("language")),
+        publication_date=_clean(value.get("publication_date") or value.get("date")),
+        retrieval_date=_clean(value.get("retrieval_date") or value.get("retrieved_at")),
+        evidence_locator=_clean(value.get("evidence_locator") or value.get("locator") or value.get("row")),
+        raw=value,
+    )
+
+
+def _normalize_item(item: dict[str, Any], *, kind: str, default_country: str, default_language: str = "", layer: str = "country") -> CodebookEntry | None:
+    label = _clean(item.get("label") or item.get("name") or item.get("canonical") or item.get("canonical_name"))
+    if not label:
+        return None
+    aliases = item.get("aliases") or item.get("surface_forms") or item.get("variants") or []
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    country = _clean(item.get("country_code") or item.get("country") or default_country).upper()
+    source_lang = _clean(item.get("language") or default_language).lower()
+    source_languages = item.get("source_languages") or ([source_lang] if source_lang else [])
+    if isinstance(source_languages, str):
+        source_languages = [source_languages]
+    source_values = item.get("sources") or item.get("source_refs") or []
+    if not source_values and item.get("provenance") is not None:
+        source_values = [item.get("provenance")]
+    if not isinstance(source_values, list):
+        source_values = [source_values]
+    origin = _clean(item.get("origin") or item.get("provenance_class") or item.get("status") or "public_context")
+    reviewed = item.get("reviewed")
+    review_state = _clean(item.get("review_state") or item.get("state"))
+    if not review_state:
+        review_state = "CANONICAL" if reviewed is True or origin in {"researcher_private", "researcher-grounded", "human"} else "PROVISIONAL"
+    locked = bool(item.get("locked") or item.get("human_lock") or item.get("do_not_auto_change"))
+    if origin in {"researcher_private", "researcher-grounded", "human"}:
+        locked = True if item.get("locked") is None else locked
+    return CodebookEntry(
+        entry_id=_entry_id(item, kind, label, country),
+        kind=kind,
+        label=label,
+        aliases=[_clean(v) for v in aliases if _clean(v)],
+        country=country,
+        source_languages=[_clean(v).lower() for v in source_languages if _clean(v)],
+        english_label=_clean(item.get("english_label") or item.get("label_en") or item.get("english")),
+        definition=_clean(item.get("definition") or item.get("description")),
+        english_definition=_clean(item.get("english_definition") or item.get("definition_en")),
+        disambiguation=_clean(item.get("disambiguation") or item.get("ambiguity_notes")),
+        entity_type=_clean(item.get("entity_type") or item.get("type")),
+        review_state=review_state.upper(), origin=origin, locked=locked,
+        valid_from=_clean(item.get("valid_from")), valid_to=_clean(item.get("valid_to")), layer=layer,
+        sources=[_source_ref(v) for v in source_values], metadata=dict(item.get("metadata") or {}),
+    )
+
+
+def load_codebook(path: str | Path, *, layer: str = "country") -> tuple[list[CodebookEntry], dict[str, Any]]:
+    path = Path(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    country = _clean(payload.get("country_code") or payload.get("country") or ("COMMON" if "common" in path.name else "")).upper()
+    language = _clean(payload.get("language")).lower()
+    candidates: list[tuple[str, dict[str, Any]]] = []
+    for item in payload.get("entries", []) or []:
+        if isinstance(item, dict):
+            candidates.append((_clean(item.get("kind")) or "entity", item))
+    for field_name, kind in (("entities", "entity"), ("themes", "topic"), ("topics", "topic"), ("signifiers", "signifier"), ("actors", "actor"), ("formations", "formation")):
+        for item in payload.get(field_name, []) or []:
+            candidates.append((kind, {"label": item} if isinstance(item, str) else item))
+    entries = []
+    for kind, item in candidates:
+        if not isinstance(item, dict):
+            continue
+        if kind == "theme":
+            kind = "topic"
+        normalized = _normalize_item(item, kind=kind, default_country=country, default_language=language, layer=layer)
+        if normalized:
+            entries.append(normalized)
+    meta = {"path": path.name, "sha256": _sha(path), "country": country, "language": language, "schema": _clean(payload.get("schema")), "entry_count": len(entries)}
+    return entries, meta
+
+
+def private_root() -> Path:
+    configured = os.getenv("LACLAUGPT_EP24_PRIVATE_ROOT") or os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT")
+    if configured:
+        return Path(configured)
+    return Path("../LaclauGPT-Private/analysis/ep24")
+
+
+def profile_paths(root: str | Path, country: str) -> list[tuple[Path, str]]:
+    root = Path(root)
+    codebooks = root / "codebooks"
+    code = country.upper()
+    if code not in COUNTRY_PROFILES:
+        raise KeyError(f"unsupported EP24 country: {code}")
+    return [
+        (codebooks / "ep24_common_private.json", "common"),
+        (codebooks / COUNTRY_PROFILES[code]["file"], "country"),
+    ]
+
+
+def load_profile(root: str | Path, country: str, *, language: str = "") -> tuple[list[CodebookEntry], dict[str, Any]]:
+    loaded: list[tuple[list[CodebookEntry], dict[str, Any], str]] = []
+    for path, layer in profile_paths(root, country):
+        if path.exists():
+            entries, meta = load_codebook(path, layer=layer)
+            loaded.append((entries, meta, layer))
+    if not loaded:
+        raise FileNotFoundError(f"no private EP24 codebooks found for {country} under {Path(root) / 'codebooks'}")
+    merged: dict[tuple[str, str, str], CodebookEntry] = {}
+    conflicts: list[dict[str, Any]] = []
+    for entries, _meta, _layer in loaded:
+        for entry in entries:
+            key = (entry.kind, entry.label.casefold(), entry.country or country.upper())
+            old = merged.get(key)
+            if old is None:
+                merged[key] = entry
+                continue
+            if old.locked and not entry.locked:
+                conflicts.append({"kept": old.entry_id, "rejected": entry.entry_id, "reason": "human_lock"})
+                continue
+            if old.locked and entry.locked and asdict(old) != asdict(entry):
+                conflicts.append({"kept": old.entry_id, "rejected": entry.entry_id, "reason": "locked_conflict_needs_review"})
+                continue
+            if LAYER_ORDER.get(entry.layer, 0) >= LAYER_ORDER.get(old.layer, 0):
+                merged[key] = entry
+    entries = list(merged.values())
+    aliases: dict[tuple[str, str], set[str]] = {}
+    for entry in entries:
+        for form in entry.forms:
+            aliases.setdefault((entry.kind, form.casefold()), set()).add(entry.entry_id)
+    ambiguous = sorted({form for (_kind, form), ids in aliases.items() if len(ids) > 1})
+    fingerprint = hashlib.sha256("|".join(sorted(m[1]["sha256"] for m in loaded)).encode()).hexdigest()
+    return entries, {
+        "country": country.upper(), "language": language.lower(), "fingerprint": fingerprint,
+        "books": [m[1] for m in loaded], "entry_count": len(entries), "conflicts": conflicts,
+        "ambiguous_forms": ambiguous, "evidence_role": "background_context_not_source_evidence",
+    }
+
+
+def score_entry(query: str, entry: CodebookEntry) -> float:
+    q = query.casefold()
+    if not q.strip():
+        return 0.0
+    for form in entry.forms:
+        normalized = form.casefold().strip()
+        if not normalized:
+            continue
+        if len(normalized) >= 3 and normalized in q:
+            return 1.0
+        if len(normalized) < 3 and re.search(rf"(?<!\w){re.escape(normalized)}(?!\w)", q):
+            return 1.0
+    q_tokens = _tokens(query)
+    entry_tokens = set()
+    for value in [*entry.forms, entry.definition, entry.english_definition]:
+        entry_tokens.update(_tokens(value))
+    return len(q_tokens & entry_tokens) / max(1, len(entry_tokens))
+
+
+def select_context(query: str, entries: Iterable[CodebookEntry], *, country: str, language: str = "", limit: int = 8, threshold: float = 0.15) -> tuple[list[CodebookEntry], dict[str, Any]]:
+    scoped = [entry for entry in entries if entry.country in {"", "COMMON", country.upper()}]
+    ranked = sorted(((score_entry(query, e), e) for e in scoped), key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()))
+    selected = [(score, entry) for score, entry in ranked[: max(0, limit)] if score >= threshold]
+    return [e for _, e in selected], {
+        "country": country.upper(), "language": language.lower(), "limit": limit, "threshold": threshold,
+        "selection_method": "deterministic_lexical_v2_bilingual", "evidence_role": "background_context_not_source_evidence",
+        "selected": [{"entry_id": e.entry_id, "kind": e.kind, "label": e.label, "english_label": e.english_label, "score": round(score, 6)} for score, e in selected],
+    }
+
+
+def context_block(query: str, entries: Iterable[CodebookEntry], *, country: str, language: str = "", limit: int = 8, threshold: float = 0.15) -> tuple[str, dict[str, Any]]:
+    selected, provenance = select_context(query, entries, country=country, language=language, limit=limit, threshold=threshold)
+    if not selected:
+        return "", provenance
+    lines = ["[EP24 CODEBOOK CONTEXT] Background context only, not evidence from the current item and not proof of an actor's beliefs or the author's agreement."]
+    for entry in selected:
+        bilingual = entry.label if not entry.english_label or entry.english_label == entry.label else f"{entry.label} / {entry.english_label}"
+        definition = entry.english_definition or entry.definition
+        lines.append(f"- {entry.kind}: {bilingual}" + (f" | {definition}" if definition else ""))
+    return "\n".join(lines), provenance
+
+
+def coverage_manifest() -> list[dict[str, Any]]:
+    return [{"country_code": code, "country": meta["country"], "languages": meta["languages"], "private_file": meta["file"], "english_output": True} for code, meta in COUNTRY_PROFILES.items()]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--private-root", default=str(private_root()))
+    parser.add_argument("--country", default="FI")
+    parser.add_argument("--language", default="")
+    parser.add_argument("--text", default="")
+    parser.add_argument("--manifest", action="store_true")
+    args = parser.parse_args(argv)
+    if args.manifest:
+        print(json.dumps(coverage_manifest(), ensure_ascii=False, indent=2))
+        return 0
+    entries, meta = load_profile(args.private_root, args.country, language=args.language)
+    block, selection = context_block(args.text, entries, country=args.country, language=args.language)
+    print(json.dumps({"profile": meta, "selection": selection, "context": block}, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
