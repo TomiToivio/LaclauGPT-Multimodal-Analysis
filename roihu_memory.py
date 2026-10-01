@@ -20,7 +20,7 @@ from typing import Any
 KINDS = ("entity", "topic", "signifier", "target", "actor", "formation")
 STATES = ("CANONICAL", "PROVISIONAL", "MERGED", "DEPRECATED", "REJECTED")
 PREFIX = {"entity": "E", "topic": "T", "signifier": "S", "target": "C", "actor": "A", "formation": "F"}
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def now_iso() -> str:
@@ -82,7 +82,41 @@ class EP24Memory:
         db.execute("PRAGMA foreign_keys=ON")
         return db
 
+    def _schema_version(self) -> int:
+        if not self.path.exists():
+            return 0
+        with self.connect() as db:
+            pragma = int(db.execute("PRAGMA user_version").fetchone()[0])
+            if pragma:
+                return pragma
+            exists = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'"
+            ).fetchone()
+            if exists:
+                row = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+                if row and str(row[0]).isdigit():
+                    return int(row[0])
+        return 0
+
+    def _backup_before_migration(self, version: int) -> Path:
+        target = self.path.with_suffix(self.path.suffix + f".schema-v{version}.bak")
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        if tmp.exists():
+            tmp.unlink()
+        with self.connect() as src, sqlite3.connect(tmp) as dst:
+            src.backup(dst)
+        tmp.replace(target)
+        return target
+
     def _init(self) -> None:
+        previous = self._schema_version()
+        if previous > SCHEMA_VERSION:
+            raise RuntimeError(
+                f"memory schema {previous} is newer than supported {SCHEMA_VERSION}"
+            )
+        if 0 < previous < SCHEMA_VERSION:
+            self._backup_before_migration(previous)
+
         with self.connect() as db:
             db.executescript(
                 """
@@ -94,6 +128,7 @@ class EP24Memory:
                     entity_type TEXT NOT NULL DEFAULT '', disambiguation TEXT NOT NULL DEFAULT '',
                     definition TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'PROVISIONAL',
                     origin TEXT NOT NULL DEFAULT '', locked INTEGER NOT NULL DEFAULT 0,
+                    valid_from TEXT NOT NULL DEFAULT '', valid_to TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS aliases(
@@ -111,6 +146,15 @@ class EP24Memory:
                     source_language TEXT NOT NULL DEFAULT '', publication_date TEXT NOT NULL DEFAULT '',
                     event_valid_from TEXT NOT NULL DEFAULT '', event_valid_to TEXT NOT NULL DEFAULT '',
                     retrieved_at TEXT NOT NULL DEFAULT '', evidence_locator TEXT NOT NULL DEFAULT '',
+                    UNIQUE(obj_id,source_type,source_ref,publication_date,evidence_locator),
+                    FOREIGN KEY(obj_id) REFERENCES objects(obj_id)
+                );
+                CREATE TABLE IF NOT EXISTS affiliations(
+                    affiliation_id INTEGER PRIMARY KEY AUTOINCREMENT, obj_id TEXT NOT NULL,
+                    organization_id TEXT NOT NULL DEFAULT '', organization_label TEXT NOT NULL DEFAULT '',
+                    role TEXT NOT NULL DEFAULT '', valid_from TEXT NOT NULL DEFAULT '',
+                    valid_to TEXT NOT NULL DEFAULT '', source_ref TEXT NOT NULL DEFAULT '',
+                    UNIQUE(obj_id,organization_id,organization_label,role,valid_from,valid_to),
                     FOREIGN KEY(obj_id) REFERENCES objects(obj_id)
                 );
                 CREATE TABLE IF NOT EXISTS proposals(
@@ -127,9 +171,15 @@ class EP24Memory:
                 );
                 """
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(objects)")}
+            if "valid_from" not in columns:
+                db.execute("ALTER TABLE objects ADD COLUMN valid_from TEXT NOT NULL DEFAULT ''")
+            if "valid_to" not in columns:
+                db.execute("ALTER TABLE objects ADD COLUMN valid_to TEXT NOT NULL DEFAULT ''")
             db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version',?)", (str(SCHEMA_VERSION),))
+            db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
-    def add_object(self, kind: str, label: str, *, obj_id: str | None = None, english_label: str = "", country: str = "", language: str = "", entity_type: str = "", disambiguation: str = "", definition: str = "", state: str = "PROVISIONAL", origin: str = "", locked: bool = False, preserve_upstream_id: str = "") -> str:
+    def add_object(self, kind: str, label: str, *, obj_id: str | None = None, english_label: str = "", country: str = "", language: str = "", entity_type: str = "", disambiguation: str = "", definition: str = "", state: str = "PROVISIONAL", origin: str = "", locked: bool = False, valid_from: str = "", valid_to: str = "", preserve_upstream_id: str = "") -> str:
         if kind not in KINDS or state not in STATES:
             raise ValueError("unsupported kind/state")
         canonical = str(label).strip()
@@ -143,13 +193,21 @@ class EP24Memory:
                 if int(existing["locked"]):
                     return obj_id
                 db.execute(
-                    "UPDATE objects SET english_label=?,definition=?,entity_type=?,updated_at=? WHERE obj_id=?",
-                    (english_label or existing["english_label"], definition or existing["definition"], entity_type or existing["entity_type"], ts, obj_id),
+                    "UPDATE objects SET english_label=?,definition=?,entity_type=?,valid_from=?,valid_to=?,updated_at=? WHERE obj_id=?",
+                    (english_label or existing["english_label"], definition or existing["definition"], entity_type or existing["entity_type"], valid_from or existing["valid_from"], valid_to or existing["valid_to"], ts, obj_id),
                 )
             else:
                 db.execute(
-                    "INSERT INTO objects VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (obj_id, kind, canonical, canonical, english_label, country.upper(), language.lower(), entity_type, disambiguation, definition, state, origin, int(locked), ts, ts),
+                    """INSERT INTO objects(
+                        obj_id,kind,canonical_label,original_label,english_label,country,language,
+                        entity_type,disambiguation,definition,state,origin,locked,valid_from,valid_to,
+                        created_at,updated_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        obj_id, kind, canonical, canonical, english_label, country.upper(),
+                        language.lower(), entity_type, disambiguation, definition, state, origin,
+                        int(locked), valid_from, valid_to, ts, ts,
+                    ),
                 )
             self._add_alias_db(db, obj_id, canonical, country=country, language=language, provenance=origin)
             old_id = preserve_upstream_id or upstream_stable_id(kind, canonical)
@@ -193,6 +251,54 @@ class EP24Memory:
             return Resolution(raw, kind, "AMBIGUOUS", matched_via="alias")
         return Resolution(raw, kind, "NEW")
 
+    def add_provenance(
+        self,
+        obj_id: str,
+        *,
+        source_type: str = "",
+        source_ref: str = "",
+        source_language: str = "",
+        publication_date: str = "",
+        event_valid_from: str = "",
+        event_valid_to: str = "",
+        retrieved_at: str = "",
+        evidence_locator: str = "",
+    ) -> None:
+        with self.connect() as db:
+            if not db.execute("SELECT 1 FROM objects WHERE obj_id=?", (obj_id,)).fetchone():
+                raise KeyError(obj_id)
+            db.execute(
+                """INSERT OR IGNORE INTO provenance(
+                    obj_id,source_type,source_ref,source_language,publication_date,
+                    event_valid_from,event_valid_to,retrieved_at,evidence_locator
+                ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (
+                    obj_id, source_type, source_ref, source_language, publication_date,
+                    event_valid_from, event_valid_to, retrieved_at, evidence_locator,
+                ),
+            )
+
+    def add_affiliation(
+        self,
+        obj_id: str,
+        *,
+        organization_id: str = "",
+        organization_label: str = "",
+        role: str = "",
+        valid_from: str = "",
+        valid_to: str = "",
+        source_ref: str = "",
+    ) -> None:
+        with self.connect() as db:
+            if not db.execute("SELECT 1 FROM objects WHERE obj_id=?", (obj_id,)).fetchone():
+                raise KeyError(obj_id)
+            db.execute(
+                """INSERT OR IGNORE INTO affiliations(
+                    obj_id,organization_id,organization_label,role,valid_from,valid_to,source_ref
+                ) VALUES(?,?,?,?,?,?,?)""",
+                (obj_id, organization_id, organization_label, role, valid_from, valid_to, source_ref),
+            )
+
     def add_crosswalk(self, external_id: str, obj_id: str, *, reason: str) -> None:
         """Map an upstream/codebook identifier to the actual resolved EP24 object."""
         if not external_id:
@@ -232,6 +338,67 @@ class EP24Memory:
             db.execute("INSERT OR REPLACE INTO redirects VALUES(?,?,?,?)", (old_id, new_id, reason, now_iso()))
             db.execute("INSERT INTO audit_log(action,obj_id,actor,details_json,created_at) VALUES(?,?,?,?,?)", ("redirect", new_id, actor, json.dumps({"old_id": old_id, "reason": reason}), now_iso()))
 
+    def merge_proposal_shards(self, shard_paths: list[str | Path]) -> dict[str, int]:
+        """Deterministically merge proposal-only SQLite shards into this memory DB."""
+        inserted = 0
+        duplicates = 0
+        conflicts = 0
+        proposal_columns = (
+            "proposal_id", "kind", "raw_label", "country", "language", "proposed_obj_id",
+            "reason", "source_record_id", "run_id", "stage", "model", "prompt_version",
+            "payload_json", "status", "created_at",
+        )
+        collected: list[tuple[Any, ...]] = []
+        for shard in sorted(Path(path) for path in shard_paths):
+            if not shard.exists():
+                raise FileNotFoundError(shard)
+            with sqlite3.connect(shard) as source:
+                source.row_factory = sqlite3.Row
+                exists = source.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='proposals'"
+                ).fetchone()
+                if not exists:
+                    continue
+                for row in source.execute("SELECT * FROM proposals ORDER BY proposal_id"):
+                    collected.append(tuple(row[column] for column in proposal_columns))
+        collected.sort(key=lambda row: (row[0], row[7], row[8], row[9]))
+
+        with self.connect() as db:
+            for values in collected:
+                proposal_id = values[0]
+                existing = db.execute(
+                    "SELECT * FROM proposals WHERE proposal_id=?", (proposal_id,)
+                ).fetchone()
+                if existing is None:
+                    db.execute(
+                        "INSERT INTO proposals VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        values,
+                    )
+                    inserted += 1
+                    continue
+                existing_values = tuple(existing[column] for column in proposal_columns)
+                if existing_values == values:
+                    duplicates += 1
+                else:
+                    conflicts += 1
+                    db.execute(
+                        "INSERT INTO audit_log(action,obj_id,actor,details_json,created_at) VALUES(?,?,?,?,?)",
+                        (
+                            "proposal_conflict", "", "single-writer-merge",
+                            json.dumps(
+                                {
+                                    "proposal_id": proposal_id,
+                                    "kept": dict(zip(proposal_columns, existing_values, strict=True)),
+                                    "rejected": dict(zip(proposal_columns, values, strict=True)),
+                                },
+                                ensure_ascii=False,
+                                sort_keys=True,
+                            ),
+                            now_iso(),
+                        ),
+                    )
+        return {"inserted": inserted, "duplicates": duplicates, "conflicts": conflicts}
+
     def snapshot(self, target: str | Path) -> Path:
         """Create a transactionally consistent SQLite snapshot via backup API."""
         target = Path(target)
@@ -250,7 +417,7 @@ class EP24Memory:
         directory.mkdir(parents=True, exist_ok=True)
         outputs = []
         with self.connect() as db:
-            for table in ("objects", "aliases", "redirects", "id_crosswalk", "proposals", "audit_log"):
+            for table in ("objects", "aliases", "redirects", "id_crosswalk", "provenance", "affiliations", "proposals", "audit_log"):
                 rows = list(db.execute(f"SELECT * FROM {table}"))
                 path = directory / f"memory_{table}.csv"
                 with path.open("w", encoding="utf-8", newline="") as fh:
@@ -270,10 +437,14 @@ def main(argv: list[str] | None = None) -> int:
     snap.add_argument("target")
     exp = sub.add_parser("export-csv")
     exp.add_argument("directory")
+    merge = sub.add_parser("merge-proposals")
+    merge.add_argument("shards", nargs="+")
     args = parser.parse_args(argv)
     memory = EP24Memory(args.db)
     if args.command == "snapshot":
         print(memory.snapshot(args.target))
+    elif args.command == "merge-proposals":
+        print(json.dumps(memory.merge_proposal_shards(args.shards), sort_keys=True))
     else:
         for path in memory.export_csv(args.directory):
             print(path)
