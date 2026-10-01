@@ -126,7 +126,10 @@ PY
   roihu_vllm_submit() {
     (
       cd "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/logs" || exit 1
-      sbatch         --account="${CSC_PROJECT}"         "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/scripts/roihu/vllm_video_test.sbatch"         "$@"
+      sbatch \
+        --account="${CSC_PROJECT}" \
+        "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/scripts/roihu/vllm_video_test.sbatch" \
+        "$@"
     )
   }
   export -f roihu_vllm_submit
