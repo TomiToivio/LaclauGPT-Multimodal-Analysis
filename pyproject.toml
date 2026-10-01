@@ -13,6 +13,7 @@ dependencies = [
   "opencv-python-headless>=4.10,<5",
   "openai-whisper>=20240930",
   "pandas>=2.2,<3",
+  "openpyxl>=3.1,<4",
   "pydantic>=2.9,<3",
 ]
 
@@ -30,6 +31,7 @@ dev = [
 test = [
   "pytest>=8.3,<9",
   "pandas>=2.2,<3",
+  "openpyxl>=3.1,<4",
   "rdflib>=7,<8",
 ]
 
