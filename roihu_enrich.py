@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
-
-import pandas as pd
 
 from roihu_codebooks import COUNTRY_PROFILES, context_block, load_profile
 from roihu_memory import EP24Memory
@@ -36,7 +35,7 @@ def enabled() -> bool:
 
 
 def split_values(value) -> list[str]:
-    if value is None or pd.isna(value):
+    if value is None or (isinstance(value, float) and math.isnan(value)):
         return []
     text = str(value).strip()
     if not text:
@@ -137,6 +136,8 @@ def seed_memory(private_root: Path, memory: EP24Memory) -> dict[str, int]:
 
 
 def enrich_file(path: Path, *, country: str, language: str, private_root: Path, memory: EP24Memory | None) -> dict:
+    import pandas as pd
+
     entries, profile = load_profile(private_root, country, language=language)
     frame = pd.read_csv(path)
     before_columns = list(frame.columns)
