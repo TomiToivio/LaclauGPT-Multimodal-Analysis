@@ -7,8 +7,9 @@ from logging.handlers import RotatingFileHandler
 import cv2
 import easyocr
 import pandas as pd
-import whisper
 from deep_translator import GoogleTranslator
+
+from asr_backend import describe_backend, load_asr_model
 
 # The repository does not contain runtime directories, so create them before
 # constructing file handlers or SQLite connections.
@@ -31,8 +32,11 @@ logging.basicConfig(
 # All EP2024 TikTok languages used for OCR.
 reader = easyocr.Reader(['en', 'fr', 'pl', 'sv', 'pt', 'de', 'es', 'hu', 'hr'])
 
-# Load Whisper model.
-model = whisper.load_model('large', download_root='./whisper/')
+# Load the configured speech-to-text backend.
+# Default is the historical engine/checkpoint (openai-whisper 'large');
+# see asr_backend.py and docs/ASR_EVALUATION.md.
+_asr = load_asr_model()
+logger.info('ASR backend: %s', describe_backend())
 
 # SQLite database connection.
 conn = sqlite3.connect('./database/preprocess.db')
@@ -166,16 +170,8 @@ def get_transcript(video_id, author_username, scraped_country):
     whisper_translated = ''
 
     try:
-        result = model.transcribe(
-            video_filename,
-            temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-        )
-        whisper_transcript = (
-            ' '.join(result['text'])
-            if isinstance(result['text'], list)
-            else str(result['text'])
-        )
-        whisper_language = str(result.get('language', ''))
+        # Backend-agnostic call: same temperature ladder, same two outputs.
+        whisper_transcript, whisper_language = _asr(video_filename)
 
         if whisper_transcript:
             if whisper_language == 'en':
