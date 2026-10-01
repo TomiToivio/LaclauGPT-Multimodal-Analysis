@@ -201,6 +201,10 @@ def get_transcript(video_id, author_username, scraped_country):
 def analyze_videos(language):
     """Preprocess TikTok videos for a specific language."""
     df = pd.read_csv('./csv/tiktok_videos.csv')
+    max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
+    if max_rows > 0:
+        df = df.head(max_rows).copy()
+        logger.info("Demo row limit active: processing first %s rows", max_rows)
 
     if 'whisperResult' not in df.columns:
         df['whisperResult'] = ''
