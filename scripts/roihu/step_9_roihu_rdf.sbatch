@@ -1,0 +1,17 @@
+#!/bin/bash
+#SBATCH --job-name=ep24-s9-rdf
+#SBATCH --account=project_2009497
+#SBATCH --output=/scratch/project_2009497/logs/ep24_s9_%j.out
+#SBATCH --error=/scratch/project_2009497/logs/ep24_s9_%j.err
+#SBATCH --partition=small
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --time=04:00:00
+#SBATCH --mail-type=ALL
+set -euo pipefail
+export LACLAUGPT_MAX_ROWS="${LACLAUGPT_MAX_ROWS:-100}"
+export LACLAUGPT_MULTIMODAL_PUBLIC_ROOT="${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-/scratch/project_2009497/LaclauGPT-Multimodal-Analysis}"
+cd "$LACLAUGPT_MULTIMODAL_PUBLIC_ROOT"
+srun python3 step_9_roihu_rdf.py "$@"
