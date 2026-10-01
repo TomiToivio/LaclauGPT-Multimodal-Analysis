@@ -23,46 +23,25 @@
 
 set -euo pipefail
 
-# Load the private experiment settings inside the batch job itself so Slurm does
-# not depend on the submit shell having exported them. Override the location with
-# LACLAUGPT_VLLM_TEST_ENV_FILE if needed.
-ENV_FILE="${LACLAUGPT_VLLM_TEST_ENV_FILE:-/scratch/project_2009497/laclaugpt-multimodal/vllm_video_test.env}"
-if [[ -f "${ENV_FILE}" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  set +a
-  echo "loaded settings: ${ENV_FILE}"
-else
-  echo "WARNING: settings file not found: ${ENV_FILE}" >&2
+# Reuse the exact same environment bootstrap as interactive reconnects.
+# In batch mode keep the working directory unchanged until the script chooses it.
+export ROIHU_VLLM_NO_CD=1
+BOOTSTRAP="${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-${SLURM_SUBMIT_DIR:-$PWD}}/scripts/roihu/activate_vllm_video.sh"
+if [[ ! -f "${BOOTSTRAP}" ]]; then
+  # Normal fixed Roihu project location fallback.
+  BOOTSTRAP="/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/scripts/roihu/activate_vllm_video.sh"
 fi
+[[ -f "${BOOTSTRAP}" ]] || { echo "ERROR: bootstrap missing: ${BOOTSTRAP}" >&2; exit 2; }
+# shellcheck disable=SC1090
+source "${BOOTSTRAP}"
+unset ROIHU_VLLM_NO_CD
 
-# Public checkout path is optional. Prefer an explicit override; otherwise
-# resolve the Git checkout from the directory where sbatch was submitted.
-# Slurm copies this script to /var/spool/slurmd, so BASH_SOURCE points at the
-# spool copy and cannot be used to discover the repository checkout.
-if [[ -n "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-}" ]]; then
-  PUBLIC_ROOT="${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}"
-else
-  SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
-  if command -v git >/dev/null 2>&1 && git -C "${SUBMIT_DIR}" rev-parse --show-toplevel >/dev/null 2>&1; then
-    PUBLIC_ROOT="$(git -C "${SUBMIT_DIR}" rev-parse --show-toplevel)"
-  else
-    PUBLIC_ROOT="${SUBMIT_DIR}"
-  fi
-fi
-
-: "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:?Set private runtime root}"
-: "${LACLAUGPT_VLLM_TEST_INPUT_CSV:?Set prepared private ~10-video CSV}"
-# ALLAS_BUCKET is optional for issue #24 because the prepared EP24 sample normally
-# carries full HTTP(S) allas_filename URLs. It is only required for rows that
-# contain a bucket-relative object key instead of a full URL.
-ALLAS_BUCKET="${ALLAS_BUCKET:-}"
-
+PUBLIC_ROOT="${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}"
 PRIVATE_ROOT="${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
-VENV="${LACLAUGPT_VLLM_TEST_VENV:-${PRIVATE_ROOT}/.venv-roihu-vllm}"
+VENV="${LACLAUGPT_VLLM_TEST_VENV}"
 MODEL="${LACLAUGPT_VLLM_TEST_MODEL:-Qwen/Qwen3-VL-8B-Instruct}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-s3allas}"
+ALLAS_BUCKET="${ALLAS_BUCKET:-HEPP24}"
 
 OUTPUT_DIR="${LACLAUGPT_VLLM_TEST_OUTPUT_DIR:-${PRIVATE_ROOT}/csv}"
 LOG_DIR="${LACLAUGPT_VLLM_TEST_LOG_DIR:-${PRIVATE_ROOT}/logs}"
@@ -70,72 +49,10 @@ DOWNLOAD_DIR="${LACLAUGPT_VLLM_TEST_DOWNLOAD_DIR:-${PRIVATE_ROOT}/vllm_video_dow
 OUTPUT_CSV="${LACLAUGPT_VLLM_TEST_OUTPUT_CSV:-${OUTPUT_DIR}/ep24_vllm_video_test_${SLURM_JOB_ID}.csv}"
 LOG_PATH="${LACLAUGPT_VLLM_TEST_LOG:-${LOG_DIR}/vllm_video_test_${SLURM_JOB_ID}.log}"
 
-export HF_HOME="${HF_HOME:-${PRIVATE_ROOT}/hf-cache}"
-export HF_HUB_CACHE="${HF_HUB_CACHE:-${HF_HOME}/hub}"
-export TOKENIZERS_PARALLELISM=false
-export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
-export NUMEXPR_MAX_THREADS="${SLURM_CPUS_PER_TASK:-64}"
-export OMP_PLACES=cores
-export OMP_PROC_BIND=spread
-
-mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${DOWNLOAD_DIR}" "${HF_HOME}" "${HF_HUB_CACHE}"
-
-[[ -f "${PUBLIC_ROOT}/experiments/vllm_video_test.py" ]] || {
-  echo "ERROR: experiment script missing under detected public repo root: ${PUBLIC_ROOT}" >&2
-  echo "Submit from the LaclauGPT-Multimodal-Analysis checkout, or set" >&2
-  echo "LACLAUGPT_MULTIMODAL_PUBLIC_ROOT=/path/to/LaclauGPT-Multimodal-Analysis" >&2
-  exit 2
-}
-[[ -f "${LACLAUGPT_VLLM_TEST_INPUT_CSV}" ]] || {
-  echo "ERROR: input CSV missing: ${LACLAUGPT_VLLM_TEST_INPUT_CSV}" >&2; exit 2; }
-[[ -x "${VENV}/bin/python" ]] || {
-  echo "ERROR: Roihu vLLM venv missing: ${VENV}" >&2
-  echo "Create it using docs/VLLM_VIDEO_TEST.md before submitting." >&2
-  exit 2
-}
-
-module --force purge
-module load python-vllm
-module load allas
-module load gcc/14.3.0 ffmpeg
-module list
-# CSC documents this compatibility switch for module-backed Python environments
-# when activating a venv on Roihu.
-export CW_FORCE_CONDA_ACTIVATE=1
-source "${VENV}/bin/activate"
-
-unset PYTHONPATH
-unset PYTHONHOME
-
-# vLLM >=0.24 removed Transformers v4 support. A stale project venv can shadow
-# the Transformers version bundled/expected by CSC's python-vllm module, so
-# detect that explicitly before spending GPU time.
-python - <<'PY'
-import sys
-import transformers
-from pathlib import Path
-
-version = getattr(transformers, "__version__", "0")
-major = int(version.split(".", 1)[0]) if version.split(".", 1)[0].isdigit() else 0
-print(f"transformers version: {version}")
-print(f"transformers path   : {Path(transformers.__file__).resolve()}")
-if major < 5:
-    sys.stderr.write(
-        "ERROR: Transformers v5+ is required by vLLM 0.29, but this environment "
-        f"has {version}. Rebuild/upgrade the project venv from "
-        "experiments/requirements-vllm-video-test.txt before resubmitting.\n"
-    )
-    raise SystemExit(2)
-PY
+mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${DOWNLOAD_DIR}"
 
 echo "ffmpeg path: $(command -v ffmpeg || true)"
 echo "ffprobe path: $(command -v ffprobe || true)"
-command -v ffmpeg >/dev/null 2>&1 || { echo "ERROR: ffmpeg not found after loading gcc/14.3.0 ffmpeg" >&2; module list >&2; exit 2; }
-command -v ffprobe >/dev/null 2>&1 || { echo "ERROR: ffprobe not found after loading gcc/14.3.0 ffmpeg" >&2; module list >&2; exit 2; }
-RCLONE_BIN="$(command -v rclone || true)"
-[[ -n "${RCLONE_BIN}" && -x "${RCLONE_BIN}" ]] || { echo "ERROR: rclone not found; module load allas failed?" >&2; exit 2; }
-export RCLONE_BIN
-echo "rclone path: ${RCLONE_BIN}"
 
 echo "============================================================"
 echo "EP24 vLLM 10-video experiment"
