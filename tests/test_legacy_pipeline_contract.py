@@ -92,9 +92,18 @@ CURRENT_STAGE_FILES = {
 
 
 def _stage_path(name: str) -> Path:
-    """Resolve a documented legacy stage name to the file that now carries it."""
+    """Resolve the frozen legacy contract to historical files when available.
+
+    Main carries restored puhti_* compatibility files alongside the active
+    roihu_* successors. This test documents the historical contract, so it
+    must inspect the historical file first. Falling back to the Roihu successor
+    keeps the test usable on branches where the compatibility copy is absent.
+    """
+    historical = ROOT / name
+    if historical.is_file():
+        return historical
     current = ROOT / CURRENT_STAGE_FILES.get(name, name)
-    return current if current.is_file() else ROOT / name
+    return current if current.is_file() else historical
 
 
 def _source(name: str) -> str:

@@ -22,8 +22,14 @@ LEGACY_STAGE_FILES = {
 
 def stage_path(name: str) -> Path:
     """Resolve a historical Puhti stage name on either main or legacy."""
+    # The restored historical files are what these safety assertions describe
+    # (they carry the __main__ and cv2 guards), so they win when present;
+    # fall back to the renamed Roihu stage only when they are absent.
+    historical = ROOT / name
+    if historical.is_file():
+        return historical
     current = ROOT / LEGACY_STAGE_FILES.get(name, name)
-    return current if current.is_file() else ROOT / name
+    return current if current.is_file() else historical
 
 
 def source(name: str) -> str:

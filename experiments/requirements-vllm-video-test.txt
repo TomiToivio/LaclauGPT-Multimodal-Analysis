@@ -15,7 +15,7 @@
 pandas>=2.2,<3
 qwen-vl-utils>=0.0.14,<1
 av>=13,<17
-transformers>=4.57,<5
+transformers>=5.10.1,<6
 
 # Test-only, harmless in the Roihu venv and useful for the documented dry run.
 pytest>=8.3,<9
