@@ -1,31 +1,23 @@
-# Phase branch workflow
+# Branch workflow
 
-This repository uses persistent `phase-0` through `phase-4` branches.
+This repository no longer uses the old Phase 0 synchronization model.
 
-As of 2026-09-19, **Phase 0 is active**, so `main` and `phase-0` must represent the same current stable baseline. Future-phase branches may advance independently.
+## Current branch contract
+
+- `main` is the active **EP24 Phase 2** implementation for CSC Roihu.
+- `legacy` is the immutable historical human-coded EP24 / CSC Puhti implementation.
+- Older `phase-0` through `phase-4` branches may remain for historical context, but they do not control current development.
 
 ## Rules
 
-1. Determine an issue's phase from its title/body, labels, milestone, linked roadmap, or explicit instruction.
-2. Start work from the matching `phase-N` branch.
-3. Prefer an issue branch from that phase branch and PR back to the same `phase-N`.
-4. Do not target `main` with Phase-1/2/3/4 work while Phase 0 is active.
-5. Phase-0 work lands in `phase-0`, is validated there, then `main` is synchronized.
-6. Unphased issues default to the active phase, currently Phase 0.
-7. For cross-repository work, use the same phase branch in every affected LaclauGPT repo unless explicitly documented otherwise.
-8. Backport minimal fixes between phases when required; never merge an entire future phase into the stable phase just to obtain one fix.
-
-`main` means the current active phase, not the globally newest code.
-
-Current invariant:
-
-```text
-main == phase-0 stable baseline
-phase-1..phase-4 = isolated future work
-```
-
-When the project advances to a later phase, promotion into `main` requires explicit human approval.
+1. Current EP24 development starts from `main` unless the human author explicitly requests another branch.
+2. Never synchronize `main` back to Phase 0.
+3. Never modify, rebase, merge into, or rewrite `legacy`.
+4. Keep the legacy branch visible and linked from documentation because publications may rely on it.
+5. Phase 2 features from `LaclauGPT-Data-Analysis` are integrated around the legacy-compatible EP24 stages rather than replacing them.
+6. Any change that would remove a historical stage, field, prompt, schema, or compatibility output requires explicit human permission.
+7. Private codebooks, settings, source data, researcher notes, restricted prompts, and other sensitive material belong in `TomiToivio/LaclauGPT-Private` or private CSC storage.
 
 Repository: `TomiToivio/LaclauGPT-Multimodal-Analysis`.
 
-Agents must read `AGENTS.md` and this file before issue-driven changes. Working on the wrong phase branch is an incorrect implementation.
+Agents must read `AGENTS.md` before making changes.
