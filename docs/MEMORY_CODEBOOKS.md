@@ -4,6 +4,20 @@ This is the public runtime contract for issue #11. Operational codebooks, resear
 notes, settings, memory databases and real EP24 data stay in `LaclauGPT-Private`
 or private CSC storage.
 
+## Distributed memory and codebook persistence
+
+For the active EP2024 reprocess, MongoDB + Redis supersede the earlier SQLite-first runtime assumption:
+
+- MongoDB is the durable shared store for accepted/proposed memory, codebooks, researcher notes, RAG records/embeddings, identity mappings and provenance.
+- Redis is the transient coordination/cache/messaging layer.
+- SQLite may still be used for frozen local snapshots, review/export compatibility, tests or job-local checkpoints, but it is not the canonical distributed backend.
+- Pandas CSV remains the mandatory readable interchange and must retain all legacy fields.
+- Each enrichment/analysis step must add a human-readable Markdown summary in addition to structured output.
+- Country collections use `laclaugpt_ep2024_reprocess_<country_name>_<collection_name>`.
+- Live credentials come from `LaclauGPT-Private/analysis/ep24_reprocess/.env`; public code refers only to environment-variable names.
+- Videos remain in Allas and are fetched on demand by URL/object identifier after `allas_conf` setup.
+- PostgreSQL is not used.
+
 ## Upstream mapping
 
 Port reviewed against `TomiToivio/LaclauGPT-Data-Analysis` commit
