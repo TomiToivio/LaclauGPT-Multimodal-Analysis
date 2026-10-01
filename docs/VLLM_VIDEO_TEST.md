@@ -1,5 +1,49 @@
 # EP24 native-video vLLM test on CSC Roihu
 
+## Reconnect shortcut: one command only
+
+After the one-time venv and Allas configuration, **do not repeat the manual module/env/venv setup after every dropped Roihu SSH connection**.
+
+Run:
+
+```bash
+source /scratch/project_2009497/LaclauGPT-Multimodal-Analysis/scripts/roihu/activate_vllm_video.sh
+```
+
+That single command:
+
+- sets the project/scratch/repository defaults;
+- sources the private `vllm_video_test.env`;
+- loads `python-vllm`, `allas`, and `gcc/14.3.0 ffmpeg`;
+- activates `.venv-roihu-vllm`;
+- sets HF cache, OpenMP and NumExpr variables;
+- resolves and exports the absolute `RCLONE_BIN`;
+- verifies ffmpeg/ffprobe/rclone;
+- verifies Transformers 5+ and vLLM imports/paths;
+- verifies the `s3allas:` remote;
+- changes to the public repository;
+- defines a convenience function:
+
+```bash
+roihu_vllm_submit
+```
+
+So the normal reconnect workflow is simply:
+
+```bash
+source /scratch/project_2009497/LaclauGPT-Multimodal-Analysis/scripts/roihu/activate_vllm_video.sh
+roihu_vllm_submit
+```
+
+If Allas configuration itself has expired or disappeared, the bootstrap stops with a precise message asking you to run:
+
+```bash
+allas-conf project_2009497
+```
+
+The Slurm batch job sources the **same bootstrap script**, so interactive and batch environments share one source of truth.
+
+
 This document is the runbook for issue #24. The experiment is intentionally isolated from the production EP24 pipeline. It downloads the prepared private sample from CSC Allas, preserves the source file, removes the first **1.0 second** into a derived analysis clip, sends only that derived clip to vLLM, and writes a human-readable CSV plus exhaustive debug logs.
 
 The normal target is the private file:
@@ -17,6 +61,7 @@ That CSV should contain about 10 reproducibly selected usable videos. The public
 | `experiments/vllm_video_test.py` | isolated native-video experiment harness |
 | `experiments/requirements-vllm-video-test.txt` | extra packages layered on CSC's `python-vllm` module |
 | `config/vllm_video_test.env.example` | public non-secret environment/settings template |
+| `scripts/roihu/activate_vllm_video.sh` | one-command reconnect/bootstrap for modules, venv, settings and checks |
 | `scripts/roihu/vllm_video_test.sbatch` | one-GH200 Roihu batch job |
 | `tests/test_vllm_video_test_harness.py` | synthetic CPU/stub tests |
 | `docs/EP24_VIDEO_SCROLL_ARTIFACTS.md` | repository-wide first-second/scroll contract |
@@ -241,8 +286,7 @@ The settings/batch file default to:
 ```bash
 export HF_HOME="$LACLAUGPT_MULTIMODAL_PRIVATE_ROOT/hf-cache"
 export HF_HUB_CACHE="$HF_HOME/hub"
-export TRANSFORMERS_CACHE="$HF_HOME/transformers"
-mkdir -p "$HF_HOME" "$HF_HUB_CACHE" "$TRANSFORMERS_CACHE"
+mkdir -p "$HF_HOME" "$HF_HUB_CACHE"
 ```
 
 The first real run may need to populate the model cache.
