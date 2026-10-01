@@ -23,6 +23,20 @@
 
 set -euo pipefail
 
+# Load the private experiment settings inside the batch job itself so Slurm does
+# not depend on the submit shell having exported them. Override the location with
+# LACLAUGPT_VLLM_TEST_ENV_FILE if needed.
+ENV_FILE="${LACLAUGPT_VLLM_TEST_ENV_FILE:-/scratch/project_2009497/laclaugpt-multimodal/vllm_video_test.env}"
+if [[ -f "${ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+  echo "loaded settings: ${ENV_FILE}"
+else
+  echo "WARNING: settings file not found: ${ENV_FILE}" >&2
+fi
+
 # Public checkout path is optional. Prefer an explicit override; otherwise
 # resolve the Git checkout from the directory where sbatch was submitted.
 # Slurm copies this script to /var/spool/slurmd, so BASH_SOURCE points at the
