@@ -5,4 +5,5 @@ This is the canonical numbered name for the historical roihu_populism.py stage.
 The old filename remains as a compatibility implementation.
 """
 import runpy
-runpy.run_path("roihu_populism.py", run_name="__main__")
+from pathlib import Path
+runpy.run_path(str(Path(__file__).with_name("roihu_populism.py")), run_name="__main__")
