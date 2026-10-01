@@ -189,6 +189,10 @@ def analyze_videos(language=None):
         df = df.head(max_rows).copy()
         logger.info("Demo row limit active: processing first %s rows", max_rows)
 
+    # Preserve documented historical behavior without dropping canonical rows.
+    if not os.getenv('LACLAUGPT_INPUT_CSV') and 'whisperResult' in df.columns:
+        df = df.dropna(subset=['whisperResult'])
+
     if 'summary_analysis' not in df.columns:
         df['summary_analysis'] = ''
     if 'summary_summary_md' not in df.columns:
