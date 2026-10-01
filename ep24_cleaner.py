@@ -480,7 +480,7 @@ def write_outputs(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     slug = country.strip().casefold().replace(" ", "_")
-    export.to_csv(output_dir / f"ep24_{slug}.csv", index=False)
+    export.to_csv(output_dir / f"ep24_{slug}_cleaned.csv", index=False)
     decisions.to_csv(output_dir / f"ep24_{slug}_cleaning_decisions.csv", index=False)
     (output_dir / f"ep24_{slug}_cleaning_report.md").write_text(
         render_markdown_report(summary, source_columns=list(source.columns)),
