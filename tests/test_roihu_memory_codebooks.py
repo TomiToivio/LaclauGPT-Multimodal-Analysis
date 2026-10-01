@@ -53,10 +53,12 @@ def test_private_profile_merge_keeps_locked_human_entry_and_bilingual_context(tm
     assert provenance["evidence_role"] == "background_context_not_source_evidence"
 
 
-from roihu_enrich import enrich_file
 
 
 def test_enrichment_appends_columns_without_rewriting_legacy_values(tmp_path):
+    pytest = __import__("pytest")
+    pytest.importorskip("pandas")
+    from roihu_enrich import enrich_file
     codebooks = tmp_path / "codebooks"
     codebooks.mkdir()
     _write_book(codebooks / "ep24_common_private.json", {"schema": "fixture", "country_code": "COMMON", "entries": []})
