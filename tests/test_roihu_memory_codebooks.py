@@ -153,3 +153,54 @@ def test_proposal_shard_merge_is_deterministic_and_idempotent(tmp_path):
     with canonical.connect() as db:
         labels = [row[0] for row in db.execute("SELECT raw_label FROM proposals ORDER BY proposal_id")]
     assert sorted(labels) == ["alpha", "beta"]
+
+
+def test_disabled_enrichment_is_noop_without_runtime_dependencies(tmp_path, monkeypatch, capsys):
+    from roihu_enrich import main
+
+    monkeypatch.delenv("LACLAUGPT_ENRICHMENT_ENABLED", raising=False)
+    result = main([
+        "--private-root", str(tmp_path),
+        "--memory-db", str(tmp_path / "disabled.sqlite3"),
+    ])
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["enabled"] is False
+    assert payload["status"] == "no-op"
+
+
+def test_review_states_locks_redirects_and_crosswalk_survive_rerun(tmp_path):
+    memory = EP24Memory(tmp_path / "memory.sqlite3")
+    locked = memory.add_object(
+        "entity",
+        "Locked Name",
+        country="FI",
+        definition="human definition",
+        state="CANONICAL",
+        origin="researcher_private",
+        locked=True,
+        preserve_upstream_id="legacy-E-1",
+    )
+    memory.add_object(
+        "entity",
+        "Locked Name",
+        obj_id=locked,
+        country="FI",
+        definition="model overwrite attempt",
+        state="CANONICAL",
+        origin="model",
+        locked=False,
+    )
+    provisional = memory.add_object("topic", "Candidate Topic", country="FI")
+    memory.set_state(provisional, "REJECTED")
+    replacement = memory.add_object("entity", "Replacement", country="FI", state="CANONICAL")
+    memory.redirect(locked, replacement, reason="researcher split/merge correction")
+
+    with memory.connect() as db:
+        row = db.execute("SELECT definition,locked FROM objects WHERE obj_id=?", (locked,)).fetchone()
+        assert row["definition"] == "human definition"
+        assert row["locked"] == 1
+        assert db.execute("SELECT ep24_id FROM id_crosswalk WHERE upstream_id='legacy-E-1'").fetchone()[0] == locked
+        assert db.execute("SELECT new_id FROM redirects WHERE old_id=?", (locked,)).fetchone()[0] == replacement
+        assert db.execute("SELECT state FROM objects WHERE obj_id=?", (provisional,)).fetchone()[0] == "REJECTED"
+    assert memory.resolve("Candidate Topic", "topic", country="FI").decision == "NEW"
