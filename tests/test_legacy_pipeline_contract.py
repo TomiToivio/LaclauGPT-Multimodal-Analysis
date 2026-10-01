@@ -77,8 +77,28 @@ def _doc() -> str:
     return DOC.read_text(encoding="utf-8")
 
 
+# main renamed the pipeline stages `puhti_*.py` -> `roihu_*.py` (Roihu
+# migration, commits c3d59aa..c37e389). This document is the contract for the
+# historical stage sequence and deliberately keeps the legacy names, so every
+# read resolves through this map. Branch `legacy` still carries the old names;
+# resolve to whichever file actually exists so neither branch breaks the test.
+CURRENT_STAGE_FILES = {
+    "puhti_preprocess.py": "roihu_preprocess.py",
+    "puhti_frame.py": "roihu_frame.py",
+    "puhti_summary.py": "roihu_summary.py",
+    "puhti_postprocess.py": "roihu_postprocess.py",
+    "puhti_populism.py": "roihu_populism.py",
+}
+
+
+def _stage_path(name: str) -> Path:
+    """Resolve a documented legacy stage name to the file that now carries it."""
+    current = ROOT / CURRENT_STAGE_FILES.get(name, name)
+    return current if current.is_file() else ROOT / name
+
+
 def _source(name: str) -> str:
-    return (ROOT / name).read_text(encoding="utf-8")
+    return _stage_path(name).read_text(encoding="utf-8")
 
 
 def test_contract_document_exists() -> None:
