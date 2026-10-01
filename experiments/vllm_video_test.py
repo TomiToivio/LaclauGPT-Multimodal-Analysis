@@ -771,9 +771,10 @@ def prepare_vllm_request(
     from issue TomiToivio/LaclauGPT-Multimodal-Analysis#32.
 
     * ``mm_processor_kwargs`` (default, Roihu/current vLLM): Qwen3-VL wants
-      ``image_patch_size=16`` and ``return_video_metadata=True``;
-      `process_vision_info` then returns per-video metadata that must travel
-      with the request as ``mm_processor_kwargs``.
+      ``image_patch_size=16`` and ``return_video_metadata=True``.
+      `process_vision_info` returns ``(video, metadata)`` pairs; current
+      vLLM requires those pairs to remain intact inside
+      ``multi_modal_data["video"]``. Processor kwargs remain separate.
     * ``direct`` (Laskin/vLLM 0.8.5-era, Qwen2.5-VL): the older
       `process_vision_info` does not accept ``return_video_metadata`` and
       passing ``video_metadata`` inside ``mm_processor_kwargs`` raises
