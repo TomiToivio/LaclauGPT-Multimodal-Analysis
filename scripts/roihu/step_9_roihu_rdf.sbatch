@@ -16,4 +16,4 @@ PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:-/scratch/project_2009497/Lacla
 export LACLAUGPT_MAX_ROWS=${LACLAUGPT_MAX_ROWS:-100}
 mkdir -p /scratch/project_2009497/logs "${PRIVATE_ROOT}/rdf" "${PRIVATE_ROOT}/database"
 cd "${PRIVATE_ROOT}"
-srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 9 --script "${PUBLIC_ROOT}/step_9_roihu_rdf.py"
+srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 9 --script "${PUBLIC_ROOT}/step_9_roihu_rdf.py" "$@"
