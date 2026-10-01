@@ -46,6 +46,12 @@ Active reprocessing uses the researcher-feed 15-column schema and an additive da
 
 The active Roihu interface is deliberately numbered because each stage is submitted as a separate Slurm batch job. The canonical demo limit is **100 rows/videos per language** via `LACLAUGPT_MAX_ROWS=100`; set it to `0` for the full corpus where supported.
 
+For the native-video Step 3 path, after Roihu reconnects the tested one-command launcher is:
+
+```bash
+source /scratch/project_2009497/LaclauGPT-Multimodal-Analysis/scripts/roihu/activate_vllm_video.sh && roihu_vllm_submit
+```
+
 EP24 video handling has a mandatory collection-quality rule: all media analysis excludes the first 1.0 second of every split clip, and whole-video VLM analysis reports additional feed-scroll failures. See [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
 
 1. `step_1_roihu_preprocess.py` - ASR/Whisper transcript + translation, OCR, and exactly one keyframe extracted at original source t=1.0s.
