@@ -1,4 +1,4 @@
-# LaclauGPT 
+# LaclauGPT Multimodal Analysis
 
 <!-- project-logos:start -->
 <p align="center">
@@ -18,37 +18,42 @@
 <p align="center"><small>ENDURE: University of Helsinki research funded by the Research Council of Finland</small></p>
 <!-- project-logos:end -->
 
-> **Branch status:** `legacy` is the frozen historical CSC Puhti / original EP24 implementation. `main` is the active CSC Roihu migration line. Active development of the broader LaclauGPT programme continues in [LaclauGPT](https://github.com/TomiToivio/LaclauGPT).
+> **Repository status:** `main` is the active **new EP24 analysis** for CSC Roihu, built with the **Phase 2 LaclauGPT pipeline** while preserving full compatibility with the original human-coded EP24 workflow. The historical implementation remains permanently visible on the [`legacy` branch](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/tree/legacy) because papers and publications rely on that exact version.
 
-The Roihu migration is intentionally conservative: the historical human-written pipeline is preserved and adapted step by step. See [docs/ROIHU_MIGRATION.md](docs/ROIHU_MIGRATION.md).
+This repository is the EP24 multimodal analysis implementation of the current LaclauGPT research pipeline. It combines the original five-stage human-written EP24 workflow with compatible Phase 2 improvements from [LaclauGPT-Data-Analysis](https://github.com/TomiToivio/LaclauGPT-Data-Analysis), including newer model support and, where applicable, richer Phase 2 analysis layers such as RDF, Discourse Network Analysis (DNA), and Social Network Analysis (SNA).
 
-LaclauGPT is a political science multimodal data collection and analysis pipeline. It is called LaclauGPT as a tribute to [Ernesto Laclau](https://en.wikipedia.org/wiki/Ernesto_Laclau).
+The compatibility rule is strict: **new functionality is added around or alongside the legacy stages. Existing legacy steps, fields, prompts, schemas, and outputs must not be removed or replaced without explicit human permission.**
 
-LaclauGPT is developed by [Tomi Toivio](mailto:tomi.toivio@helsinki.fi) for three [Helsinki Hub on Emotions, Populism and Polarisation](https://www.helsinki.fi/en/researchgroups/emotions-populism-and-polarisation) research projects funded by the European Union and the Research Council of Finland:
-* [CO3](https://www.co3socialcontract.eu/) researches the social contract. 
-* [ENDURE](https://www.endure-project.org/) researches the world after the pandemic. 
-* [PLEDGE](https://www.pledgeproject.eu/) researches grievance politics.
+## Legacy research record
 
-The pipeline was used to collect and analyze multimodal social media data related to the 2024 European parliament elections. Data was collected from TikTok and Instagram. Data collection started in 1st of May 2024 and continued until the election day in 9th of June 2024. Collection was based on usernames of official election candidates as well as hashtags and search queries related to the elections. Election data was collected for Bulgaria, Croatia, Finland, France, Germany, Hungary, Portugal, Spain and Sweden. Collected and analyzed data cannot be released yet due to GDPR. This open source version uses dummy data. 
+The original EP24 implementation used CSC Puhti. That exact historical code is preserved on the [`legacy` branch](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/tree/legacy). Keep it visible and citable. Do not modernize or rewrite that branch.
 
-## LaclauGPT Multimodal Data Analysis
+The `main` branch is different: it is the active Roihu/Phase 2 implementation. References to Puhti in `main` should normally describe the historical legacy environment only.
 
-These data analysis scripts are published for research documentation. You probably cannot use these without some modification.
+## Research context
 
-Historically these scripts were used with [Ollama](https://ollama.com/) on CSC Puhti. That implementation is preserved unchanged on the [`legacy`](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/tree/legacy) branch. `main` now provides the incremental CSC Roihu adaptation.
+LaclauGPT is a political science multimodal data collection and analysis pipeline named as a tribute to [Ernesto Laclau](https://en.wikipedia.org/wiki/Ernesto_Laclau).
 
-The scripts are submitted as [batch jobs](https://docs.csc.fi/computing/running/creating-job-scripts-puhti/) in a sequence:
+LaclauGPT is developed by [Tomi Toivio](mailto:tomi.toivio@helsinki.fi) for research at the University of Helsinki, including CO3, ENDURE and PLEDGE.
 
-1. puhti_preprocess.py - This extracts video frames with OpenCV, processes the with EasyOCR and extracts a Whisper transcript of the audio.
+The EP24 data covers multimodal social-media material related to the 2024 European Parliament elections. Collection included TikTok and Instagram material from multiple European countries. Real research data cannot be published here. Public code may contain safe examples or dummy fixtures only.
 
-2. puhti_frame.py - This uses Llama to create a multimodal analysis of 1-6 extracted frames.
+## Current Roihu pipeline
 
-3. puhti_summary.py - This creates a Llama summary analysis based on the metadata, Whisper transcript and Llama multimodal analysis results.
+The compatibility spine remains the historical five-stage sequence, now named for CSC Roihu:
 
-4. puhti_postprocess.py - Create structured version of the summary output.
+1. `roihu_preprocess.py` - extract video frames, OCR text, and audio transcripts.
+2. `roihu_frame.py` - multimodal frame analysis.
+3. `roihu_summary.py` - summary analysis from metadata, transcript, and multimodal evidence.
+4. `roihu_postprocess.py` - structured post-processing of summary output.
+5. `roihu_populism.py` - Laclau/Palonen analysis.
 
-5. puhti_populism.py - Analyze the results using the theories of Laclau and Palonen. 
+Phase 2 functionality from LaclauGPT-Data-Analysis may be attached before, after, or alongside these stages, provided legacy-compatible inputs and outputs remain available.
 
-Code for the [TikTok Scraper](https://github.com/TomiToivio/LaclauGPT-TikTok-Scraper) used to collect EP2024 data is also available.
+## Public/private boundary
 
+This repository is public open source. **Do not store real codebooks, private settings, researcher notes, restricted prompts, credentials, source data, or other sensitive research material here.**
 
+Those belong in [TomiToivio/LaclauGPT-Private](https://github.com/TomiToivio/LaclauGPT-Private) and/or private CSC project storage. Public code should consume private configuration through explicit paths, environment variables, or interfaces without copying private content into this repository.
+
+See [AGENTS.md](AGENTS.md) for mandatory development rules and [docs/ROIHU_MIGRATION.md](docs/ROIHU_MIGRATION.md) for the current architecture.
