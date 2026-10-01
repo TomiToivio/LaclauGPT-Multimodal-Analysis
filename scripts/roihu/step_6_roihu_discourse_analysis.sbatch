@@ -46,4 +46,4 @@ ollama list >/dev/null 2>&1 || { echo "Ollama failed; see ${OLLAMA_LOG}" >&2; ex
 if ! ollama show "${MODEL}" >/dev/null 2>&1; then
   [[ ${LACLAUGPT_MULTIMODAL_PULL_MODEL:-0} == 1 ]] && ollama pull "${MODEL}" || { echo "Missing model: ${MODEL}" >&2; exit 3; }
 fi
-srun --ntasks=1 python3 "${PUBLIC_ROOT}/step_6_roihu_discourse_analysis.py"
+srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 6 --script "${PUBLIC_ROOT}/step_6_roihu_discourse_analysis.py"
