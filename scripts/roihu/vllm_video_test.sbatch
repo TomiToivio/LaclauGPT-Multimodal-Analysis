@@ -5,6 +5,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=72
 #SBATCH --gres=gpu:gh200:1
+#SBATCH --mem=212G
 #SBATCH --time=02:00:00
 #SBATCH --output=vllm-video-test-%j.out
 #SBATCH --error=vllm-video-test-%j.err
