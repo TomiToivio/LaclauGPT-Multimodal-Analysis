@@ -37,18 +37,18 @@ def is_too_short(duration_seconds: float | int | None) -> bool:
 def analysis_frame_times(
     duration_seconds: float,
     interval_seconds: float = 30.0,
-    limit: int = 6,
+    limit: int = 1,
 ) -> list[float]:
-    """Return frame timestamps, always beginning after the known scroll artifact."""
+    """Return exactly one frame timestamp at the first analyzable instant.
+
+    Native whole-video analysis now carries temporal coverage. The frame stage
+    therefore uses one deep contextual keyframe at original source t=1.0s,
+    immediately after the known feed-scroll artifact.
+    """
     duration = float(duration_seconds)
     if is_too_short(duration):
         return []
-    times: list[float] = []
-    t = VIDEO_INITIAL_SKIP_SECONDS
-    while t < duration and len(times) < limit:
-        times.append(round(t, 3))
-        t += interval_seconds
-    return times
+    return [round(VIDEO_INITIAL_SKIP_SECONDS, 3)]
 
 
 def analysis_clip_path(source: str | Path, output_dir: str | Path) -> Path:
