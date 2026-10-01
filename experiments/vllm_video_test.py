@@ -249,7 +249,10 @@ def parse_structured_output(raw: str) -> tuple[str, str, str, str]:
         return raw, candidate, "parse_failed", f"{type(exc).__name__}: {exc}"
     if not isinstance(parsed, dict):
         return raw, candidate, "parse_failed", "JSON was not an object"
-    return raw, candidate, "ok", ""
+    analysis = parsed.get("analysis_markdown")
+    if not isinstance(analysis, str) or not analysis.strip():
+        return raw, candidate, "parse_failed", "analysis_markdown missing or not a non-empty string"
+    return analysis, candidate, "ok", ""
 
 
 def redact_secret_like(text: object) -> str:
@@ -712,6 +715,8 @@ def resolve_video_api(video_api: str, logger: logging.Logger) -> str:
     Rule: vLLM >= 0.9 supports the metadata path; 0.8.x and anything unreadable
     fall back to ``direct``, the shape that cannot crash.
     """
+    aliases = {"legacy": "direct", "modern": "mm_processor_kwargs"}
+    video_api = aliases.get(video_api, video_api)
     if video_api in ("direct", "mm_processor_kwargs"):
         return video_api
     major, minor = _vllm_version_tuple(logger)
@@ -755,7 +760,7 @@ def prepare_vllm_request(
         # ``TypeError: unhashable type: 'dict'`` for the mapping this returns,
         # so any non-empty dict is fatal on Laskin. The video tensors go to
         # vLLM directly instead, which is what 0.8.x supports.
-        image_inputs, video_inputs, _ = process_vision_info(
+        image_inputs, video_inputs = process_vision_info(
             messages,
             image_patch_size=16,
         )
@@ -923,7 +928,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model-backend", choices=("vllm", "stub"), default="vllm")
     parser.add_argument(
         "--video-api",
-        choices=("auto", "mm_processor_kwargs", "direct"),
+        choices=("auto", "modern", "legacy", "mm_processor_kwargs", "direct"),
         default=os.environ.get("LACLAUGPT_VLLM_TEST_VIDEO_API", "auto"),
         help=(
             "vLLM multi-modal request shape. 'mm_processor_kwargs' is the "
