@@ -92,6 +92,8 @@ def seed_memory(private_root: Path, memory: EP24Memory) -> dict[str, int]:
                     disambiguation=entry.disambiguation,
                     definition=entry.english_definition or entry.definition,
                     state="CANONICAL",
+                    valid_from=entry.valid_from,
+                    valid_to=entry.valid_to,
                     origin=entry.origin,
                     locked=entry.locked,
                     preserve_upstream_id=entry.entry_id,
@@ -132,6 +134,34 @@ def seed_memory(private_root: Path, memory: EP24Memory) -> dict[str, int]:
                         },
                     )
                     counts["alias_conflicts"] += 1
+
+            for source in entry.sources:
+                memory.add_provenance(
+                    obj_id,
+                    source_type=source.source_type,
+                    source_ref=source.url or source.evidence_locator,
+                    source_language=source.language,
+                    publication_date=source.publication_date,
+                    event_valid_from=entry.valid_from,
+                    event_valid_to=entry.valid_to,
+                    retrieved_at=source.retrieval_date,
+                    evidence_locator=source.evidence_locator,
+                )
+            affiliations = entry.metadata.get("affiliations", [])
+            if isinstance(affiliations, dict):
+                affiliations = [affiliations]
+            for affiliation in affiliations:
+                if not isinstance(affiliation, dict):
+                    continue
+                memory.add_affiliation(
+                    obj_id,
+                    organization_id=str(affiliation.get("organization_id", "")),
+                    organization_label=str(affiliation.get("organization_label", affiliation.get("organization", ""))),
+                    role=str(affiliation.get("role", "")),
+                    valid_from=str(affiliation.get("valid_from", "")),
+                    valid_to=str(affiliation.get("valid_to", "")),
+                    source_ref=str(affiliation.get("source_ref", "")),
+                )
     return counts
 
 
