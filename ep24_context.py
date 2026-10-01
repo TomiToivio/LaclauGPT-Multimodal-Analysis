@@ -14,6 +14,8 @@ from typing import Any
 
 import pandas as pd
 
+from ep24_memory import seed_researcher_memory
+from ep24_rag import upsert_stage_rag
 from roihu_codebooks import COUNTRY_PROFILES, load_profile
 
 COUNTRY_CODES = {meta["country"].casefold(): code for code, meta in COUNTRY_PROFILES.items()}
@@ -87,23 +89,9 @@ def bootstrap_context(storage, df: pd.DataFrame, *, private_root: Path, country:
         except FileNotFoundError:
             pass
 
-    memory_docs: dict[str, dict] = {}
-    for _, row in df.iterrows():
-        for kind, field in (("entity", "entities"), ("theme", "themes")):
-            for label in _json_list(row.get(field, "")):
-                sid = hashlib.sha256(f"{country}|{kind}|{label.casefold()}".encode()).hexdigest()
-                memory_docs[sid] = {
-                    "_storage_id": sid,
-                    "kind": kind,
-                    "label": label,
-                    "country": country,
-                    "review_state": "RESEARCHER_SEED",
-                    "origin": "pre_step_1_researcher_merge",
-                    "evidence_role": "normalization_context_not_source_evidence",
-                }
-    storage.upsert_documents("memory", memory_docs.values())
+    memory_seed_count = seed_researcher_memory(storage, df, country=country)
     return {"codebook_count": codebook_count, "codebook_fingerprint": fingerprint,
-            "memory_seed_count": len(memory_docs)}
+            "memory_seed_count": memory_seed_count}
 
 
 def enrich_dataframe(storage, df: pd.DataFrame) -> pd.DataFrame:
@@ -117,7 +105,13 @@ def enrich_dataframe(storage, df: pd.DataFrame) -> pd.DataFrame:
     exact_themes: dict[str, dict] = {}
     for item in codebooks:
         forms = [item.get("label", ""), item.get("english_label", ""), *(item.get("aliases") or [])]
-        target = exact_entities if item.get("kind") in {"entity", "actor"} else exact_themes
+        kind = item.get("kind")
+        if kind in {"entity", "actor"}:
+            target = exact_entities
+        elif kind in {"topic", "theme", "signifier"}:
+            target = exact_themes
+        else:
+            continue
         for form in forms:
             if str(form).strip():
                 target[str(form).strip().casefold()] = item
@@ -161,29 +155,5 @@ def enrich_dataframe(storage, df: pd.DataFrame) -> pd.DataFrame:
 
 
 def update_retrieval(storage, df: pd.DataFrame, *, stage: str) -> None:
-    """Persist cumulative row representations for later RAG, excluding self at retrieval."""
-    docs = []
-    for _, row in df.iterrows():
-        rid = str(row.get("_storage_id", ""))
-        text = "\n".join(
-            str(row.get(k, ""))
-            for k in (
-                "whisper_translated", "whisper_transcript", "summary_analysis",
-                "frame_analysis_1", "video_analysis", "formula_of_populism_analysis",
-                "dna_analysis_markdown", "sna_analysis_markdown",
-            )
-            if str(row.get(k, "")).strip()
-        )
-        if not rid or not text:
-            continue
-        sid = hashlib.sha256(f"{rid}|{stage}".encode()).hexdigest()
-        docs.append({
-            "_storage_id": sid,
-            "source_record_id": rid,
-            "stage": stage,
-            "text": text,
-            "entities": str(row.get("entities", "")),
-            "themes": str(row.get("themes", "")),
-            "evidence_role": "prior_analysis_context_not_source_evidence",
-        })
-    storage.upsert_documents("rag", docs)
+    """Persist cumulative row representations for later RAG."""
+    upsert_stage_rag(storage, df, stage=stage)
