@@ -40,17 +40,23 @@ The EP24 data covers multimodal social-media material related to the 2024 Europe
 
 ## Current Roihu pipeline
 
-The compatibility spine remains the historical five-stage sequence, now named for CSC Roihu:
+The active Roihu interface is deliberately numbered because each stage is submitted as a separate Slurm batch job. The canonical demo limit is **100 rows/videos per language** via `LACLAUGPT_MAX_ROWS=100`; set it to `0` for the full corpus where supported.
 
 EP24 video handling has a mandatory collection-quality rule: all media analysis excludes the first 1.0 second of every split clip, and whole-video VLM analysis reports additional feed-scroll failures. See [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
 
-1. `roihu_preprocess.py` - extract video frames, OCR text, and audio transcripts.
-2. `roihu_frame.py` - multimodal frame analysis.
-3. `roihu_summary.py` - summary analysis from metadata, transcript, and multimodal evidence.
-4. `roihu_postprocess.py` - structured post-processing of summary output.
-5. `roihu_populism.py` - Laclau/Palonen analysis.
+1. `step_1_roihu_preprocess.py` - frames, OCR, ASR/transcript and translation preparation.
+2. `step_2_roihu_frame.py` - sampled-frame multimodal social-semiotic analysis. Normally 1-6 frames; if Step 3 becomes the accepted production video path this can be reduced to one representative frame.
+3. `step_3_roihu_video.py` - **optional/reserved whole-video VLM stage**. It currently delegates to the isolated vLLM video experiment while that path is validated.
+4. `step_4_roihu_summary.py` - evidence-preserving multimodal summary/fusion.
+5. `step_5_roihu_postprocess.py` - legacy-compatible structured entities/topics/sentiment-target post-processing.
+6. `step_6_roihu_discourse_analysis.py` - Laclau/Palonen discourse analysis; canonical new name for the historical `roihu_populism.py`.
+7. `step_7_roihu_discourse_network_analysis.py` - Phase 2 DNA statement extraction: actor + concept/proposition + stance/agreement + evidence + uncertainty.
+8. `step_8_roihu_social_network_analysis.py` - Phase 2 SNA relation extraction with evidence-supported actor-to-actor edges.
+9. `step_9_roihu_rdf.py` - deterministic RDF export after analytical stages. This is CPU-only; it does not need Ollama or a GPU.
 
-Phase 2 functionality from LaclauGPT-Data-Analysis may be attached before, after, or alongside these stages, provided legacy-compatible inputs and outputs remain available.
+Each stage has its own matching batch file under `scripts/roihu/step_N_*.sbatch`. Submit one stage at a time, inspect its CSV/log output, then submit the next. See [docs/ROIHU_NUMBERED_PIPELINE.md](docs/ROIHU_NUMBERED_PIPELINE.md).
+
+The historical `roihu_preprocess.py`, `roihu_frame.py`, `roihu_summary.py`, `roihu_postprocess.py`, and `roihu_populism.py` files remain available as compatibility implementations and must not be deleted merely because numbered entry points exist.
 
 ## Public/private boundary
 

@@ -363,6 +363,10 @@ def get_formula_of_populism(country):
     filenames = [f'ep24_{country}.csv']
     for filename in filenames:
         df = pd.read_csv(filename)
+        max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
+        if max_rows > 0:
+            df = df.head(max_rows).copy()
+            logger.info("Demo row limit active: processing first %s rows", max_rows)
         df["formula_of_populism_analysis"] = ""
         df["formula_of_populism_us"] = ""
         df["formula_of_populism_frontier"] = ""
