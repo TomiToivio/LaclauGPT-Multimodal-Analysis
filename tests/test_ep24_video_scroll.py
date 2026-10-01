@@ -139,3 +139,20 @@ def test_numbered_steps_document_cumulative_one_frame_then_video_contract():
     assert "complete Step 2 dataframe" in step3
     assert "LACLAUGPT_INPUT_CSV" in step3
     assert "LACLAUGPT_OUTPUT_CSV" in step3
+
+
+def test_step2_is_strictly_one_frame_at_original_t1():
+    source = Path("roihu_frame.py").read_text(encoding="utf-8")
+    assert "frame_file = frame_files[0]" in source
+    assert "for i, frame_file in enumerate" not in source
+    assert "frame_analysis_timestamp_seconds" in source
+    assert "VIDEO_INITIAL_SKIP_SECONDS" in source
+    assert "Temporal coverage" in source
+
+
+def test_readme_documents_frame_video_whisper_division_of_labor():
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "exactly one keyframe extracted at original source t=1.0s" in readme
+    assert "native whole-video Qwen3-VL/vLLM analysis" in readme
+    assert "Whisper transcript/translation" in readme
+    assert "activate_vllm_video.sh && roihu_vllm_submit" in readme

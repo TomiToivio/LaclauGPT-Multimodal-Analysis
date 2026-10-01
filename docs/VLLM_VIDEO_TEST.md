@@ -1,5 +1,26 @@
 # EP24 native-video vLLM test on CSC Roihu
 
+## Production shortcut after reconnect
+
+The tested Roihu native-video path can now be submitted with one shell command:
+
+```bash
+source /scratch/project_2009497/LaclauGPT-Multimodal-Analysis/scripts/roihu/activate_vllm_video.sh && roihu_vllm_submit
+```
+
+This is the canonical fast path after SSH reconnects. The bootstrap loads the modules, private settings and venv, verifies Allas/rclone/ffmpeg and the vLLM/Transformers stack, and then `roihu_vllm_submit` submits the GH200 job.
+
+### What the successful real-video run taught us
+
+A real EP24 clip was successfully analyzed end-to-end by Qwen3-VL on Roihu. The model produced a coherent beginning → middle → end description, scene-change assessment, visible text/platform-interface inventory, and temporal account of the clip. This validates a division of labor for the production pipeline:
+
+- **Step 1:** Whisper transcript/translation + OCR + exactly one keyframe at original t=1.0s;
+- **Step 2:** analyze that one frame carefully for fine visual detail and rendered text/context;
+- **Step 3:** analyze the full post-1.0s video for temporal narrative, ordered events and scene changes;
+- **Step 4:** fuse the deep still-image evidence, whole-video narrative and Whisper transcript rather than duplicating six independent frame analyses.
+
+Qwen3-VL may recognize familiar people/characters/logos from visual appearance, but downstream research should still preserve uncertainty and treat visible-text/OCR/transcript evidence separately from model inference.
+
 ## Reconnect shortcut: one command only
 
 After the one-time venv and Allas configuration, **do not repeat the manual module/env/venv setup after every dropped Roihu SSH connection**.

@@ -165,6 +165,8 @@ def analyze_videos(language=None):
         'frame_analysis_4',
         'frame_analysis_5',
         'frame_analysis_6',
+        'frame_analysis_timestamp_seconds',
+        'frame_analysis_status',
     ):
         if column not in df.columns:
             df[column] = ''
@@ -182,6 +184,8 @@ def analyze_videos(language=None):
             # Get all from the database
             row = c.fetchone()
             df.at[index, 'frame_analysis_1'] = str(row[2] or '')
+            df.at[index, 'frame_analysis_timestamp_seconds'] = str(VIDEO_INITIAL_SKIP_SECONDS)
+            df.at[index, 'frame_analysis_status'] = 'cached'
             # Historical cache rows can contain six frame analyses. Current
             # production semantics expose only the t=1.0s contextual frame.
             for old_index in range(2, 7):
@@ -189,46 +193,37 @@ def analyze_videos(language=None):
         else:
             try:
                 frame_files = parse_frame_files(row['frame_files'])
-                frame_analysis_1 = ""
+                if not frame_files:
+                    raise ValueError('Step 2 requires the Step 1 keyframe at original t=1.0s')
+
+                # Production contract: analyze one and only one still image.
+                # Step 1 guarantees frame_files[0] is extracted at original t=1.0s,
+                # immediately after the known feed-scroll artifact. Temporal coverage
+                # belongs to Step 3 native-video analysis, not repeated still sampling.
+                frame_file = frame_files[0]
+                frame_response = str(get_analysis(frame_file, metadata_context(row)))
+                seconds = str(VIDEO_INITIAL_SKIP_SECONDS)
+                frame_analysis_1 = f'''### **Frame 1 at original t={seconds} seconds**:
+{frame_response}
+'''
                 frame_analysis_2 = ""
                 frame_analysis_3 = ""
                 frame_analysis_4 = ""
                 frame_analysis_5 = ""
                 frame_analysis_6 = ""
-                frame_number = 1
-                for i, frame_file in enumerate(frame_files[:1]):
-                    frame_response = get_analysis(frame_file, metadata_context(row))
-                    seconds = VIDEO_INITIAL_SKIP_SECONDS
-                    frame_response = str(frame_response)
-                    seconds = str(seconds)
-                    frame_analysis = f'''### **Frame {frame_number} at {seconds} seconds**:                        
-                    {frame_response}
-                    '''
-                    logger.debug(f'Frame analysis: {frame_analysis}')
-                    if frame_number == 1:
-                        frame_analysis_1 = str(frame_analysis)
-                        df.at[index, 'frame_analysis_1'] = str(frame_analysis)
-                    elif frame_number == 2:
-                        frame_analysis_2 = str(frame_analysis)
-                        df.at[index, 'frame_analysis_2'] = str(frame_analysis)
-                    elif frame_number == 3:
-                        frame_analysis_3 = str(frame_analysis)
-                        df.at[index, 'frame_analysis_3'] = str(frame_analysis)
-                    elif frame_number == 4:
-                        frame_analysis_4 = str(frame_analysis)
-                        df.at[index, 'frame_analysis_4'] = str(frame_analysis)
-                    elif frame_number == 5:
-                        frame_analysis_5 = str(frame_analysis)
-                        df.at[index, 'frame_analysis_5'] = str(frame_analysis)
-                    elif frame_number == 6:
-                        frame_analysis_6 = str(frame_analysis)
-                        df.at[index, 'frame_analysis_6'] = str(frame_analysis)
-                    frame_number = frame_number + 1
+
+                logger.debug('Single-frame analysis at original t=%ss: %s', seconds, frame_analysis_1)
+                df.at[index, 'frame_analysis_1'] = frame_analysis_1
+                df.at[index, 'frame_analysis_timestamp_seconds'] = seconds
+                df.at[index, 'frame_analysis_status'] = 'ok'
+                for old_index in range(2, 7):
+                    df.at[index, f'frame_analysis_{old_index}'] = ''
                 # Insert to database if not exists
                 c.execute("INSERT INTO tiktok_videos (author_username, video_id, frame_analysis_1, frame_analysis_2, frame_analysis_3, frame_analysis_4, frame_analysis_5, frame_analysis_6) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",(str(author_username), str(video_id), str(frame_analysis_1), str(frame_analysis_2), str(frame_analysis_3), str(frame_analysis_4), str(frame_analysis_5), str(frame_analysis_6)))
                 conn.commit()
             except Exception as e:
-                logger.error(f'Error processing video: {e}')
+                df.at[index, 'frame_analysis_status'] = 'error'
+                logger.exception('Error processing single t=1.0s frame: %s', e)
     output = os.getenv('LACLAUGPT_OUTPUT_CSV') or filename
     df.to_csv(output, index=False)
 

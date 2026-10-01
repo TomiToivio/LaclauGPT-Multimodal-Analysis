@@ -46,12 +46,18 @@ Active reprocessing uses the researcher-feed 15-column schema and an additive da
 
 The active Roihu interface is deliberately numbered because each stage is submitted as a separate Slurm batch job. The canonical demo limit is **100 rows/videos per language** via `LACLAUGPT_MAX_ROWS=100`; set it to `0` for the full corpus where supported.
 
+For the native-video Step 3 path, after Roihu reconnects the tested one-command launcher is:
+
+```bash
+source /scratch/project_2009497/LaclauGPT-Multimodal-Analysis/scripts/roihu/activate_vllm_video.sh && roihu_vllm_submit
+```
+
 EP24 video handling has a mandatory collection-quality rule: all media analysis excludes the first 1.0 second of every split clip, and whole-video VLM analysis reports additional feed-scroll failures. See [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
 
-1. `step_1_roihu_preprocess.py` - frames, OCR, ASR/transcript and translation preparation.
-2. `step_2_roihu_frame.py` - sampled-frame multimodal social-semiotic analysis. Normally 1-6 frames; if Step 3 becomes the accepted production video path this can be reduced to one representative frame.
-3. `step_3_roihu_video.py` - **optional/reserved whole-video VLM stage**. It currently delegates to the isolated vLLM video experiment while that path is validated.
-4. `step_4_roihu_summary.py` - evidence-preserving multimodal summary/fusion.
+1. `step_1_roihu_preprocess.py` - ASR/Whisper transcript + translation, OCR, and exactly one keyframe extracted at original source t=1.0s.
+2. `step_2_roihu_frame.py` - deep multimodal social-semiotic analysis of exactly that one t=1.0s frame. It concentrates on fine visual detail, rendered text, platform UI, symbols, composition and scene inventory.
+3. `step_3_roihu_video.py` - native whole-video Qwen3-VL/vLLM analysis from t=1.0s onward. It supplies temporal narrative, ordered events, scene changes and failed feed-scroll detection.
+4. `step_4_roihu_summary.py` - evidence-preserving fusion of the complementary evidence streams: deep one-frame analysis + native-video narrative + Whisper transcript/translation + OCR/source metadata.
 5. `step_5_roihu_postprocess.py` - legacy-compatible structured entities/topics/sentiment-target post-processing.
 6. `step_6_roihu_discourse_analysis.py` - Laclau/Palonen discourse analysis; canonical new name for the historical `roihu_populism.py`.
 7. `step_7_roihu_discourse_network_analysis.py` - Phase 2 DNA statement extraction: actor + concept/proposition + stance/agreement + evidence + uncertainty.
