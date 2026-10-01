@@ -43,11 +43,15 @@ For Poland the same configuration automatically produces laclaugpt_ep24_pl_memor
 
 ## Roihu pipeline
 
-The default compatibility sequence is:
+The canonical legacy compatibility sequence remains:
 
-    preprocess -> frame -> summary -> postprocess -> enrich -> populism -> storage
+    preprocess -> frame -> summary -> postprocess -> populism
 
-The final stage calls roihu_storage_sync.py. When MongoDB is disabled it exits successfully without changing CSV files. When enabled, it imports CSVs matching LACLAUGPT_STORAGE_INPUT_GLOB, default csv/*.csv, into the country-specific analysis collection using upsert semantics.
+If enrichment is enabled, enrich is inserted immediately before populism. The additive storage stage runs after populism:
+
+    ... -> populism -> storage
+
+The final stage calls roihu_storage_sync.py. When MongoDB is disabled it exits successfully without changing CSV files. When enabled, it imports CSVs matching LACLAUGPT_STORAGE_INPUT_GLOB, default csv/*.csv, into the country-specific analysis collection using upsert semantics. If LACLAUGPT_MEMORY_DB points to the reviewed SQLite memory snapshot, CANONICAL memory objects are also mirrored to the country-specific memory collection. If LACLAUGPT_RAG_JSONL is set, newline-delimited RAG records are upserted into the country-specific RAG collection.
 
 Submit normally after exporting private configuration:
 
