@@ -1,6 +1,9 @@
 """Contract tests for EP24 initial-scroll handling (issue #22)."""
 
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import ep24_video as video
 
