@@ -232,10 +232,26 @@ def load_profile(root: str | Path, country: str, *, language: str = "") -> tuple
             aliases.setdefault((entry.kind, form.casefold()), set()).add(entry.entry_id)
     ambiguous = sorted({form for (_kind, form), ids in aliases.items() if len(ids) > 1})
     fingerprint = hashlib.sha256("|".join(sorted(m[1]["sha256"] for m in loaded)).encode()).hexdigest()
+    missing_english = [
+        entry.entry_id
+        for entry in entries
+        if entry.source_languages and any(lang != "en" for lang in entry.source_languages)
+        and not entry.english_label
+    ]
+    sourced = [entry.entry_id for entry in entries if entry.sources]
+    source_languages = sorted({
+        source.language
+        for entry in entries
+        for source in entry.sources
+        if source.language
+    })
     return entries, {
         "country": country.upper(), "language": language.lower(), "fingerprint": fingerprint,
         "books": [m[1] for m in loaded], "entry_count": len(entries), "conflicts": conflicts,
-        "ambiguous_forms": ambiguous, "evidence_role": "background_context_not_source_evidence",
+        "ambiguous_forms": ambiguous, "missing_english_entry_ids": missing_english,
+        "missing_english_count": len(missing_english), "sourced_entry_count": len(sourced),
+        "source_languages": source_languages,
+        "evidence_role": "background_context_not_source_evidence",
     }
 
 
@@ -282,7 +298,17 @@ def context_block(query: str, entries: Iterable[CodebookEntry], *, country: str,
 
 
 def coverage_manifest() -> list[dict[str, Any]]:
-    return [{"country_code": code, "country": meta["country"], "languages": meta["languages"], "private_file": meta["file"], "english_output": True} for code, meta in COUNTRY_PROFILES.items()]
+    return [
+        {
+            "country_code": code,
+            "country": meta["country"],
+            "languages": meta["languages"],
+            "private_file": meta["file"],
+            "english_required": True,
+            "english_gap_policy": "report_missing_never_silent_country_fallback",
+        }
+        for code, meta in COUNTRY_PROFILES.items()
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:
