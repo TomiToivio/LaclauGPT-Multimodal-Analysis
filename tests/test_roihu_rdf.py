@@ -251,14 +251,33 @@ def test_declared_namespace_matches_the_sibling_implementation() -> None:
     assert "https://w3id.org/laclau" + "gpt/" in text
 
 
-def test_stage_does_not_run_inside_the_legacy_stages() -> None:
-    """The export is appended; it must not be spliced into the five stages."""
-    for name in (
+def test_stage_does_not_run_inside_the_pipeline_stages() -> None:
+    """The export is appended; it must not be spliced into the five stages.
+
+    The stages were renamed `puhti_*.py` -> `roihu_*.py` on main after this stage
+    landed (commits c3d59aa..c37e389). The check follows the current names and
+    skips any that are absent, so a future rename cannot turn a design assertion
+    into a FileNotFoundError.
+    """
+    stages = [
+        "roihu_preprocess.py",
+        "roihu_frame.py",
+        "roihu_summary.py",
+        "roihu_postprocess.py",
+        "roihu_populism.py",
+        # historical names, in case a branch still carries them
         "puhti_preprocess.py",
         "puhti_frame.py",
         "puhti_summary.py",
         "puhti_postprocess.py",
         "puhti_populism.py",
-    ):
-        text = (ROOT / name).read_text(encoding="utf-8")
+    ]
+    checked = 0
+    for name in stages:
+        path = ROOT / name
+        if not path.exists():
+            continue
+        checked += 1
+        text = path.read_text(encoding="utf-8")
         assert "roihu_rdf" not in text, f"{name} must not import the export stage"
+    assert checked >= 5, f"expected to check the five stages, checked {checked}"
