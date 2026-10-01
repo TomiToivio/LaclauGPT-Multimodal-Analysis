@@ -53,17 +53,21 @@ from ep24_video import (
     parse_scroll_metadata,
     prepare_analysis_clip,
 )
+from ep24_schema import (
+    EP24_REPROCESS_COLUMNS,
+    REQUIRED_MEDIA_COLUMNS,
+    stable_source_id,
+    value as ep24_value,
+)
 
 DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 DEFAULT_SAMPLE_SIZE = None
 
-# The repository already fixes this object convention; see
-# docs/LEGACY_PIPELINE_CONTRACT.md section 1 and roihu_preprocess.py.
+# allas_filename is authoritative for the researcher-feed reprocessing corpus.
+# This fallback exists only for backwards-compatible reads of old scraper rows.
 DEFAULT_ALLAS_PATH_TEMPLATE = "Scraper/TikTok/Videos/{country}/{author}/{video_id}.mp4"
 
-# Columns needed to derive a remote object path. A row without these cannot be
-# fetched and is therefore not "usable" for this test.
-REQUIRED_COLUMNS = ("authorUniqueId", "videoId", "scrapedCountry")
+REQUIRED_COLUMNS = REQUIRED_MEDIA_COLUMNS
 REQUIRED_INITIAL_SKIP_SECONDS = 1.0
 
 # Experimental output columns. Existing columns are never renamed or dropped.
@@ -392,16 +396,19 @@ def load_input_csv(input_csv: Path, logger: logging.Logger) -> pd.DataFrame:
     """Read the EP24 CSV without altering it."""
     if not input_csv.is_file():
         raise SystemExit(f"Input CSV not found: {input_csv}")
-    # dtype=str keeps IDs exactly as stored; the pipeline treats them as opaque
-    # strings, so casting videoId to a number would corrupt the join.
+    # dtype=str keeps identifiers byte-for-byte as stored.
     df = pd.read_csv(input_csv, dtype=str, keep_default_na=False)
     logger.info("read input CSV %s: %d rows x %d columns", input_csv, len(df), len(df.columns))
-    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
-    if missing and "allas_filename" not in df.columns:
-        raise SystemExit(
-            f"Input CSV needs allas_filename or fallback columns {list(REQUIRED_COLUMNS)}; "
-            f"found columns: {list(df.columns)}"
-        )
+    canonical_present = [name for name in EP24_REPROCESS_COLUMNS if name in df.columns]
+    logger.info("canonical EP24 metadata fields present: %s", canonical_present)
+    if "allas_filename" not in df.columns:
+        legacy_fallback = {"scrapedCountry", "authorUniqueId", "videoId"}
+        if not legacy_fallback.issubset(df.columns):
+            raise SystemExit(
+                "Input CSV must contain canonical allas_filename (preferred), or the "
+                "legacy scraper fallback fields scrapedCountry/authorUniqueId/videoId. "
+                f"Found columns: {list(df.columns)}"
+            )
     return df
 
 
@@ -409,7 +416,7 @@ def row_has_fetch_identifier(row: pd.Series) -> bool:
     """Whether the row has either a historical Allas key or fallback identifiers."""
     if str(row.get("allas_filename", "")).strip():
         return True
-    return all(str(row.get(column, "")).strip() for column in REQUIRED_COLUMNS)
+    return all(ep24_value(row, column) for column in REQUIRED_COLUMNS)
 
 
 def select_sample(
@@ -434,7 +441,7 @@ def select_sample(
     if len(usable) < size:
         raise SystemExit(
             f"Requested {size} videos but only {len(usable)} usable row(s) exist "
-            f"(need non-empty {list(REQUIRED_COLUMNS)})."
+            f"(need non-empty allas_filename/video_id metadata)."
         )
     chosen = sorted(random.Random(seed).sample(usable, size))
     logger.info("selected row indices (seed=%d): %s", seed, chosen)
@@ -446,14 +453,14 @@ def select_sample(
 # --------------------------------------------------------------------------- #
 
 def derive_remote_path(row: pd.Series, template: str) -> str:
-    """Use the historical Allas source key, falling back to the legacy path."""
-    allas_filename = str(row.get("allas_filename", "")).strip()
+    """Use canonical allas_filename; legacy scraper path is compatibility-only."""
+    allas_filename = ep24_value(row, "allas_filename")
     if allas_filename:
         return allas_filename
     return template.format(
-        country=str(row["scrapedCountry"]).strip(),
-        author=str(row["authorUniqueId"]).strip(),
-        video_id=str(row["videoId"]).strip(),
+        country=ep24_value(row, "country"),
+        author=ep24_value(row, "author_username"),
+        video_id=ep24_value(row, "video_id"),
     )
 
 
@@ -661,7 +668,31 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
     return llm, sampling_params, structured_status
 
 
-def build_video_messages(local_path: Path, args: argparse.Namespace) -> list[dict]:
+def ep24_metadata_context(row: pd.Series | None) -> str:
+    """Render real researcher-feed metadata for the model without inventing scraper fields."""
+    if row is None:
+        return ""
+    lines = []
+    for column in EP24_REPROCESS_COLUMNS:
+        if column not in row.index:
+            continue
+        value = str(row.get(column, "") or "").strip()
+        if value:
+            lines.append(f"- {column}: {value}")
+    if not lines:
+        return ""
+    return (
+        "\n\nEP24 SOURCE METADATA (researcher-recorded feed clip; not scraper metadata):\n"
+        + "\n".join(lines)
+        + "\nTreat researcher_* fields and researcher_note as human annotation, not model output."
+    )
+
+
+def build_video_messages(
+    local_path: Path,
+    args: argparse.Namespace,
+    row: pd.Series | None = None,
+) -> list[dict]:
     """Build the Qwen chat messages with the video as a first-class video part.
 
     The application API treats the source as a *video*; temporal ordering is
@@ -680,7 +711,7 @@ def build_video_messages(local_path: Path, args: argparse.Namespace) -> list[dic
                     "max_pixels": args.video_max_pixels,
                     "total_pixels": args.video_total_pixels,
                 },
-                {"type": "text", "text": VIDEO_PROMPT},
+                {"type": "text", "text": VIDEO_PROMPT + ep24_metadata_context(row)},
             ],
         },
     ]
@@ -786,11 +817,11 @@ def prepare_vllm_request(
         if image_inputs is not None:
             mm_data["image"] = image_inputs
         if video_inputs is not None:
-            # Qwen3-VL yields (video, metadata) pairs; split them for vLLM.
-            videos, video_metadatas = zip(*video_inputs)
-            mm_data["video"] = list(videos)
-            video_kwargs = dict(video_kwargs or {})
-            video_kwargs["video_metadata"] = list(video_metadatas)
+            # Current vLLM/Qwen3-VL requires video metadata in multi_modal_data.
+            # qwen-vl-utils already returns (video, metadata) pairs, so preserve
+            # those pairs intact. Splitting metadata into mm_processor_kwargs
+            # causes: "Video metadata is required but not found in mm input."
+            mm_data["video"] = list(video_inputs)
 
     logger.debug(
         "prepared request: video_api=%s video_parts=%s mm_processor_kwargs_keys=%s",
@@ -870,12 +901,13 @@ def analyze_one_video(
     sampling_params,
     processor,
     logger: logging.Logger,
+    row: pd.Series | None = None,
 ) -> tuple[str, str, float]:
     """Return analysis text, structured-output status, and inference seconds."""
     if args.model_backend == "stub":
         return generate_stub(local_path, args.model), "off", 0.0
 
-    messages = build_video_messages(local_path, args)
+    messages = build_video_messages(local_path, args, row=row)
     request = prepare_vllm_request(messages, processor, logger, video_api=args.video_api)
     inference_started = time.monotonic()
     logger.info("inference_start_utc=%s", datetime.now(timezone.utc).isoformat())
@@ -1015,23 +1047,23 @@ def main(argv: list[str] | None = None) -> int:
 
     for position, index in enumerate(selected, start=1):
         row = df.loc[index]
-        author = str(row.get("authorUniqueId", ""))
-        video_id = str(row.get("videoId", ""))
+        author = ep24_value(row, "author_username")
+        video_id = ep24_value(row, "video_id")
         object_path = derive_remote_path(row, args.allas_path_template)
         safe_object_path = redact_sensitive(object_path)
-        source_id = "|".join(
-            str(row.get(column, "")).strip()
-            for column in ("allas_filename", "scrapedCountry", "authorUniqueId", "videoId")
-            if str(row.get(column, "")).strip()
-        )
+        source_id = stable_source_id(row)
 
         logger.info("--- video %d/%d: %s / %s ---", position, len(selected), author, video_id)
         logger.info("  source_row_index  : %s", index)
         logger.info("  source_id         : %s", redact_sensitive(source_id))
         logger.info("  remote_object     : %s", safe_object_path)
-        logger.info("  country           : %s", redact_sensitive(row.get("scrapedCountry", "")))
-        logger.info("  language          : %s", redact_sensitive(row.get("language", "")))
-        logger.info("  description       : %s", redact_sensitive(str(row.get("videoDescription", ""))[:300]))
+        for metadata_key in EP24_REPROCESS_COLUMNS:
+            if metadata_key in row.index:
+                logger.info(
+                    "  metadata.%-20s %s",
+                    metadata_key + ":",
+                    redact_sensitive(str(row.get(metadata_key, ""))[:500]),
+                )
 
         record = {column: "" for column in OUTPUT_COLUMNS}
         record["vllm_video_model"] = args.model
@@ -1126,7 +1158,7 @@ def main(argv: list[str] | None = None) -> int:
                 record["vllm_video_analysis_path"] = str(analysis_path)
             logger.info("  initial_skip_s    : %.1f", VIDEO_INITIAL_SKIP_SECONDS)
             raw_output, structured_status, inference_seconds = analyze_one_video(
-                analysis_path, args, llm, sampling_params, processor, logger
+                analysis_path, args, llm, sampling_params, processor, logger, row=row
             )
             record["vllm_video_inference_seconds"] = f"{inference_seconds:.3f}"
             record["vllm_peak_gpu_memory_mb"] = peak_gpu_memory_mb()
