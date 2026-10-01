@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import sqlite3
 import sys
 import time
@@ -56,7 +57,7 @@ def triple(subject: str, predicate: str, value: str, *, resource: bool = False) 
 
 def document_key(row: dict[str, str], dataset: str, row_number: int) -> tuple[str, str]:
     # Never parse identifiers as numbers: leading zeroes and large video IDs matter.
-    for column in ("document_id", "videoId", "video_filename", "source_url", "url"):
+    for column in ("_storage_id", "video_id", "document_id", "videoId", "video_filename", "source_url", "url"):
         if row.get(column, "").strip():
             return json.dumps([dataset, column, row[column]], ensure_ascii=False), column
     return json.dumps([dataset, "row", row_number]), "row-number-fallback"
@@ -204,6 +205,9 @@ def export(args: argparse.Namespace) -> dict:
                              "hit" if cached else "miss", "warning" if warnings else "ok")
             for name in ("graph.nt", "final.csv"):
                 (output / (name + ".partial")).rename(output / name)
+            # N-Triples is a Turtle subset. Keep the historical .nt artifact and
+            # expose the same deterministic graph as .ttl for RDF tooling.
+            shutil.copyfile(output / "graph.nt", output / "graph.ttl")
         manifest = {"status": "complete-with-warnings" if warnings_count else "complete",
                     "stage": VERSION, "run_id": run_id, "completed_at": datetime.now(UTC).isoformat(),
                     "source": str(source), "source_sha256": file_hash.hexdigest(),
