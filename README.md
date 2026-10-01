@@ -62,3 +62,12 @@ See [AGENTS.md](AGENTS.md) for mandatory development rules and [docs/ROIHU_MIGRA
 ## Memory and country/language codebooks
 
 The opt-in Roihu enrichment layer is documented in [docs/MEMORY_CODEBOOKS.md](docs/MEMORY_CODEBOOKS.md). It uses SQLite memory plus private, versioned EP24 codebooks while preserving every legacy output field. Operational codebooks and research material remain private.
+
+
+## External MongoDB storage
+
+Issue #12 adds an optional external MongoDB persistence layer for long-term memory, RAG, structured analysis outputs, entities, provenance and backup-friendly state while preserving Pandas CSV as a first-class input/output format.
+
+Collection names are generated from dataset and country, for example `laclaugpt_ep24_fi_memory`, `laclaugpt_ep24_fi_rag`, `laclaugpt_ep24_pl_memory` and `laclaugpt_ep24_pl_rag`. MongoDB is disabled by default, so the added storage stage is a no-op in CSV-only runs.
+
+See [docs/MONGODB_STORAGE.md](docs/MONGODB_STORAGE.md) for environment variables, Roihu usage, schemas, FI/PL examples, backup/recovery guidance and the DataFrame/CSV API.
