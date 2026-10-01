@@ -9,17 +9,21 @@ The legacy branch must remain visible because papers and publications may depend
 
 ## Compatibility spine
 
-The historical five-stage logical sequence is retained on `main` with Roihu filenames:
+The historical implementation remains available, but the active Roihu batch interface is now a stable numbered sequence:
 
-1. `roihu_preprocess.py`
-2. `roihu_frame.py`
-3. `roihu_summary.py`
-4. `roihu_postprocess.py`
-5. `roihu_populism.py`
+1. `step_1_roihu_preprocess.py`
+2. `step_2_roihu_frame.py`
+3. `step_3_roihu_video.py` (optional/reserved while vLLM validation continues)
+4. `step_4_roihu_summary.py`
+5. `step_5_roihu_postprocess.py`
+6. `step_6_roihu_discourse_analysis.py`
+7. `step_7_roihu_discourse_network_analysis.py`
+8. `step_8_roihu_social_network_analysis.py`
+9. `step_9_roihu_rdf.py`
 
-Phase 2 functionality may be inserted before, after, or alongside these stages. Existing legacy steps must not be removed, collapsed, or made unavailable without explicit human permission.
+Each Python entry point has a separate sbatch job in `scripts/roihu/`. The operational pattern is one stage per submitted batch job, with CSV inspection/checkpointing between stages. The first demonstration run defaults to 100 rows/videos per language using `LACLAUGPT_MAX_ROWS=100`.
 
-The active Roihu implementation may add newer multimodal models, provenance, RDF, DNA, SNA, richer structured outputs, and other compatible improvements from `LaclauGPT-Data-Analysis`.
+The old `roihu_*.py` files are retained for legacy compatibility. Phase 2 functionality is additive; existing legacy fields and outputs must remain available.
 
 ## Public/private contract
 

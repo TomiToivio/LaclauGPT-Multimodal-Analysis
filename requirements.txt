@@ -1,0 +1,7 @@
+pandas>=2.0
+ollama>=0.4
+pydantic>=2.0
+opencv-python-headless>=4.8
+easyocr>=1.7
+openai-whisper
+deep-translator>=1.11

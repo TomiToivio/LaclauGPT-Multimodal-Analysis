@@ -23,7 +23,7 @@ New Phase 2 features from `TomiToivio/LaclauGPT-Data-Analysis` must be added **a
 
 Preserve, unless explicitly authorized otherwise:
 
-1. the five-stage logical sequence and the ability to run each legacy-compatible stage;
+1. the legacy-compatible logical sequence and the ability to run each historical stage inside the numbered Roihu pipeline;
 2. existing input/output contracts and historical field meanings;
 3. legacy-compatible CSV and cache outputs needed by existing research;
 4. human-written prompts and Laclau/Palonen logic;
@@ -53,9 +53,29 @@ Do not copy the newer pipeline blindly. Integrate it incrementally around the co
 
 ## Roihu naming
 
-Active `main` code and documentation use **Roihu**, not Puhti, for current execution. Active stage filenames are `roihu_*.py`.
+Active `main` code and documentation use **Roihu**, not Puhti, for current execution. Canonical active batch entry points are `step_N_roihu_*.py`; historical `roihu_*.py` filenames remain compatibility implementations.
 
 Use “Puhti” only when describing the historical `legacy` environment, provenance, or compatibility history.
+
+## Numbered Roihu batch contract
+
+The active main-branch pipeline is numbered and each stage is a separate Slurm job:
+
+1. preprocess
+2. frame analysis
+3. optional whole-video VLM
+4. summary/fusion
+5. postprocess
+6. Laclau/Palonen discourse analysis
+7. Discourse Network Analysis
+8. Social Network Analysis
+9. RDF export
+
+Reserve Step 3 even while whole-video vLLM is experimental so downstream stage numbers remain stable. Do not renumber later stages when the video backend graduates.
+
+For demos, honor `LACLAUGPT_MAX_ROWS=100`. A full run may override the limit. Each step must remain executable with a simple command such as `python3 step_7_roihu_discourse_network_analysis.py`, with a matching sbatch file under `scripts/roihu/`.
+
+RDF is a deterministic post-analytic export and should normally use a CPU partition rather than consume a GH200 GPU.
 
 ## Public/private boundary
 
@@ -91,3 +111,20 @@ For active EP2024 reprocessing on Roihu:
 - New analytical fields are additive. Every major step must provide a human-readable Markdown summary field as well as any structured JSON/machine output.
 - Use MongoDB collection names `laclaugpt_ep2024_reprocess_<country_name>_<collection_name>`.
 - Real MongoDB/Redis credentials are read from the private companion repository/runtime environment and must never be copied into this public repository or logs.
+
+
+## EP24 video invariant
+
+For EP24 TikTok/Instagram screen recordings, every split clip contains a known
+scroll transition from the previous item in its first 1.0 second. All new media
+analysis must import the canonical rule from ep24_video.py and exclude that
+interval from ASR, frames, OCR, whole-video VLM input, embeddings, scene
+sampling, summaries, fusion, and future video modules. Do not add independent
+magic numbers.
+
+Additional feed scrolls after the known artifact are data-quality failures.
+Whole-video VLM output must preserve human-readable analysis and expose SCROLL
+and SCROLL_SECONDS. Detected additional scrolls enter the deterministic
+needs_resplit workflow with source provenance and legacy fields preserved.
+Never overwrite source media, never modify the legacy branch for this rule, and
+keep recursion bounded.

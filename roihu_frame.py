@@ -4,9 +4,12 @@ import os
 import cv2
 import ollama
 import base64
+import ast
 import sqlite3
 from logging.handlers import RotatingFileHandler
 logger = logging.getLogger(__name__)
+os.makedirs('./logs', exist_ok=True)
+os.makedirs('./database', exist_ok=True)
 logging.basicConfig(handlers=[RotatingFileHandler('./logs/frame.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -106,6 +109,7 @@ Analyze the provided frame using the social-semiotic pre-analysis categories abo
              "min_p": 0.0,
              "temperature": 0.0,
              "num_predict": 2048}
+    frame_analysis = ''
     try:
         response = ollama.chat(model=os.getenv('LACLAUGPT_MULTIMODAL_MODEL', 'gemma4:12b'), 
                                messages=[
@@ -119,10 +123,27 @@ Analyze the provided frame using the social-semiotic pre-analysis categories abo
         logger.error(f'Error processing image: {e}')
     return frame_analysis
 
+def parse_frame_files(value):
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    try:
+        parsed = ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        parsed = None
+    if isinstance(parsed, (list, tuple)):
+        return [str(item).strip() for item in parsed if str(item).strip()]
+    return [item.strip() for item in text.split(',') if item.strip()]
+
+
 def analyze_videos(language):
     """Analyze TikTok videos for a specific language."""
     filename = f'./csv/tiktok_{language}.csv'
     df = pd.read_csv(filename)
+    max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
+    if max_rows > 0:
+        df = df.head(max_rows).copy()
+        logger.info("Demo row limit active: processing first %s rows", max_rows)
     df = df.dropna(subset=['whisperResult'])
     df = df.dropna(subset=['frame_files'])
     df['frame_analysis_1'] = ''
@@ -152,9 +173,7 @@ def analyze_videos(language):
             df.at[index, 'frame_analysis_6'] = str(row[7])
         else:
             try:
-                frame_files = row['frame_files']
-                # Split frame_files
-                frame_files = frame_files.split(',')
+                frame_files = parse_frame_files(row['frame_files'])
                 frame_analysis_1 = ""
                 frame_analysis_2 = ""
                 frame_analysis_3 = ""
@@ -200,13 +219,13 @@ def analyze_videos(language):
 
 
 # Loop through all EP2024 TikTok languages and analyze videos
-languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']
-
-for language in languages:
-    analyze_videos(language)
-
-
-c.close()
-conn.close()
+if __name__ == '__main__':
+    languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']
+    try:
+        for language in languages:
+            analyze_videos(language)
+    finally:
+        c.close()
+        conn.close()
 
 
