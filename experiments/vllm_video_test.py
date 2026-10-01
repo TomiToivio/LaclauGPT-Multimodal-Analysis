@@ -5,7 +5,7 @@ This is an **isolated experiment**, not a production stage. It does not touch th
 five-stage EP24 pipeline, `roihu_frame.py`, `roihu_summary.py`, the Ollama
 backend, or any legacy CSV contract. It answers one question:
 
-    Can we submit a clean sbatch job on CSC Roihu, download five real EP24
+    Can we submit a clean sbatch job on CSC Roihu, download prepared EP24
     videos from CSC Allas, analyze each video directly with Qwen3-VL-8B through
     vLLM, and write readable CSV + debug-log output?
 
@@ -30,6 +30,7 @@ import platform
 import random
 import re
 import shutil
+import shlex
 import socket
 import subprocess
 import sys
@@ -37,6 +38,7 @@ import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import pandas as pd
 
@@ -46,13 +48,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ep24_video import (
     VIDEO_INITIAL_SKIP_SECONDS,
+    analysis_clip_path,
     needs_resplit,
     parse_scroll_metadata,
     prepare_analysis_clip,
 )
 
 DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
-DEFAULT_SAMPLE_SIZE = 5
+DEFAULT_SAMPLE_SIZE = None
 
 # The repository already fixes this object convention; see
 # docs/LEGACY_PIPELINE_CONTRACT.md section 1 and roihu_preprocess.py.
@@ -61,17 +64,35 @@ DEFAULT_ALLAS_PATH_TEMPLATE = "Scraper/TikTok/Videos/{country}/{author}/{video_i
 # Columns needed to derive a remote object path. A row without these cannot be
 # fetched and is therefore not "usable" for this test.
 REQUIRED_COLUMNS = ("authorUniqueId", "videoId", "scrapedCountry")
+REQUIRED_INITIAL_SKIP_SECONDS = 1.0
 
 # Experimental output columns. Existing columns are never renamed or dropped.
 OUTPUT_COLUMNS = (
     "vllm_video_model",
+    "vllm_video_version",
     "vllm_video_status",
     "vllm_video_analysis",
     "vllm_video_error",
+    "vllm_video_source_row_index",
+    "vllm_video_source_id",
+    "vllm_video_allas_source",
     "vllm_video_remote_path",
     "vllm_video_local_path",
+    "vllm_video_analysis_path",
     "vllm_video_remote_path_logged",
     "vllm_video_bytes",
+    "vllm_video_sha256",
+    "vllm_video_source_duration_seconds",
+    "vllm_video_analysis_duration_seconds",
+    "vllm_video_trim_command",
+    "vllm_video_trim_exit_status",
+    "vllm_video_prompt_version",
+    "vllm_video_prompt_sha256",
+    "vllm_video_markdown_analysis",
+    "vllm_video_raw_output",
+    "vllm_video_structured_json",
+    "vllm_video_structured_output_status",
+    "vllm_video_structured_output_error",
     "vllm_video_runtime_seconds",
     "vllm_video_selected_index",
     "vllm_video_prompt",
@@ -98,6 +119,9 @@ OUTPUT_COLUMNS = (
     "vllm_structured_output",
 )
 
+# EDITABLE RESEARCHER PROMPT SECTION.
+# Keep researcher-authored questions here in one place. Record prompt text and
+# hash in each result so an output can be tied to the exact prompt used.
 # Descriptive, pre-discursive. This stage produces a video *evidence
 # representation* only: no Laclau/populism, ideological, partisan, sentiment,
 # DNA or SNA analysis. Those belong downstream.
@@ -145,6 +169,20 @@ VIDEO_PROMPT = (
     "{\"SCROLL\": false, \"SCROLL_SECONDS\": []}. Write in English. Do not identify "
     "unknown individuals."
 )
+PROMPT_VERSION = "ep24-vllm-video-description-v1"
+PROMPT_TEXT = f"{SYSTEM_PROMPT}\n\n{VIDEO_PROMPT}"
+PROMPT_SHA256 = hashlib.sha256(PROMPT_TEXT.encode("utf-8")).hexdigest()
+
+STRUCTURED_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "analysis_markdown": {"type": "string"},
+        "SCROLL": {"type": "boolean"},
+        "SCROLL_SECONDS": {"type": "array", "items": {"type": "number"}},
+    },
+    "required": ["analysis_markdown", "SCROLL", "SCROLL_SECONDS"],
+    "additionalProperties": False,
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -159,10 +197,8 @@ def setup_logging(log_path: Path) -> logging.Logger:
     logger.handlers.clear()
 
     formatter = logging.Formatter(
-        "%(asctime)sZ %(levelname)-8s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"
+        "%(asctime)s %(levelname)-8s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"
     )
-    # logging's asctime uses local time; the explicit UTC banner below removes
-    # any ambiguity about the timezone of the run as a whole.
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
@@ -201,7 +237,7 @@ def _run_capture(command: list[str]) -> str:
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=30)
     except Exception as exc:  # noqa: BLE001 - diagnostics must never be fatal
-        return f"<{command[0]} unavailable: {exc}>"
+        return redact_sensitive(f"<{command[0]} unavailable: {exc}>")
     output = (result.stdout or "") + (result.stderr or "")
     return redact_secret_like(output.strip()) or f"<{command[0]} produced no output>"
 
@@ -215,6 +251,7 @@ def log_environment(logger: logging.Logger) -> None:
     logger.info("slurm_job_id       : %s", os.environ.get("SLURM_JOB_ID", "<unset>"))
     logger.info("slurm_job_name     : %s", os.environ.get("SLURM_JOB_NAME", "<unset>"))
     logger.info("slurm_submit_dir   : %s", os.environ.get("SLURM_SUBMIT_DIR", "<unset>"))
+    logger.info("slurm_job_partition: %s", os.environ.get("SLURM_JOB_PARTITION", "<unset>"))
     logger.info("python_version     : %s", platform.python_version())
     logger.info("platform           : %s", platform.platform())
     logger.info("machine            : %s", platform.machine())
@@ -225,6 +262,7 @@ def log_environment(logger: logging.Logger) -> None:
         "--query-gpu=name,memory.total,memory.used,driver_version",
         "--format=csv,noheader",
     ]))
+    logger.info("gpu_details        : %s", _run_capture(["nvidia-smi"]))
     logger.info("=== end environment ===")
 
 
@@ -312,25 +350,38 @@ def load_input_csv(input_csv: Path, logger: logging.Logger) -> pd.DataFrame:
     df = pd.read_csv(input_csv, dtype=str, keep_default_na=False)
     logger.info("read input CSV %s: %d rows x %d columns", input_csv, len(df), len(df.columns))
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
-    if missing:
+    if missing and "allas_filename" not in df.columns:
         raise SystemExit(
-            f"Input CSV is missing required column(s) {missing}; "
+            f"Input CSV needs allas_filename or fallback columns {list(REQUIRED_COLUMNS)}; "
             f"found columns: {list(df.columns)}"
         )
     return df
 
 
-def select_sample(df: pd.DataFrame, size: int, seed: int, logger: logging.Logger) -> list[int]:
+def row_has_fetch_identifier(row: pd.Series) -> bool:
+    """Whether the row has either a historical Allas key or fallback identifiers."""
+    if str(row.get("allas_filename", "")).strip():
+        return True
+    return all(str(row.get(column, "")).strip() for column in REQUIRED_COLUMNS)
+
+
+def select_sample(
+    df: pd.DataFrame, size: int | None, seed: int, logger: logging.Logger
+) -> list[int]:
     """Choose `size` usable rows reproducibly for a given seed.
 
-    "Usable" means every column needed to derive a remote object path is present
-    and non-empty. The selection is deterministic: the same seed and the same
-    CSV always yield the same rows, in the same order.
+    The prepared private sample is authoritative: with no explicit size, every
+    input row is processed in CSV order. Sampling is an opt-in compatibility
+    feature and only considers rows with enough source information to fetch.
     """
+    if size is None:
+        chosen = list(df.index)
+        logger.info("processing all %d prepared input rows in CSV order", len(chosen))
+        return chosen
     usable = [
         i
         for i, row in df.iterrows()
-        if all(str(row[c]).strip() for c in REQUIRED_COLUMNS)
+        if row_has_fetch_identifier(row)
     ]
     logger.info("usable rows for selection: %d of %d", len(usable), len(df))
     if len(usable) < size:
@@ -348,7 +399,10 @@ def select_sample(df: pd.DataFrame, size: int, seed: int, logger: logging.Logger
 # --------------------------------------------------------------------------- #
 
 def derive_remote_path(row: pd.Series, template: str) -> str:
-    """Build the object path inside the Allas bucket from EP24 metadata."""
+    """Use the historical Allas source key, falling back to the legacy path."""
+    allas_filename = str(row.get("allas_filename", "")).strip()
+    if allas_filename:
+        return allas_filename
     return template.format(
         country=str(row["scrapedCountry"]).strip(),
         author=str(row["authorUniqueId"]).strip(),
@@ -358,6 +412,12 @@ def derive_remote_path(row: pd.Series, template: str) -> str:
 
 def build_rclone_source(remote: str, bucket: str, object_path: str) -> str:
     """Compose an rclone source spec such as `allas:my-bucket/path/to.mp4`."""
+    parsed = urlsplit(object_path)
+    if parsed.scheme in {"http", "https"}:
+        return object_path
+    if parsed.scheme == "s3":
+        bucket = parsed.netloc
+        object_path = parsed.path.lstrip("/")
     clean = f"{bucket}/{object_path}".lstrip("/")
     return f"{remote}:{clean}" if remote else clean
 
@@ -388,44 +448,83 @@ def fetch_video(
         raise RuntimeError("fetch disabled (--fetch-backend none)")
 
     if args.fetch_backend == "local":
-        source = Path(args.allas_local_root) / object_path
+        mirror_key = urlsplit(object_path).path.lstrip("/")
+        source = Path(args.allas_local_root) / mirror_key
+        command = ["copy", str(source), str(local_path)]
+        logger.info("download_backend=local command=%s", shlex.join(command))
         logger.debug("copying local Allas mirror %s -> %s", source, local_path)
         if not source.is_file():
             raise FileNotFoundError(f"not found in local Allas mirror: {source}")
         shutil.copy2(source, local_path)
+        logger.info("download_exit_status=0 stdout=<local copy> stderr=<empty>")
         return local_path
 
     remote_source = build_rclone_source(args.rclone_remote, args.allas_bucket, object_path)
-    logger.debug("rclone copyto %s -> %s", remote_source, local_path)
+    operation = "copyurl" if urlsplit(remote_source).scheme in {"http", "https"} else "copyto"
+    command = ["rclone", operation, remote_source, str(local_path)]
+    logger.info("download_backend=rclone command=%s", redact_sensitive(shlex.join(command)))
     result = subprocess.run(
-        ["rclone", "copyto", remote_source, str(local_path)],
+        command,
         capture_output=True,
         text=True,
         timeout=args.download_timeout,
     )
+    logger.info("download_exit_status=%s stdout=%s stderr=%s",
+                result.returncode,
+                redact_sensitive((result.stdout or "").strip()),
+                redact_sensitive((result.stderr or "").strip()))
     if result.returncode != 0:
         raise RuntimeError(
-            f"rclone failed for {remote_source}: "
-            f"{(result.stderr or result.stdout or '').strip()}"
+            f"rclone failed for {redact_sensitive(remote_source)}: "
+            f"{redact_sensitive((result.stderr or result.stdout or '').strip())}"
         )
     if not local_path.is_file():
         raise RuntimeError(f"rclone reported success but {local_path} is absent")
     return local_path
 
 
-def probe_video_metadata(local_path: Path, logger: logging.Logger) -> dict[str, str]:
-    """Basic container metadata when ffprobe is available. Never fatal."""
-    if shutil.which("ffprobe") is None:
-        return {"probe": "ffprobe not available"}
-    output = _run_capture([
+def probe_video_metadata(local_path: Path, logger: logging.Logger) -> dict:
+    """Read and log ffprobe metadata; real inference requires a valid duration."""
+    command = [
         "ffprobe",
         "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=width,height,r_frame_rate,duration,codec_name",
+        "-show_entries", "format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration",
         "-of", "json",
         str(local_path),
-    ])
-    return {"probe": output[:1000]}
+    ]
+    logger.info("ffprobe_command=%s", shlex.join(command))
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    logger.info("ffprobe_exit_status=%d stdout=%s stderr=%s",
+                result.returncode,
+                redact_sensitive((result.stdout or "").strip()),
+                redact_sensitive((result.stderr or "").strip()))
+    if result.returncode:
+        raise RuntimeError(
+            f"ffprobe failed for {local_path}: "
+            f"{redact_sensitive((result.stderr or result.stdout or '').strip())}"
+        )
+    metadata = json.loads(result.stdout)
+    duration = metadata.get("format", {}).get("duration")
+    if duration is None:
+        duration = next(
+            (stream.get("duration") for stream in metadata.get("streams", [])
+             if stream.get("codec_type") == "video" and stream.get("duration") is not None),
+            None,
+        )
+    if duration is None:
+        raise RuntimeError(f"ffprobe did not report a duration for {local_path}")
+    metadata["duration_seconds"] = float(duration)
+    logger.info("ffprobe_metadata path=%s metadata=%s", local_path, json.dumps(metadata, sort_keys=True))
+    return metadata
+
+
+def sha256_file(path: Path) -> str:
+    """Compute a streaming checksum for download/source-integrity provenance."""
+    digest = hashlib.sha256()
+    with path.open("rb") as video_file:
+        for block in iter(lambda: video_file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def probe_duration_seconds(local_path: Path) -> str:
@@ -454,7 +553,7 @@ def probe_duration_seconds(local_path: Path) -> str:
 # --------------------------------------------------------------------------- #
 
 def load_model(args: argparse.Namespace, logger: logging.Logger):
-    """Load Qwen3-VL with vLLM. Returns (llm, sampling_params).
+    """Load Qwen3-VL with vLLM. Returns model, sampling parameters and status.
 
     Imports happen here, not at module import time, so the rest of this file
     stays importable and testable on a machine without vLLM installed.
@@ -485,13 +584,33 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
         max_model_len=args.max_model_len,
         trust_remote_code=True,
     )
-    sampling_params = SamplingParams(
+    sampling_kwargs = dict(
         temperature=args.temperature,
         top_p=args.top_p,
         max_tokens=args.max_tokens,
     )
+    structured_status = "off"
+    if args.structured_output == "json_schema":
+        try:
+            from vllm.sampling_params import StructuredOutputsParams
+
+            structured_params = StructuredOutputsParams(json=STRUCTURED_OUTPUT_SCHEMA)
+            sampling_params = SamplingParams(
+                **sampling_kwargs, structured_outputs=structured_params
+            )
+            structured_status = "requested"
+            logger.info("structured_output_schema=%s", json.dumps(STRUCTURED_OUTPUT_SCHEMA, sort_keys=True))
+        except Exception as exc:  # noqa: BLE001 - constrained decoding is optional
+            logger.warning(
+                "structured output unsupported by installed vLLM path; using raw text: %s",
+                redact_sensitive(f"{type(exc).__name__}: {exc}"),
+            )
+            sampling_params = SamplingParams(**sampling_kwargs)
+            structured_status = "unsupported"
+    else:
+        sampling_params = SamplingParams(**sampling_kwargs)
     logger.info("model loaded: %s", args.model)
-    return llm, sampling_params
+    return llm, sampling_params, structured_status
 
 
 def build_video_messages(local_path: Path, args: argparse.Namespace) -> list[dict]:
@@ -663,15 +782,25 @@ def analyze_one_video(
     sampling_params,
     processor,
     logger: logging.Logger,
-) -> str:
+) -> tuple[str, str]:
     """Run whole-video analysis for one downloaded file and return the text."""
     if args.model_backend == "stub":
-        return generate_stub(local_path, args.model)
+        return generate_stub(local_path, args.model), "off"
 
     messages = build_video_messages(local_path, args)
     request = prepare_vllm_request(messages, processor, logger, video_api=args.video_api)
     outputs = llm.generate([request], sampling_params=sampling_params)
-    return outputs[0].outputs[0].text
+    inference_seconds = time.monotonic() - inference_started
+    logger.info("inference_end_utc=%s inference_runtime_seconds=%.3f",
+                datetime.now(timezone.utc).isoformat(), inference_seconds)
+    completion = outputs[0].outputs[0]
+    logger.info("vllm_completion_metadata=%s", redact_sensitive({
+        "finish_reason": getattr(completion, "finish_reason", None),
+        "stop_reason": getattr(completion, "stop_reason", None),
+        "prompt_tokens": len(getattr(outputs[0], "prompt_token_ids", []) or []),
+        "generated_tokens": len(getattr(completion, "token_ids", []) or []),
+    }))
+    return completion.text, getattr(args, "structured_output_status", "off")
 
 
 # --------------------------------------------------------------------------- #
@@ -688,7 +817,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--log-path", default=os.environ.get("LACLAUGPT_VLLM_TEST_LOG"))
     parser.add_argument("--download-dir", default=os.environ.get("LACLAUGPT_VLLM_TEST_DOWNLOAD_DIR"))
 
-    # Sample selection.
+    # The prepared sample is processed as-is unless a caller explicitly asks
+    # for a smaller reproducible subset.
     parser.add_argument("--sample-size", type=int, default=DEFAULT_SAMPLE_SIZE)
     parser.add_argument("--seed", type=int, default=20261001)
 
@@ -733,6 +863,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
+    if VIDEO_INITIAL_SKIP_SECONDS != REQUIRED_INITIAL_SKIP_SECONDS:
+        raise SystemExit(
+            "EP24 vLLM experiment requires video_initial_skip_seconds=1.0; "
+            f"the shared contract is configured as {VIDEO_INITIAL_SKIP_SECONDS!r}."
+        )
+    if args.sample_size is not None and args.sample_size < 1:
+        raise SystemExit("--sample-size must be positive when explicitly provided.")
     if not args.input_csv:
         raise SystemExit("Set --input-csv or LACLAUGPT_VLLM_TEST_INPUT_CSV.")
     input_csv = Path(args.input_csv)
@@ -748,6 +885,9 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("input_csv  : %s", input_csv)
     logger.info("output_csv : %s", output_csv)
     logger.info("log_path   : %s", log_path)
+    logger.info("prompt_version : %s", PROMPT_VERSION)
+    logger.info("prompt_sha256  : %s", PROMPT_SHA256)
+    logger.info("prompt_text    : %s", redact_sensitive(PROMPT_TEXT))
     logger.info("=== end configuration ===")
 
     df = load_input_csv(input_csv, logger)
@@ -764,12 +904,13 @@ def main(argv: list[str] | None = None) -> int:
     # The processor is only needed for real inference; load it with the model so
     # a stub run needs neither transformers nor a GPU.
     llm, sampling_params, processor = None, None, None
+    args.structured_output_status = "off"
     if args.model_backend == "vllm":
         from transformers import AutoProcessor
 
         logger.info("loading processor for %s", args.model)
         processor = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
-        llm, sampling_params = load_model(args, logger)
+        llm, sampling_params, args.structured_output_status = load_model(args, logger)
 
     results = []
     succeeded = 0
@@ -777,67 +918,159 @@ def main(argv: list[str] | None = None) -> int:
 
     for position, index in enumerate(selected, start=1):
         row = df.loc[index]
-        author = str(row["authorUniqueId"])
-        video_id = str(row["videoId"])
+        author = str(row.get("authorUniqueId", ""))
+        video_id = str(row.get("videoId", ""))
         object_path = derive_remote_path(row, args.allas_path_template)
+        safe_object_path = redact_sensitive(object_path)
+        source_id = "|".join(
+            str(row.get(column, "")).strip()
+            for column in ("allas_filename", "scrapedCountry", "authorUniqueId", "videoId")
+            if str(row.get(column, "")).strip()
+        )
 
         logger.info("--- video %d/%d: %s / %s ---", position, len(selected), author, video_id)
-        logger.info("  remote_object     : %s", object_path)
-        logger.info("  country           : %s", row.get("scrapedCountry", ""))
-        logger.info("  language          : %s", row.get("language", ""))
-        logger.info("  description       : %s", str(row.get("videoDescription", ""))[:300])
+        logger.info("  source_row_index  : %s", index)
+        logger.info("  source_id         : %s", redact_sensitive(source_id))
+        logger.info("  remote_object     : %s", safe_object_path)
+        logger.info("  country           : %s", redact_sensitive(row.get("scrapedCountry", "")))
+        logger.info("  language          : %s", redact_sensitive(row.get("language", "")))
+        logger.info("  description       : %s", redact_sensitive(str(row.get("videoDescription", ""))[:300]))
 
         record = {column: "" for column in OUTPUT_COLUMNS}
         record["vllm_video_model"] = args.model
+        record["vllm_video_version"] = _package_version("vllm")
         record["vllm_video_selected_index"] = index
-        record["vllm_video_remote_path"] = object_path
-        record["vllm_video_remote_path_logged"] = object_path
-        record["vllm_video_prompt"] = VIDEO_PROMPT
+        record["vllm_video_source_row_index"] = index
+        record["vllm_video_source_id"] = redact_sensitive(source_id)
+        record["vllm_video_allas_source"] = safe_object_path
+        record["vllm_video_remote_path"] = safe_object_path
+        record["vllm_video_remote_path_logged"] = safe_object_path
+        record["vllm_video_prompt"] = PROMPT_TEXT
+        record["vllm_video_prompt_version"] = PROMPT_VERSION
+        record["vllm_video_prompt_sha256"] = PROMPT_SHA256
         record["video_initial_skip_seconds"] = str(VIDEO_INITIAL_SKIP_SECONDS)
         record["SCROLL"] = "FALSE"
         record["SCROLL_SECONDS"] = "[]"
         record["needs_resplit"] = "FALSE"
 
         started = time.monotonic()
+        local_path = None
+        analysis_path = None
         try:
             local_path = fetch_video(object_path, download_dir, args, logger)
             record["vllm_video_local_path"] = str(local_path)
             record["vllm_video_bytes"] = str(local_path.stat().st_size)
+            source_checksum = sha256_file(local_path)
+            record["vllm_video_sha256"] = source_checksum
             logger.info("  local_path        : %s", local_path)
             logger.info("  bytes             : %s", record["vllm_video_bytes"])
-            logger.info("  metadata          : %s", probe_video_metadata(local_path, logger))
 
             if args.model_backend == "stub":
                 # Synthetic harness fixtures are not real media and CI does not
-                # require ffmpeg. Real vLLM analysis always uses the trimmed clip.
+                # require ffmpeg. Stub output is never submitted to a model.
                 analysis_path = local_path
                 logger.info("  analysis_path     : %s (stub; trim not executed)", analysis_path)
+                record["vllm_video_analysis_path"] = str(analysis_path)
+                record["vllm_video_structured_output_status"] = "off"
             else:
+                source_metadata = probe_video_metadata(local_path, logger)
+                source_duration = float(source_metadata["duration_seconds"])
+                record["vllm_video_source_duration_seconds"] = str(source_duration)
+                if source_duration <= VIDEO_INITIAL_SKIP_SECONDS:
+                    raise ValueError(
+                        f"source duration {source_duration:.3f}s does not exceed mandatory "
+                        f"{VIDEO_INITIAL_SKIP_SECONDS:.1f}s initial skip"
+                    )
+
+                analysis_path = analysis_clip_path(local_path, download_dir / "analysis-clips")
+                if analysis_path.exists():
+                    analysis_path.unlink()
+                    logger.info("removed stale derived clip before trimming: %s", analysis_path)
+
+                def logged_trim_runner(command, **kwargs):
+                    record["vllm_video_trim_command"] = shlex.join(command)
+                    logger.info("trim_command=%s", shlex.join(command))
+                    result = subprocess.run(command, **kwargs)
+                    record["vllm_video_trim_exit_status"] = str(result.returncode)
+                    logger.info(
+                        "trim_exit_status=%d stdout=%s stderr=%s",
+                        result.returncode,
+                        redact_sensitive((result.stdout or "").strip()),
+                        redact_sensitive((result.stderr or "").strip()),
+                    )
+                    return result
+
                 analysis_path = prepare_analysis_clip(
                     local_path,
                     download_dir / "analysis-clips",
+                    runner=logged_trim_runner,
                 )
+                analysis_metadata = probe_video_metadata(analysis_path, logger)
+                analysis_duration = float(analysis_metadata["duration_seconds"])
+                record["vllm_video_analysis_duration_seconds"] = str(analysis_duration)
+                expected_duration = source_duration - VIDEO_INITIAL_SKIP_SECONDS
+                tolerance = max(0.15, source_duration * 0.01)
+                if analysis_duration <= 0 or abs(analysis_duration - expected_duration) > tolerance:
+                    raise ValueError(
+                        f"derived clip duration {analysis_duration:.3f}s differs from the "
+                        f"expected {expected_duration:.3f}s after mandatory 1.0s trim"
+                    )
+                logger.info("  source_duration   : %.3f", source_duration)
+                logger.info("  analysis_duration : %.3f", analysis_duration)
                 logger.info("  analysis_path     : %s", analysis_path)
+                record["vllm_video_analysis_path"] = str(analysis_path)
             logger.info("  initial_skip_s    : %.1f", VIDEO_INITIAL_SKIP_SECONDS)
-            analysis = analyze_one_video(analysis_path, args, llm, sampling_params, processor, logger)
-            scroll_meta = parse_scroll_metadata(analysis)
+            raw_output, structured_status = analyze_one_video(
+                analysis_path, args, llm, sampling_params, processor, logger
+            )
+            record["vllm_video_raw_output"] = redact_sensitive(raw_output)
+            analysis = raw_output
+            record["vllm_video_structured_output_status"] = structured_status
+            if structured_status == "requested":
+                analysis, structured_json, parse_status, parse_error = parse_structured_output(raw_output)
+                record["vllm_video_structured_json"] = structured_json
+                record["vllm_video_structured_output_status"] = parse_status
+                record["vllm_video_structured_output_error"] = parse_error
+                logger.info("structured_parse_status=%s error=%s json=%s",
+                            parse_status, redact_sensitive(parse_error), structured_json)
+            elif structured_status == "unsupported":
+                record["vllm_video_structured_output_error"] = (
+                    "Installed vLLM offline generate path does not support JSON Schema decoding."
+                )
+            scroll_meta = parse_scroll_metadata(
+                record["vllm_video_structured_json"] or raw_output
+            )
             record["SCROLL"] = "TRUE" if scroll_meta["SCROLL"] else "FALSE"
-            record["SCROLL_SECONDS"] = __import__("json").dumps(scroll_meta["SCROLL_SECONDS"])
+            record["SCROLL_SECONDS"] = json.dumps(scroll_meta["SCROLL_SECONDS"])
             record["needs_resplit"] = "TRUE" if needs_resplit(scroll_meta) else "FALSE"
             record["vllm_video_analysis"] = analysis
+            record["vllm_video_markdown_analysis"] = analysis
             record["vllm_video_status"] = "ok"
-            succeeded += 1
             logger.info("  analysis_chars    : %d", len(analysis))
-            logger.debug("  raw_response      : %s", analysis)
+            logger.debug("  raw_response      : %s", redact_sensitive(raw_output))
+            if sha256_file(local_path) != source_checksum:
+                raise RuntimeError("downloaded source changed during analysis")
+            logger.info("source_integrity=unchanged sha256=%s", source_checksum)
+            succeeded += 1
         except Exception as exc:  # noqa: BLE001 - one bad video must not stop the run
             failed += 1
             record["vllm_video_status"] = "error"
-            record["vllm_video_error"] = f"{type(exc).__name__}: {exc}"
-            logger.error("  FAILED: %s: %s", type(exc).__name__, exc)
-            logger.error("  traceback:\n%s", traceback.format_exc())
+            record["vllm_video_error"] = redact_sensitive(f"{type(exc).__name__}: {exc}")
+            logger.error("  FAILED: %s", redact_sensitive(f"{type(exc).__name__}: {exc}"))
+            logger.error("  traceback:\n%s", redact_sensitive(traceback.format_exc()))
         finally:
             record["vllm_video_runtime_seconds"] = f"{time.monotonic() - started:.1f}"
             logger.info("  runtime_seconds   : %s", record["vllm_video_runtime_seconds"])
+            if not args.keep_downloads:
+                for cleanup_path in (analysis_path, local_path):
+                    if cleanup_path is not None and cleanup_path != local_path and cleanup_path.exists():
+                        cleanup_path.unlink()
+                        logger.info("cleanup removed derived clip: %s", cleanup_path)
+                if local_path is not None and local_path.exists():
+                    local_path.unlink()
+                    logger.info("cleanup removed downloaded source copy: %s", local_path)
+            else:
+                logger.info("cleanup retained source and analysis files (--keep-downloads)")
 
         results.append(record)
 
