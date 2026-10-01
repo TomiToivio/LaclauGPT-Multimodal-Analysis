@@ -33,4 +33,4 @@ jobs:
         run: ruff check roihu_*.py
 
       - name: Contract tests (Roihu baseline + legacy pipeline contract)
-        run: pytest -q tests/
+        run: python -m pytest -q tests/

@@ -68,16 +68,16 @@ that the migration must reproduce or deliberately decide about:
 
 | Stage | List |
 |---|---|
-| `puhti_preprocess.py` | `['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']` |
-| `puhti_frame.py` | `['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']` |
-| `puhti_summary.py` | `['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']` |
-| `puhti_postprocess.py` | `['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']` |
+| `puhti_preprocess.py` | `['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']` |
+| `puhti_frame.py` | `['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']` |
+| `puhti_summary.py` | `['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']` |
+| `puhti_postprocess.py` | `['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']` |
 | `puhti_populism.py` | `['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg']` |
 
 Two asymmetries are historical and must **not** be silently normalised:
 
-1. **Stages 1–4 iterate `en`; stage 5 iterates `bg`.** `en` has no `ep24_en.csv`
-   produced by stage 5, and `bg` is never preprocessed by stages 1–4.
+1. **Stages 1–4 iterate both `bg` and `en`; stage 5 iterates `bg` only.** `en` has no `ep24_en.csv`
+   produced by stage 5.
 2. **The EasyOCR reader list is not the stage language list.** Preprocess builds
    `easyocr.Reader(['en', 'fr', 'pl', 'sv', 'pt', 'de', 'es', 'hu', 'hr'])` — nine
    languages, and `fi` is absent from that list while present in the stage list.
@@ -311,7 +311,7 @@ incidentally; each is either intentional or requires an explicit human decision.
    `./logs/`.
 2. **`puhti_populism.py` uses the bare names `formula.log` and
    `formula_of_populism.db`** rather than a path prefix.
-3. **`en`/`bg` asymmetry** between the stage lists (§2).
+3. **`en`/`bg` stage-list asymmetry** (§2).
 4. **Finnish is absent from the EasyOCR reader list** while present in the stage
    language list (§2).
 5. **`puhti_summary.py` hard-codes the frame timestamps** (`0/30/60/90/120/150`)
