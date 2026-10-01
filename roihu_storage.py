@@ -100,7 +100,10 @@ def stable_record_id(
     source_hint: str = "",
     row_hint: str = "",
 ) -> str:
-    for key in ("_storage_id", "id", "post_id", "video_id", "document_id", "source_id", "url"):
+    existing_storage_id = record.get("_storage_id")
+    if existing_storage_id not in (None, ""):
+        return str(existing_storage_id)
+    for key in ("id", "post_id", "video_id", "document_id", "source_id", "url"):
         value = record.get(key)
         if value not in (None, ""):
             raw = f"{dataset}|{country}|{key}|{value}"
