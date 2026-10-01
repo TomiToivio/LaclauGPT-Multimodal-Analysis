@@ -10,6 +10,8 @@ import base64
 import sqlite3
 import time
 from logging.handlers import RotatingFileHandler
+from ep24_pipeline import load_cumulative_csv, metadata_context
+from ep24_schema import value as ep24_value
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
@@ -178,166 +180,72 @@ def get_llama_summary_response(system_prompt, user_prompt):
     return llama_response
 
 
-def analyze_videos(language):
-    """Analyze TikTok videos for a specific language."""
-    # Read csv
-    filename = f'./csv/tiktok_{language}.csv'
-    df = pd.read_csv(filename)
+def analyze_videos(language=None):
+    """Fuse all upstream evidence without dropping canonical EP24 metadata."""
+    filename = os.getenv('LACLAUGPT_INPUT_CSV') or f'./csv/tiktok_{language}.csv'
+    df = load_cumulative_csv(filename, require_canonical=bool(os.getenv('LACLAUGPT_INPUT_CSV')))
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
     if max_rows > 0:
         df = df.head(max_rows).copy()
         logger.info("Demo row limit active: processing first %s rows", max_rows)
-    df = df.dropna(subset=['whisperResult'])
-    df['summary_analysis'] = ''
-    # Take only rows where language is fi
-    for (index, row) in df.iterrows():
-        author_username = row['authorUniqueId']
-        video_id = row['videoId']
-        logger.debug(f'Analyzing video {row["videoId"]}')
-        video_timestamp = row['videoCreated']
-        video_timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(video_timestamp))
-        video_duration = row['videoDuration']
-        video_diggcount = row['videoDiggCount']
-        video_sharecount = row['videoShareCount']
-        video_commentcount = row['videoCommentCount']
-        video_playcount = row['videoPlayCount']
-        video_description = row['videoDescription']
-        author_name = row['authorNickname']
-        author_signature = row['authorSignature']
-        video_url = f'https://www.tiktok.com/@{author_username}/video/{video_id}'
-        author_url = f'https://www.tiktok.com/@{author_username}'
-        hashtags = ''
-        video_description = str(video_description)
-        try:
-            hashtags = [tag.strip() for tag in video_description.split() if tag.startswith('#')]
-            hashtags = ', '.join(hashtags)
-        except Exception as e:
-            logger.error(f'Error extracting hashtags: {e}')
-            hashtags = ''
-        metadata = f'''- Author name: {author_name}        
-        - Author username: {author_username}        
-        - Author signature: {author_signature}        
-        - Description: {video_description}      
-        - Timestamp: {video_timestamp}      
-        - Duration: {video_duration}        
-        - Diggs: {video_diggcount}        
-        - Shares: {video_sharecount}        
-        - Comments: {video_commentcount}        
-        - Plays: {video_playcount}    
-        - Video URL: {video_url}        
-        - Author URL: {author_url} 
-        - Hashtags: {hashtags}
-        '''
-        logger.debug(f'Metadata: {metadata}')
-        transcript = row['whisperResult']
-        logger.debug(f'Transcript: {transcript}')
-        # Add metadata to row
-        df.at[index, 'metadata'] = str(metadata)
-        # Create frame analysis
-        frame_analysis_1 = row['frame_analysis_1']
-        frame_analysis_2 = row['frame_analysis_2']
-        frame_analysis_3 = row['frame_analysis_3']
-        frame_analysis_4 = row['frame_analysis_4']
-        frame_analysis_5 = row['frame_analysis_5']
-        frame_analysis_6 = row['frame_analysis_6']
-        ocr_1 = row['ocr_1']
-        ocr_2 = row['ocr_2']
-        ocr_3 = row['ocr_3']
-        ocr_4 = row['ocr_4']
-        ocr_5 = row['ocr_5']
-        ocr_6 = row['ocr_6']
-        frame_analysis = f'''
 
-        {frame_analysis_1}
+    if 'summary_analysis' not in df.columns:
+        df['summary_analysis'] = ''
+    if 'summary_summary_md' not in df.columns:
+        df['summary_summary_md'] = ''
 
-        ### OCR results for frame 1 at 0 seconds:
-        
-        {ocr_1}
-            
-        '''
-            
-        # If frame_analysis_2 exists and not empty string
-        if frame_analysis_2:
-            frame_analysis = frame_analysis + f'''
-            
-            {frame_analysis_2}
-                        
-            ### OCR results for frame 2 at 30 seconds:
-            
-            {ocr_2}
-            
-            '''
-        
-        # If frame_analysis_3 exists and not empty string
-        if frame_analysis_3:
-            frame_analysis = frame_analysis + f'''
-            
-            {frame_analysis_3}
-                        
-            ### OCR results for frame 3 at 60 seconds:
-            
-            {ocr_3}
-            
-            '''
-            
-        # If frame_analysis_4 exists and not empty string
-        if frame_analysis_4:
-            frame_analysis = frame_analysis + f'''
-            
-            {frame_analysis_4}
-                        
-            ### OCR results for frame 4 at 90 seconds:
-            
-            {ocr_4}
-            
-            '''
-            
-        # If frame_analysis_5 exists and not empty string
-        if frame_analysis_5:
-            frame_analysis = frame_analysis + f'''
-            
-            {frame_analysis_5}
-                        
-            ### OCR results for frame 5 at 120 seconds:
-            
-            {ocr_5}
-            
-            '''
-            
-        # If frame_analysis_6 exists and not empty string
-        if frame_analysis_6:
-            frame_analysis = frame_analysis + f'''
-            
-            {frame_analysis_6}
-                        
-            ### OCR results for frame 6 at 150 seconds:
-            
-            {ocr_6}
-            
-            '''
-        
-        logger.debug(f'Frame analysis: {frame_analysis}')
-        
-        # Check if exists in database
-        c.execute("SELECT * FROM tiktok_videos WHERE author_username = ? AND video_id = ?", (str(author_username), str(video_id)))
-        if c.fetchone():
-            logger.debug(f'Video already processed: {author_username} - {video_id}')
-            # Get the frame analysis from the database
-            c.execute("SELECT summary_analysis FROM tiktok_videos WHERE author_username = ? AND video_id = ?", (str(author_username), str(video_id)))
-            summary_analysis = c.fetchone()[0]
-            df.at[index, 'summary_analysis'] = str(summary_analysis)
+    for index, row in df.iterrows():
+        author_username = ep24_value(row, 'author_username')
+        video_id = ep24_value(row, 'video_id')
+        logger.debug('Analyzing video %s', video_id)
+
+        metadata = metadata_context(row)
+        transcript = (
+            str(row.get('whisper_translated', '')).strip()
+            or str(row.get('whisper_transcript', '')).strip()
+            or str(row.get('whisperResult', '')).strip()
+        )
+
+        frame_parts = []
+        for frame_number in range(1, 7):
+            frame_text = str(row.get(f'frame_analysis_{frame_number}', '')).strip()
+            ocr_text = str(row.get(f'ocr_{frame_number}', '')).strip()
+            if frame_text:
+                frame_parts.append(frame_text)
+            if ocr_text:
+                frame_parts.append(f"### OCR frame {frame_number}\n{ocr_text}")
+        video_text = str(row.get('vllm_video_analysis', '')).strip()
+        if video_text:
+            frame_parts.append("### Whole-video analysis\n" + video_text)
+        frame_analysis = "\n\n".join(frame_parts)
+
+        c.execute(
+            "SELECT summary_analysis FROM tiktok_videos WHERE author_username = ? AND video_id = ?",
+            (str(author_username), str(video_id)),
+        )
+        cached = c.fetchone()
+        if cached:
+            summary_analysis = str(cached[0] or '')
         else:
             try:
                 user_prompt = get_llama_summary_user_prompt(metadata, transcript, frame_analysis)
                 system_prompt = get_llama_summary_system_prompt()
                 summary_analysis = get_llama_summary_response(system_prompt, user_prompt)
-                c.execute("INSERT INTO tiktok_videos (author_username, video_id, summary_analysis) VALUES (?, ?, ?)",(str(author_username), str(video_id), str(summary_analysis)))
+                c.execute(
+                    "INSERT INTO tiktok_videos (author_username, video_id, summary_analysis) VALUES (?, ?, ?)",
+                    (str(author_username), str(video_id), str(summary_analysis)),
+                )
                 conn.commit()
-                df.at[index, 'summary_analysis'] = str(summary_analysis)
-                logger.debug(f'Summary analysis: {summary_analysis}')
-            except Exception as e:
-                logger.error(f'Error processing video: {e}')
-    df.to_csv(f'./csv/tiktok_{language}.csv', index=False)
+            except Exception as exc:
+                logger.exception('Error processing video %s: %s', video_id, exc)
+                summary_analysis = ''
+
+        df.at[index, 'metadata'] = metadata
+        df.at[index, 'summary_analysis'] = summary_analysis
+        df.at[index, 'summary_summary_md'] = summary_analysis
+
+    output = os.getenv('LACLAUGPT_OUTPUT_CSV') or filename
+    df.to_csv(output, index=False)
 
 # Loop through each EP2024 TikTok language and analyze videos
 # All EP2024 TikTok languages for this stage (module level: the documented
@@ -347,8 +255,11 @@ languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
 
 if __name__ == '__main__':
     try:
-        for language in languages:
-            analyze_videos(language)
+        if os.getenv('LACLAUGPT_INPUT_CSV'):
+            analyze_videos(None)
+        else:
+            for language in languages:
+                analyze_videos(language)
     finally:
         c.close()
         conn.close()

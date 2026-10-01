@@ -38,6 +38,10 @@ LaclauGPT is developed by [Tomi Toivio](mailto:tomi.toivio@helsinki.fi) for rese
 
 The EP24 data covers multimodal social-media material related to the 2024 European Parliament elections. Collection included TikTok and Instagram material from multiple European countries. Real research data cannot be published here. Public code may contain safe examples or dummy fixtures only.
 
+## Canonical EP24 reprocessing data
+
+Active reprocessing uses the researcher-feed 15-column schema and an additive dataframe through every stage. Scraper-era field names are compatibility-only. See [docs/EP24_CANONICAL_SCHEMA.md](docs/EP24_CANONICAL_SCHEMA.md).
+
 ## Current Roihu pipeline
 
 The active Roihu interface is deliberately numbered because each stage is submitted as a separate Slurm batch job. The canonical demo limit is **100 rows/videos per language** via `LACLAUGPT_MAX_ROWS=100`; set it to `0` for the full corpus where supported.

@@ -42,6 +42,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from ep24_schema import EP24_REPROCESS_COLUMNS, value as ep24_value
 
 os.makedirs("./logs", exist_ok=True)
 
@@ -112,7 +113,7 @@ POPULISM_COLUMNS = [
     "formula_of_populism_us",
     "formula_of_populism_frontier",
 ]
-IDENTITY_COLUMNS = ["authorUniqueId", "videoId", "video_filename", "language", "scrapedCountry"]
+IDENTITY_COLUMNS = list(EP24_REPROCESS_COLUMNS) + ["video_filename", "language"]
 
 ALL_KNOWN_COLUMNS = (
     IDENTITY_COLUMNS
@@ -382,18 +383,14 @@ def document_node(row: dict, language: str, index: int) -> tuple[str, str]:
     canonical source identity, and the numeric row index is only a fallback for
     legacy rows that carry no identifiers.
     """
-    author = str(row.get("authorUniqueId") or "").strip()
-    video_id = str(row.get("videoId") or "").strip()
+    author = ep24_value(row, "author_username")
+    video_id = ep24_value(row, "video_id")
+    allas_filename = ep24_value(row, "allas_filename")
 
-    if author and video_id:
-        source_url = f"https://www.tiktok.com/@{author}/video/{video_id}"
-        return urn("document", language, author, video_id), source_url
     if video_id:
-        source_url = f"https://www.tiktok.com/video/{video_id}"
-        return urn("document", language, video_id), source_url
-
-    fallback_key = str(row.get("video_filename") or "").strip() or f"row-{index}"
-    return urn("document", language, "row", fallback_key), ""
+        return urn("document", ep24_value(row, "country") or language, video_id), allas_filename
+    fallback_key = allas_filename or str(row.get("video_filename") or "").strip() or f"row-{index}"
+    return urn("document", ep24_value(row, "country") or language, "row", fallback_key), allas_filename
 
 
 def emit_document(graph: Graph, row: dict, language: str, index: int, prov: Provenance) -> str:
@@ -404,13 +401,14 @@ def emit_document(graph: Graph, row: dict, language: str, index: int, prov: Prov
     if source_url:
         graph.add(node, f"{SCHEMA}url", source_url)
     graph.literal(node, f"{LG}language", language)
-    graph.literal(node, f"{LG}scrapedCountry", row.get("scrapedCountry"))
+    graph.literal(node, f"{LG}country", ep24_value(row, "country"))
+    graph.literal(node, f"{LG}allasFilename", ep24_value(row, "allas_filename"))
+    graph.literal(node, f"{LG}sourceRecording", ep24_value(row, "source_recording"))
+    graph.literal(node, f"{LG}researcherNote", ep24_value(row, "researcher_note"))
 
     # --- observed: platform-recorded facts -------------------------------
     emit_provenance(graph, node, prov, derivation="observed", stage="preprocess")
-    graph.literal(node, f"{LG}title", row.get("videoDescription"))
-    graph.literal(node, f"{LG}authorSignature", row.get("authorSignature"))
-    graph.integer(node, f"{LG}durationSeconds", row.get("videoDuration"))
+    graph.integer(node, f"{LG}durationSeconds", ep24_value(row, "video_duration"))
     graph.integer(node, f"{LG}commentCount", row.get("videoCommentCount"))
     graph.integer(node, f"{LG}likeCount", row.get("videoDiggCount"))
     graph.integer(node, f"{LG}playCount", row.get("videoPlayCount"))
@@ -460,15 +458,14 @@ def emit_author(graph: Graph, document: str, row: dict, language: str) -> None:
     This is an *observed* relation: the account is who the platform recorded as
     having posted the video, not an inferred association.
     """
-    author = str(row.get("authorUniqueId") or "").strip()
+    author = ep24_value(row, "author_username")
     if not author:
         return
 
     actor = urn("actor", author)
     graph.add(actor, f"{RDF_NS}type", f"{LG}Actor")
     graph.add(actor, f"{SCHEMA}identifier", author)
-    graph.literal(actor, f"{LG}displayName", row.get("authorNickname"))
-    graph.literal(actor, f"{LG}biography", row.get("authorSignature"))
+    graph.literal(actor, f"{LG}accountType", ep24_value(row, "account_type"))
 
     graph.add(document, f"{LG}postedBy", actor)
     graph.literal(document, f"{LG}postedByDerivation", "observed")
@@ -484,7 +481,7 @@ def emit_frames(graph: Graph, document: str, row: dict, language: str, prov: Pro
     """
     frames = parse_frame_files(row.get("frame_files"))
     for position, path in enumerate(frames, start=1):
-        frame = urn("frame", language, str(row.get("videoId") or ""), str(position))
+        frame = urn("frame", language, ep24_value(row, "video_id"), str(position))
         graph.add(frame, f"{RDF_NS}type", f"{LG}Frame")
         graph.add(frame, f"{DCTERMS}source", path)
         graph.add(document, f"{LG}hasFrame", frame)
@@ -495,8 +492,8 @@ def emit_frames(graph: Graph, document: str, row: dict, language: str, prov: Pro
         # empty analysis is absence of evidence, not a finding.
         if is_blank(analysis) or is_blank(row.get("frame_files")):
             continue
-        frame = urn("frame", language, str(row.get("videoId") or ""), str(position))
-        node = urn("frameanalysis", language, str(row.get("videoId") or ""), str(position))
+        frame = urn("frame", language, ep24_value(row, "video_id"), str(position))
+        node = urn("frameanalysis", language, ep24_value(row, "video_id"), str(position))
         graph.add(node, f"{RDF_NS}type", f"{LG}FrameAnalysis")
         graph.add(node, f"{LG}describes", frame)
         graph.literal(node, f"{LG}text", analysis)
@@ -513,7 +510,7 @@ def emit_screen_text(
         text = row.get(f"ocr_{position}")
         if is_blank(text):
             continue
-        node = urn("screentext", language, str(row.get("videoId") or ""), str(position))
+        node = urn("screentext", language, ep24_value(row, "video_id"), str(position))
         graph.add(node, f"{RDF_NS}type", f"{LG}ScreenText")
         graph.add(node, f"{LG}describes", document)
         graph.literal(node, f"{LG}text", text)
@@ -537,7 +534,7 @@ def emit_transcript(
     if is_blank(merged) and is_blank(original) and is_blank(translated):
         return
 
-    node = urn("transcript", language, str(row.get("videoId") or ""))
+    node = urn("transcript", language, ep24_value(row, "video_id"))
     graph.add(node, f"{RDF_NS}type", f"{LG}Transcript")
     graph.add(node, f"{LG}describes", document)
     graph.literal(node, f"{LG}text", merged)
@@ -555,7 +552,7 @@ def emit_summary(graph: Graph, document: str, row: dict, language: str, prov: Pr
     if is_blank(row.get("summary_analysis")):
         return
 
-    node = urn("summary", language, str(row.get("videoId") or ""))
+    node = urn("summary", language, ep24_value(row, "video_id"))
     graph.add(node, f"{RDF_NS}type", f"{LG}Summary")
     graph.add(node, f"{LG}describes", document)
     graph.literal(node, f"{LG}text", row.get("summary_analysis"))
@@ -577,7 +574,7 @@ def emit_analysis_lists(
     phrase can be positive in one document and negative in another, so polarity
     belongs to the document's treatment of it.
     """
-    video = str(row.get("videoId") or "")
+    video = ep24_value(row, "video_id")
     if is_blank(video):
         video = str(row.get("video_filename") or "")
 

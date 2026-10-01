@@ -5,6 +5,8 @@ import ollama
 import pandas as pd
 from logging.handlers import RotatingFileHandler
 from pydantic import BaseModel
+from ep24_pipeline import ensure_columns, load_cumulative_csv, metadata_context
+from ep24_schema import stable_source_id, value as ep24_value
 
 os.makedirs('./logs', exist_ok=True)
 
@@ -96,34 +98,23 @@ def source_filename(language):
 
 
 def ensure_video_filename(df):
-    """Create the cache key required by roihu_populism.py when it is absent."""
+    """Compatibility cache key derived from canonical EP24 identity."""
     if 'video_filename' in df.columns:
         return df
-
-    if {'authorUniqueId', 'videoId'}.issubset(df.columns):
-        df['video_filename'] = (
-            df['authorUniqueId'].astype(str)
-            + '/'
-            + df['videoId'].astype(str)
-        )
-    elif 'videoId' in df.columns:
-        df['video_filename'] = df['videoId'].astype(str)
-    else:
-        # Last-resort stable key for legacy datasets without TikTok identifiers.
-        df['video_filename'] = df.index.astype(str)
-        logger.warning(
-            'Input has no videoId/authorUniqueId; using row index as video_filename'
-        )
+    df['video_filename'] = [
+        ep24_value(row, 'allas_filename') or stable_source_id(row) or str(index)
+        for index, row in df.iterrows()
+    ]
     return df
 
 
-def analyze_responses(language):
-    filename = source_filename(language)
+def analyze_responses(language=None):
+    filename = os.getenv('LACLAUGPT_INPUT_CSV') or source_filename(language)
     if filename is None:
         logger.warning('No input file found for language %s; skipping', language)
         return
 
-    df = pd.read_csv(filename)
+    df = load_cumulative_csv(filename, require_canonical=bool(os.getenv('LACLAUGPT_INPUT_CSV')))
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
     if max_rows > 0:
         df = df.head(max_rows).copy()
@@ -133,8 +124,7 @@ def analyze_responses(language):
         return
 
     df = ensure_video_filename(df)
-    for column in ('entities', 'topics', 'positive', 'neutral', 'negative'):
-        df[column] = ''
+    ensure_columns(df, ('entities', 'topics', 'positive', 'neutral', 'negative', 'postprocess_summary_md'))
 
     system_prompt = get_system_prompt()
 
@@ -145,7 +135,8 @@ def analyze_responses(language):
             logger.warning('Row %s has no summary_analysis; skipping', index)
             continue
 
-        response = get_response(str(summary_analysis), system_prompt)
+        prompt = metadata_context(row) + '\n\nSUMMARY EVIDENCE:\n' + str(summary_analysis)
+        response = get_response(prompt, system_prompt)
         if response is None:
             continue
 
@@ -160,20 +151,31 @@ def analyze_responses(language):
             # Preserve order while removing exact duplicates.
             unique_items = list(dict.fromkeys(str(item) for item in items if str(item)))
             df.at[index, column] = ', '.join(unique_items)
+        df.at[index, 'postprocess_summary_md'] = (
+            '**Entities:** ' + df.at[index, 'entities'] + '\n\n'
+            + '**Themes/topics:** ' + df.at[index, 'topics'] + '\n\n'
+            + '**Sentiment targets:** positive=' + df.at[index, 'positive']
+            + '; neutral=' + df.at[index, 'neutral']
+            + '; negative=' + df.at[index, 'negative']
+        )
 
-    # Keep the canonical pipeline file up to date.
-    df.to_csv(filename, index=False)
+    output = os.getenv('LACLAUGPT_OUTPUT_CSV') or filename
+    df.to_csv(output, index=False)
 
     # roihu_populism.py is a legacy consumer of ep24_<language>.csv. Emit that
     # compatibility artifact so the documented sequence works end-to-end.
-    legacy_output = f'ep24_{language}.csv'
-    if filename != legacy_output:
-        df.to_csv(legacy_output, index=False)
+    if not os.getenv('LACLAUGPT_INPUT_CSV') and language:
+        legacy_output = f'ep24_{language}.csv'
+        if filename != legacy_output:
+            df.to_csv(legacy_output, index=False)
 
 
 languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
 
 
 if __name__ == '__main__':
-    for language in languages:
-        analyze_responses(language)
+    if os.getenv('LACLAUGPT_INPUT_CSV'):
+        analyze_responses(None)
+    else:
+        for language in languages:
+            analyze_responses(language)

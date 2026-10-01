@@ -10,6 +10,8 @@ import pandas as pd
 from deep_translator import GoogleTranslator
 
 from asr_backend import describe_backend, load_asr_model
+from ep24_pipeline import local_media_path, metadata_context
+from ep24_schema import value as ep24_value
 from ep24_video import (
     VIDEO_INITIAL_SKIP_SECONDS,
     analysis_frame_times,
@@ -166,12 +168,8 @@ def get_keyframes(video_filename, video_id, author_username):
     return frame_files
 
 
-def get_transcript(video_id, author_username, scraped_country):
+def get_transcript(video_filename, video_id):
     """Get a Whisper transcript after excluding the first-second scroll artifact."""
-    video_filename = (
-        f'./Allas/Scraper/TikTok/Videos/{scraped_country}/'
-        f'{author_username}/{video_id}.mp4'
-    )
     whisper_transcript = ''
     whisper_language = ''
     whisper_translated = ''
@@ -201,9 +199,10 @@ def get_transcript(video_id, author_username, scraped_country):
     return whisper_transcript, whisper_language, whisper_translated
 
 
-def analyze_videos(language):
+def analyze_videos(language=None):
     """Preprocess TikTok videos for a specific language."""
-    df = pd.read_csv('./csv/tiktok_videos.csv')
+    input_csv = os.getenv('LACLAUGPT_INPUT_CSV', './csv/tiktok_videos.csv')
+    df = pd.read_csv(input_csv, dtype=str, keep_default_na=False)
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
     if max_rows > 0:
         df = df.head(max_rows).copy()
@@ -230,17 +229,14 @@ def analyze_videos(language):
     df['video_analysis_status'] = ''
     df['video_analysis_note'] = ''
 
-    df = df[df['language'] == language].copy()
+    if language and 'language' in df.columns:
+        df = df[df['language'] == language].copy()
 
     for index, row in df.iterrows():
-        author_username = row['authorUniqueId']
-        video_id = row['videoId']
-        scraped_country = row['scrapedCountry']
+        author_username = ep24_value(row, 'author_username')
+        video_id = ep24_value(row, 'video_id')
         legacy_whisper_result = row.get('whisperResult', '')
-        video_path = (
-            f'./Allas/Scraper/TikTok/Videos/{scraped_country}/'
-            f'{author_username}/{video_id}.mp4'
-        )
+        video_path = str(local_media_path(row))
 
         c.execute(
             'SELECT frames, ocr_1, ocr_2, ocr_3, ocr_4, ocr_5, ocr_6, '
@@ -318,7 +314,7 @@ def analyze_videos(language):
                 whisper_transcript,
                 whisper_language,
                 whisper_translated,
-            ) = get_transcript(video_id, author_username, scraped_country)
+            ) = get_transcript(video_path, video_id)
 
             serialized_frames = normalize_frame_files(frame_files)
             c.execute(
@@ -364,7 +360,8 @@ def analyze_videos(language):
             df.at[index, 'video_analysis_status'] = 'error'
             df.at[index, 'video_analysis_note'] = f'{type(exc).__name__}: {exc}'
 
-    df.to_csv(f'./csv/tiktok_{language}.csv', index=False)
+    output_csv = os.getenv('LACLAUGPT_OUTPUT_CSV') or (f'./csv/tiktok_{language}.csv' if language else './csv/ep24_preprocessed.csv')
+    df.to_csv(output_csv, index=False)
 
 
 languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
@@ -372,8 +369,11 @@ languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
 
 if __name__ == '__main__':
     try:
-        for language in languages:
-            analyze_videos(language)
+        if os.getenv('LACLAUGPT_INPUT_CSV'):
+            analyze_videos(None)
+        else:
+            for language in languages:
+                analyze_videos(language)
     finally:
         c.close()
         conn.close()

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json, logging, os
 from pathlib import Path
 import ollama, pandas as pd
+from ep24_pipeline import load_cumulative_csv, metadata_context
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
@@ -35,23 +36,31 @@ opposition, affiliation, co-appearance, quotation, and other explicit relation
 types where justified. Return a short Markdown explanation and structured edges."""
 
 def source(lang):
+    explicit = os.getenv("LACLAUGPT_INPUT_CSV")
+    if explicit:
+        p = Path(explicit)
+        return p if p.exists() else None
     for p in (Path(f"ep24_{lang}.csv"), Path(f"csv/tiktok_{lang}.csv")):
-        if p.exists(): return p
+        if p.exists():
+            return p
     return None
 
 def run_language(lang):
     p=source(lang)
     if p is None:
         LOG.warning("No CSV for %s",lang); return
-    df=pd.read_csv(p)
+    df=load_cumulative_csv(p)
     for col in ("sna_analysis_markdown","sna_edges_json"):
         if col not in df.columns: df[col]=""
     limit=int(os.getenv("LACLAUGPT_MAX_ROWS","100") or 100)
     model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL","gemma4:12b")
     for i,row in df.head(limit).iterrows():
-        evidence="\n\n".join(str(row.get(k,"")) for k in
-          ("summary_analysis","formula_of_populism_analysis","dna_analysis_markdown","dna_statements_json","entities")
-          if str(row.get(k,"")).strip())
+        evidence = metadata_context(row) + "\n\nANALYTICAL EVIDENCE:\n" + "\n\n".join(
+            str(row.get(k, "")) for k in
+            ("summary_analysis", "formula_of_populism_analysis", "dna_analysis_markdown",
+             "dna_statements_json", "entities", "themes")
+            if str(row.get(k, "")).strip()
+        )
         if not evidence.strip(): continue
         try:
             r=ollama.chat(model=model,messages=[{"role":"system","content":SYSTEM},
@@ -65,5 +74,8 @@ def run_language(lang):
     df.to_csv(p,index=False)
 
 if __name__=="__main__":
-    for lang in os.getenv("LACLAUGPT_LANGUAGES","fi,sv,pl,pt,de,es,hu,hr,fr,bg,en").split(","):
-        run_language(lang.strip())
+    if os.getenv("LACLAUGPT_INPUT_CSV"):
+        run_language("")
+    else:
+        for lang in os.getenv("LACLAUGPT_LANGUAGES","fi,sv,pl,pt,de,es,hu,hr,fr,bg,en").split(","):
+            run_language(lang.strip())
