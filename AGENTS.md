@@ -2,86 +2,77 @@
 
 ## Repository role
 
-This repository has two intentionally different branches:
+This repository has two deliberately different lines of history:
 
-- `legacy`: frozen historical documentation of the original CSC Puhti / EP24 pipeline.
-- `main`: active, incremental CSC Roihu adaptation.
+- `legacy`: immutable historical record of the original human-coded EP24 / CSC Puhti pipeline. Papers and publications may depend on this exact implementation.
+- `main`: active **new EP24 analysis** for CSC Roihu using the **Phase 2 LaclauGPT pipeline**.
 
-The older phase-branch policy does not govern this repository's current migration.
-Do not synchronize `main` with a phase branch unless the human author explicitly asks.
+The old phase-branch synchronization policy does not govern this repository. Work for the current repository belongs on `main` unless the human author explicitly says otherwise.
 
-## Legacy branch is immutable
+## Legacy branch is immutable and must remain visible
 
-Never modify, merge into, rebase, force-push, clean up, reformat, modernize or
-backport changes to `legacy`.
+Never modify, merge into, rebase, force-push, clean up, rename, reformat, modernize, or backport changes to `legacy`.
 
-If historical code contains a bug or obsolete assumption, document it on
-`main`; do not repair the historical record.
+Do not delete or hide the legacy branch. Documentation on `main` must point readers to it because published research may rely on the historical implementation.
+
+## Full legacy compatibility is mandatory
+
+The human-coded legacy pipeline is the compatibility spine of the new implementation.
+
+New Phase 2 features from `TomiToivio/LaclauGPT-Data-Analysis` must be added **around, before, after, or alongside** the legacy steps. Agents may extend legacy stages when necessary, but must not remove, replace, collapse, silently rewrite, or make a legacy step unavailable without explicit human permission.
+
+Preserve, unless explicitly authorized otherwise:
+
+1. the five-stage logical sequence and the ability to run each legacy-compatible stage;
+2. existing input/output contracts and historical field meanings;
+3. legacy-compatible CSV and cache outputs needed by existing research;
+4. human-written prompts and Laclau/Palonen logic;
+5. reproducibility links to the frozen `legacy` branch.
+
+When modernization requires a changed implementation, retain a compatibility path or adapter.
 
 ## Human code is authoritative
 
-Never replace human-written code merely because a rewrite appears cleaner.
+Never replace human-written code merely because a rewrite appears cleaner. Make narrow, reviewable changes and validate them.
 
-Before changing existing code:
+Do not perform opportunistic destructive refactors, schema removals, prompt rewrites, or methodology changes. When uncertain, preserve the human implementation and add the new functionality beside it.
 
-1. understand the current behavior;
-2. identify the smallest required change;
-3. preserve scientific and output behavior unless explicitly asked to change it;
-4. make a narrow reviewable commit;
-5. validate before the next change.
+## Phase 2 direction
 
-Do not perform opportunistic refactors, broad formatting, renames, schema
-changes, prompt rewrites, or methodology changes while doing infrastructure work.
+`main` should progressively incorporate relevant features from [LaclauGPT-Data-Analysis](https://github.com/TomiToivio/LaclauGPT-Data-Analysis), including where technically and scientifically appropriate:
 
-When uncertain, preserve the human implementation.
+- newer/better local multimodal models supported on CSC Roihu;
+- richer provenance and resumability;
+- RDF graph outputs;
+- Discourse Network Analysis (DNA);
+- Social Network Analysis (SNA);
+- improved validation and structured outputs;
+- additional Phase 2 modules that can coexist with legacy-compatible EP24 stages.
+
+Do not copy the newer pipeline blindly. Integrate it incrementally around the compatibility spine.
+
+## Roihu naming
+
+Active `main` code and documentation use **Roihu**, not Puhti, for current execution. Active stage filenames are `roihu_*.py`.
+
+Use “Puhti” only when describing the historical `legacy` environment, provenance, or compatibility history.
 
 ## Public/private boundary
 
 Public open-source code belongs here.
 
-Private material belongs in the private `TomiToivio/LaclauGPT-Private`
-repository or private CSC storage, including:
+Sensitive or private material belongs in `TomiToivio/LaclauGPT-Private` and/or private CSC storage, including:
 
 - real research data;
 - researcher notes;
-- private codebooks;
-- private settings;
-- credentials and secrets;
-- restricted/unpublished research material;
-- machine-specific private configuration.
-
-Public code may define environment-variable/path contracts and dummy fixtures,
-but must never copy private content into this repository to make a job or test work.
-
-## Roihu migration sequence
-
-Work in this order:
-
-1. preserve and document the Puhti baseline;
-2. make the existing pipeline runnable on CSC Roihu;
-3. test improved Gemma4 models through configurable Ollama model selection;
-4. validate every historical stage and output contract;
-5. only then inspect LaclauGPT-Data-Analysis for candidate improvements;
-6. port improvements one at a time only when justified.
-
-Do not copy the newer Data-Analysis pipeline wholesale.
-
-## Scientific boundaries
-
-Infrastructure modernization is not permission to redesign the research method.
-
-Do not silently alter:
-
-- frame or summary prompts;
-- Laclau / Palonen analysis logic;
-- schemas or CSV field meanings;
 - codebooks;
-- researcher annotations;
-- stage order;
-- interpretation rules.
+- settings and private configuration;
+- restricted prompts or unpublished mappings;
+- credentials, secrets, and tokens;
+- machine-specific sensitive configuration.
 
-Such changes require an explicit human task.
+Never copy private content into this public repository to make a test or job work. Public code may define interfaces, schemas, environment variables, safe examples, and dummy fixtures.
 
 ## Development principle
 
-**Preserve history. Preserve human code. Change one thing at a time. Validate it. Then continue.**
+**Preserve the published legacy record. Keep full compatibility. Build Phase 2 around it. Run the active pipeline on Roihu. Keep private research material private.**
