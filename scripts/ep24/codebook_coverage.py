@@ -44,6 +44,21 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+#: Trailing tokens that name an entity *kind*, not an entity. A label like
+#: "Centre Party" or "Brothers of Italy party" ends in one of these, so using it
+#: as a surname key collapses every party into one group.
+KIND_WORDS = frozenset(
+    {
+        "party", "parties", "coalition", "movement", "alliance", "list", "front",
+        "group", "association", "organisation", "organization", "union", "bloc",
+        "forum", "network", "institute", "institution", "foundation", "committee",
+        "council", "agency", "ministry", "government", "parliament", "federation",
+        "confederation", "league", "platform", "initiative", "campaign", "politics",
+        "policy", "policies", "theme", "topic",
+    }
+)
+
+
 def _fold(value: Any) -> str:
     """Casefold + strip accents + drop punctuation, for grouping only."""
     text = unicodedata.normalize("NFKD", str(value or "").strip().casefold())
@@ -140,7 +155,14 @@ def _fragment_groups(entries: list[dict[str, Any]], *, key_fn) -> list[dict[str,
 
 
 def _surname_key(label: str) -> str:
+    """The trailing *name* token, skipping trailing kind words.
+
+    Taking the literal last token groups `Centre Party`, `Finns Party` and
+    `Brothers of Italy party` under the key `party` — a false merge that hides
+    the real fragmentation. Type words are skipped so the key is an actual name.
+    """
     toks = [t for t in _fold(label).split() if len(t) > 3]
+    toks = [t for t in toks if t not in KIND_WORDS]
     return toks[-1] if toks else ""
 
 
