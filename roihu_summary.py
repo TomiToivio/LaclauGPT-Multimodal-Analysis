@@ -342,7 +342,7 @@ def analyze_videos(language):
 # Loop through each EP2024 TikTok language and analyze videos
 # All EP2024 TikTok languages for this stage (module level: the documented
 # stage contract reads it without importing or executing the stage).
-languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'en']
+languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
 
 
 if __name__ == '__main__':
