@@ -760,10 +760,14 @@ def prepare_vllm_request(
         # ``TypeError: unhashable type: 'dict'`` for the mapping this returns,
         # so any non-empty dict is fatal on Laskin. The video tensors go to
         # vLLM directly instead, which is what 0.8.x supports.
-        image_inputs, video_inputs = process_vision_info(
+        vision_result = process_vision_info(
             messages,
             image_patch_size=16,
         )
+        # qwen-vl-utils releases differ here: the legacy path returns either
+        # (image_inputs, video_inputs) or a three-tuple with an extra kwargs
+        # value. Never forward that kwargs value to vLLM 0.8.x.
+        image_inputs, video_inputs = vision_result[:2]
         mm_data: dict = {}
         if image_inputs is not None:
             mm_data["image"] = image_inputs
