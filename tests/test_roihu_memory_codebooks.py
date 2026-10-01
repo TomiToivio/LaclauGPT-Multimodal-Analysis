@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import roihu_memory
 from roihu_codebooks import context_block, load_profile
 from roihu_memory import EP24Memory, stable_id, upstream_stable_id
 
@@ -182,7 +183,11 @@ def test_memory_schema_migration_creates_backup_and_temporal_columns(tmp_path):
     with memory.connect() as db:
         columns = {row[1] for row in db.execute("PRAGMA table_info(objects)")}
         assert {"valid_from", "valid_to"}.issubset(columns)
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        # Assert against the module's own constant: a literal here silently goes
+        # stale every time SCHEMA_VERSION moves (#74 bumped 2 -> 3 for the
+        # relations table and left this test asserting 2, so `main` was red and
+        # the assertion was checking a version the runtime no longer had).
+        assert db.execute("PRAGMA user_version").fetchone()[0] == roihu_memory.SCHEMA_VERSION
 
 
 def test_proposal_shard_merge_is_deterministic_and_idempotent(tmp_path):
