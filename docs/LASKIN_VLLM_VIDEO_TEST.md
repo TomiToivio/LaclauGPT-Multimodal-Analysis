@@ -101,7 +101,7 @@ TypeError: unhashable type: 'dict'
 ```
 
 because vLLM 0.8.5 hashes the processor config. The harness therefore resolves
-the video API from the installed vLLM version (`--video-api auto|modern|legacy`):
+the video API from the installed vLLM version (`--video-api auto|modern|legacy`; `modern`/`legacy` alias the internal `mm_processor_kwargs`/`direct` shapes):
 
 - **modern** (vLLM ≥ 0.9): `process_vision_info(..., image_patch_size=16,
   return_video_metadata=True)` + `mm_processor_kwargs` with `video_metadata`.
