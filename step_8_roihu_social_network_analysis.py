@@ -9,6 +9,7 @@ from __future__ import annotations
 import json, logging, os
 from pathlib import Path
 import ollama, pandas as pd
+from ep24_pipeline import load_cumulative_csv, metadata_context
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
@@ -43,15 +44,18 @@ def run_language(lang):
     p=source(lang)
     if p is None:
         LOG.warning("No CSV for %s",lang); return
-    df=pd.read_csv(p)
+    df=load_cumulative_csv(p)
     for col in ("sna_analysis_markdown","sna_edges_json"):
         if col not in df.columns: df[col]=""
     limit=int(os.getenv("LACLAUGPT_MAX_ROWS","100") or 100)
     model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL","gemma4:12b")
     for i,row in df.head(limit).iterrows():
-        evidence="\n\n".join(str(row.get(k,"")) for k in
-          ("summary_analysis","formula_of_populism_analysis","dna_analysis_markdown","dna_statements_json","entities")
-          if str(row.get(k,"")).strip())
+        evidence = metadata_context(row) + "\n\nANALYTICAL EVIDENCE:\n" + "\n\n".join(
+            str(row.get(k, "")) for k in
+            ("summary_analysis", "formula_of_populism_analysis", "dna_analysis_markdown",
+             "dna_statements_json", "entities", "themes")
+            if str(row.get(k, "")).strip()
+        )
         if not evidence.strip(): continue
         try:
             r=ollama.chat(model=model,messages=[{"role":"system","content":SYSTEM},
