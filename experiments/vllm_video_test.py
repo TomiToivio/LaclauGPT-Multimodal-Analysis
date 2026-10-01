@@ -565,8 +565,17 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("  bytes             : %s", record["vllm_video_bytes"])
             logger.info("  metadata          : %s", probe_video_metadata(local_path, logger))
 
-            analysis_path = prepare_analysis_clip(local_path, download_dir / "analysis-clips")
-            logger.info("  analysis_path     : %s", analysis_path)
+            if args.model_backend == "stub":
+                # Synthetic harness fixtures are not real media and CI does not
+                # require ffmpeg. Real vLLM analysis always uses the trimmed clip.
+                analysis_path = local_path
+                logger.info("  analysis_path     : %s (stub; trim not executed)", analysis_path)
+            else:
+                analysis_path = prepare_analysis_clip(
+                    local_path,
+                    download_dir / "analysis-clips",
+                )
+                logger.info("  analysis_path     : %s", analysis_path)
             logger.info("  initial_skip_s    : %.1f", VIDEO_INITIAL_SKIP_SECONDS)
             analysis = analyze_one_video(analysis_path, args, llm, sampling_params, processor, logger)
             scroll_meta = parse_scroll_metadata(analysis)
