@@ -186,22 +186,57 @@ def test_same_letters_map_correctly_for_every_country_schema():
 # --- blank is not false ----------------------------------------------------
 @pytest.mark.parametrize("blank", ["", "  ", "nan", "NaN", "None", "null", "<NA>"])
 def test_blank_tri_state_is_unknown_not_false(blank):
-    assert rc.parse_tri_state(blank) is None
+    assert rc.parse_tri_state(blank) is rc.TriState.UNKNOWN
 
 
 @pytest.mark.parametrize("value", ["TRUE", "true", "1", "yes", True])
 def test_explicit_true_is_true(value):
-    assert rc.parse_tri_state(value) is True
+    assert rc.parse_tri_state(value) is rc.TriState.TRUE
 
 
 @pytest.mark.parametrize("value", ["FALSE", "false", "0", "no", False])
 def test_explicit_false_is_false(value):
-    assert rc.parse_tri_state(value) is False
+    assert rc.parse_tri_state(value) is rc.TriState.FALSE
 
 
 def test_unrecognised_tri_state_raises_instead_of_coercing():
     with pytest.raises(rc.CleaningError):
         rc.parse_tri_state("maybe")
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["[true, false]", "[true,false]", '["true", "false"]', [True, False], [True, "false"]],
+)
+def test_disagreeing_merged_values_stay_ambiguous(value):
+    # Real merged EP24 data contains values such as "[true, false]" where the
+    # dashboard and MongoDB sources disagree. Neither side may win by default.
+    assert rc.parse_tri_state(value) is rc.TriState.AMBIGUOUS
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("[true, true]", rc.TriState.TRUE),
+        ('["true", "true"]', rc.TriState.TRUE),
+        ("[false]", rc.TriState.FALSE),
+        ([False, False, False], rc.TriState.FALSE),
+    ],
+)
+def test_agreeing_merged_values_resolve(value, expected):
+    assert rc.parse_tri_state(value) is expected
+
+
+def test_ambiguous_delete_flag_is_excluded_and_sent_to_review(tmp_path):
+    rows = [_row("V-1", researcher_delete_video="[true, false]")]
+    outcome = rc.clean_dataframe(_write(tmp_path / "ep24_finland_with_researcher_notes.csv", rows))
+    decision = outcome.decisions[0]
+    # genuinely ambiguous: never auto-deleted, never auto-kept as if clean
+    assert decision.decision == rc.DECISION_UNKNOWN
+    assert decision.ambiguous is True
+    assert decision.needs_human_review is True
+    assert decision.include_in_reprocess is False
+    assert decision.rule_id == "R-AMBIGUOUS"
 
 
 def test_blank_delete_never_excludes_a_row(tmp_path):
@@ -303,6 +338,22 @@ def test_informative_note_is_preserved_with_human_provenance(tmp_path):
     assert decision.cleaned_value == note
     assert decision.origin == "human"
     assert decision.include_in_reprocess is True
+
+
+def test_organic_row_with_a_note_is_still_excluded(tmp_path):
+    # Issue #35: researcher-note triage happens only after the structural
+    # filters. A note must not rescue an Organic row into the new analysis.
+    rows = [_row("V-1", account_type="Organic", researcher_note="Looks interesting")]
+    outcome = rc.clean_dataframe(_write(tmp_path / "ep24_finland_with_researcher_notes.csv", rows))
+    assert outcome.decisions[0].decision == rc.DECISION_EXCLUDE
+    assert outcome.decisions[0].include_in_reprocess is False
+
+
+def test_duplicate_fanout_is_reported_before_note_triage(tmp_path):
+    rows = [_row("V-DUP", researcher_note="Just a test note!"), _row("V-DUP")]
+    outcome = rc.clean_dataframe(_write(tmp_path / "ep24_finland_with_researcher_notes.csv", rows))
+    # both rows of the fan-out are flagged as duplicates, not triaged as notes
+    assert [d.decision for d in outcome.decisions] == [rc.DECISION_DUPLICATE] * 2
 
 
 def test_ambiguous_note_is_not_auto_deleted(tmp_path):

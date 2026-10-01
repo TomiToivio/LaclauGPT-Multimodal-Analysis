@@ -35,6 +35,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -184,6 +185,15 @@ class CleaningError(RuntimeError):
     """Raised when cleaning would destroy or misinterpret research data."""
 
 
+class TriState(Enum):
+    """Researcher field state. ``UNKNOWN`` is blank, never ``FALSE``."""
+
+    TRUE = "true"
+    FALSE = "false"
+    UNKNOWN = "unknown"
+    AMBIGUOUS = "ambiguous"
+
+
 def spreadsheet_letters(index: int) -> str:
     """0-based column index -> spreadsheet letters (0 -> A, 26 -> AA)."""
     letters = ""
@@ -243,26 +253,51 @@ def resolve_obsolete_columns(header: Sequence[str]) -> ObsoleteColumns:
     return ObsoleteColumns(letters=letters, lda=lda)
 
 
-def parse_tri_state(value: Any) -> bool | None:
+def parse_tri_state(value: Any) -> TriState:
     """Strict researcher tri-state.
 
-    ``None`` means blank / not reviewed / not stated. It is never a synonym for
-    ``False`` (issue #35: "never treat blank as false"). An unrecognised value
-    raises rather than being silently coerced.
+    ``UNKNOWN`` means blank / not reviewed / not stated, and is never a synonym
+    for ``FALSE`` (issue #35: "never treat blank as false"). ``AMBIGUOUS`` means
+    merged sources disagree — the value is kept ambiguous for human review
+    rather than force-resolved. Anything unrecognised raises instead of being
+    silently coerced.
     """
     if value is None:
-        return None
+        return TriState.UNKNOWN
     if isinstance(value, bool):
-        return value
+        return TriState.TRUE if value else TriState.FALSE
+    if isinstance(value, (list, tuple)):
+        return _combine_tri_states(parse_tri_state(item) for item in value)
     text = str(value).strip()
     if text == "" or text.lower() in {"nan", "none", "null", "<na>"}:
-        return None
+        return TriState.UNKNOWN
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError:
+            decoded = None
+        if isinstance(decoded, list):
+            return _combine_tri_states(parse_tri_state(item) for item in decoded)
+        # Python-style lists (for example "[true, false]") are not valid JSON.
+        inner = [part for part in re.split(r"[,\s]+", text[1:-1]) if part]
+        if inner:
+            return _combine_tri_states(parse_tri_state(part) for part in inner)
     lowered = text.lower()
     if lowered in _TRUE:
-        return True
+        return TriState.TRUE
     if lowered in _FALSE:
-        return False
+        return TriState.FALSE
     raise CleaningError(f"unrecognised researcher tri-state value: {value!r}")
+
+
+def _combine_tri_states(states: Iterable[TriState]) -> TriState:
+    """Fold several claims about one field into a single tri-state."""
+    resolved = {state for state in states if state is not TriState.UNKNOWN}
+    if not resolved:
+        return TriState.UNKNOWN
+    if len(resolved) == 1:
+        return next(iter(resolved))
+    return TriState.AMBIGUOUS
 
 
 def normalise_political_preference(value: Any) -> tuple[str, str, str]:
@@ -386,7 +421,7 @@ def _clean_cell(value: Any) -> str:
 def compute_cleaning_result(
     row: Mapping[str, Any],
     *,
-    duplicate_ids: frozenset[str] = frozenset(),
+    video_id_counts: Mapping[str, int] | None = None,
 ) -> RowDecision:
     """Pure decision function: one row in, one RowDecision out.
 
@@ -400,14 +435,14 @@ def compute_cleaning_result(
 
     delete = parse_tri_state(row.get(DELETE_COLUMN))
     dubious = parse_tri_state(row.get(DUBIOUS_COLUMN))
-    cut = any(parse_tri_state(row.get(name)) is True for name in CUT_COLUMNS)
-    split = any(parse_tri_state(row.get(name)) is True for name in SPLIT_COLUMNS)
+    cut = any(parse_tri_state(row.get(name)) is TriState.TRUE for name in CUT_COLUMNS)
+    split = any(parse_tri_state(row.get(name)) is TriState.TRUE for name in SPLIT_COLUMNS)
     wrong_language = parse_tri_state(row.get("researcher_wrong_language"))
-    rerun = any(parse_tri_state(row.get(name)) is True for name in RERUN_COLUMNS)
+    rerun = any(parse_tri_state(row.get(name)) is TriState.TRUE for name in RERUN_COLUMNS)
     account_type = _clean_cell(row.get("account_type"))
     note = _clean_cell(row.get("researcher_note"))
 
-    if delete is True:
+    if delete is TriState.TRUE:
         return RowDecision(
             video_id,
             country,
@@ -423,7 +458,7 @@ def compute_cleaning_result(
             needs_human_review=False,
             notes_md="Explicit human decision; source row preserved in the legacy CSV.",
         )
-    if dubious is True:
+    if dubious is TriState.TRUE:
         return RowDecision(
             video_id,
             country,
@@ -443,7 +478,7 @@ def compute_cleaning_result(
         flags = [
             name
             for name in (*CUT_COLUMNS, *SPLIT_COLUMNS)
-            if parse_tri_state(row.get(name)) is True
+            if parse_tri_state(row.get(name)) is TriState.TRUE
         ]
         decision = DECISION_SPLIT if split else DECISION_CUT
         return RowDecision(
@@ -461,7 +496,7 @@ def compute_cleaning_result(
             needs_human_review=True,
             notes_md="Moved to the shared cross-country recut worklist.",
         )
-    if wrong_language is True:
+    if wrong_language is TriState.TRUE:
         return RowDecision(
             video_id,
             country,
@@ -477,9 +512,36 @@ def compute_cleaning_result(
             needs_human_review=True,
         )
 
-    note_decision = _triage_note(note)
-    if note_decision is not None:
-        return note_decision
+    # A merged value whose sources disagree is never force-resolved: it goes to
+    # a human rather than being read as TRUE or dropped as FALSE.
+    ambiguous_fields = [
+        name
+        for name in (
+            DELETE_COLUMN,
+            DUBIOUS_COLUMN,
+            "researcher_wrong_language",
+            *CUT_COLUMNS,
+            *SPLIT_COLUMNS,
+        )
+        if parse_tri_state(row.get(name)) is TriState.AMBIGUOUS
+    ]
+    if ambiguous_fields:
+        return RowDecision(
+            video_id,
+            country,
+            profile,
+            platform,
+            DECISION_UNKNOWN,
+            "merged researcher sources disagree; not force-resolved",
+            ambiguous_fields,
+            original_value=note,
+            origin="derived",
+            rule_id="R-AMBIGUOUS",
+            include_in_reprocess=False,
+            needs_human_review=True,
+            ambiguous=True,
+            notes_md="Ambiguous human state preserved for review instead of guessing.",
+        )
 
     if account_type and account_type.casefold() != "synthetic":
         return RowDecision(
@@ -496,21 +558,34 @@ def compute_cleaning_result(
             notes_md="Organic profiles are excluded from the current analysis target.",
         )
 
-    if video_id and video_id in duplicate_ids:
+    # Structural fan-out is decided before free-text triage: a repeated video_id
+    # belongs to a human regardless of what its note says.
+    occurrences = (video_id_counts or {}).get(video_id, 0) if video_id else 0
+    if occurrences > 1:
         return RowDecision(
             video_id,
             country,
             profile,
             platform,
             DECISION_DUPLICATE,
-            "video_id occurs more than once in this country dataframe",
+            f"video_id occurs {occurrences}x in this country dataframe",
             ["video_id"],
+            original_value=note,
             origin="derived",
             rule_id="R-DUPLICATE-REVIEW",
             include_in_reprocess=True,
             needs_human_review=True,
-            notes_md="Duplicates are flagged for humans, never deduplicated silently.",
+            notes_md=(
+                "Repeated video_id fan-out: the same source video carries several "
+                "legacy analysis runs whose transcripts/model outputs disagree. "
+                "Never deduplicated silently; a human must decide which run is kept."
+            ),
         )
+
+    # Note triage runs only after the structural filters above, per issue #35.
+    note_decision = _triage_note(note)
+    if note_decision is not None:
+        return note_decision
 
     sources: list[str] = []
     if rerun:
@@ -674,17 +749,16 @@ def clean_dataframe(
     obsolete = resolve_obsolete_columns(header)
     empty_columns = find_always_empty_columns(header, rows)
 
-    ids: dict[str, int] = {}
+    video_id_counts: dict[str, int] = {}
     for row in rows:
         key = _clean_cell(row.get("video_id"))
         if key:
-            ids[key] = ids.get(key, 0) + 1
-    duplicate_ids = frozenset(key for key, seen in ids.items() if seen > 1)
+            video_id_counts[key] = video_id_counts.get(key, 0) + 1
 
     decisions: list[RowDecision] = []
     enriched_rows: list[dict[str, Any]] = []
     for row in rows:
-        decision = compute_cleaning_result(row, duplicate_ids=duplicate_ids)
+        decision = compute_cleaning_result(row, video_id_counts=video_id_counts)
         video_id = _clean_cell(row.get("video_id"))
         if not decision.video_id:
             decision.video_id = video_id
@@ -725,6 +799,28 @@ def clean_dataframe(
         decisions=decisions,
         rows=enriched_rows,
     )
+
+
+def duplicate_summary(outcome: CleaningOutcome) -> dict[str, int]:
+    """Fan-out summary: how many video_ids repeat, and how widely.
+
+    A repeated ``video_id`` means several legacy analysis runs were attached to
+    one source video by the historical join. That is a finding, not a cleaning
+    action, so it is reported rather than resolved.
+    """
+    counts: dict[str, int] = {}
+    for row in outcome.rows:
+        key = _clean_cell(row.get("video_id"))
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    repeated = {key: value for key, value in counts.items() if value > 1}
+    return {
+        "rows": len(outcome.rows),
+        "unique_video_ids": len(counts),
+        "repeated_video_ids": len(repeated),
+        "rows_in_repeated_groups": sum(repeated.values()),
+        "max_multiplicity": max(repeated.values(), default=1),
+    }
 
 
 def reprocess_columns(keep_schema: Sequence[str] = KEEP_SCHEMA_ORDER) -> list[str]:
@@ -780,6 +876,7 @@ def write_outputs(
         "media_analysis_skip_seconds": VIDEO_INITIAL_SKIP_SECONDS,
         "rules": sorted({decision.rule_id for decision in outcome.decisions if decision.rule_id}),
         "counts": outcome.counts(),
+        "duplicate_video_id_groups": duplicate_summary(outcome),
         "blank_is_not_false": True,
         "destructive": False,
     }
@@ -879,7 +976,8 @@ def build_report(
         f"- rows kept: {kept}",
         f"- rows excluded from new analysis: {excluded}",
         f"- rows needing human review: {needs_review}",
-        f"- rows moved to the recut worklist: {len(outcome.recut_rows())}",
+        f"- rows moved to the recut worklist: {len(outcome.recut_rows())}"
+        f" ({len({r.get('video_id') for r in outcome.recut_rows()})} distinct video_ids)",
         "",
         "### Decision breakdown",
         "",
@@ -887,6 +985,20 @@ def build_report(
     for name in sorted(counts):
         lines.append(f"- `{name}`: {counts[name]}")
     lines += [
+        "",
+        "## Legacy analysis fan-out (finding, not an action)",
+        "",
+    ]
+    fanout = duplicate_summary(outcome)
+    lines += [
+        f"- unique video_ids: {fanout['unique_video_ids']}",
+        f"- video_ids occurring more than once: {fanout['repeated_video_ids']}",
+        f"- rows in repeated groups: {fanout['rows_in_repeated_groups']}",
+        f"- widest multiplicity: {fanout['max_multiplicity']}x",
+        "",
+        "Repeated ids carry *differing* Whisper transcripts and model outputs, so the",
+        "historical join attached several analysis runs to one source video. This is",
+        "reported for human review; nothing is deduplicated automatically.",
         "",
         "## Columns",
         "",
