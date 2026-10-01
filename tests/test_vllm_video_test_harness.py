@@ -244,3 +244,9 @@ def test_script_does_not_touch_pipeline_or_ollama(harness):
     assert "ollama" not in imported | dynamic
     for stage in ("roihu_frame", "roihu_summary", "roihu_postprocess", "roihu_populism"):
         assert stage not in imported | dynamic
+
+
+def test_output_columns_are_unique():
+    """The shared Roihu/Laskin CSV contract must not contain duplicate headers."""
+    module = load_module()
+    assert len(module.OUTPUT_COLUMNS) == len(set(module.OUTPUT_COLUMNS))
