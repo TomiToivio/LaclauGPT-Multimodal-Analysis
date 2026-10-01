@@ -52,12 +52,13 @@ a recorded gap, never a reason to silently substitute another country's profile.
 
 ## Runtime
 
-The normal compatibility sequence is now:
+The canonical compatibility sequence remains exactly:
 
-`preprocess -> frame -> summary -> postprocess -> enrich -> populism`
+`preprocess -> frame -> summary -> postprocess -> populism`
 
-`enrich` is deliberately disabled by default. With enrichment disabled it prints
-a no-op status and does not touch CSVs. This is the compatibility regression path.
+When `LACLAUGPT_ENRICHMENT_ENABLED=1`, the runner inserts `enrich` immediately before
+`populism` without changing the canonical default stage list. With enrichment
+disabled, no enrichment stage is inserted and historical stage ordering is unchanged.
 
 Enable it only when the private codebooks and accepted memory snapshot are ready:
 
