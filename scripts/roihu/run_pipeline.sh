@@ -7,7 +7,7 @@ if [[ -z "${PUBLIC_ROOT}" ]]; then
 fi
 : "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:?Set LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
 PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}
-STAGES=${LACLAUGPT_MULTIMODAL_STAGES:-"preprocess frame summary postprocess populism"}
+STAGES=${LACLAUGPT_MULTIMODAL_STAGES:-"preprocess frame summary postprocess enrich populism"}
 
 mkdir -p "${PRIVATE_ROOT}"/{csv,Allas,Keyframes,database,logs,whisper}
 cd "${PRIVATE_ROOT}"
@@ -24,7 +24,7 @@ run_stage() {
 
 for stage in ${STAGES}; do
   case "${stage}" in
-    preprocess|frame|summary|postprocess|populism) run_stage "${stage}" ;;
+    preprocess|frame|summary|postprocess|enrich|populism) run_stage "${stage}" ;;
     *) echo "Unknown stage: ${stage}" >&2; exit 2 ;;
   esac
 done
