@@ -29,8 +29,8 @@ import os
 import platform
 import random
 import re
-import shutil
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -38,7 +38,7 @@ import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import pandas as pd
 
@@ -677,6 +677,41 @@ def build_video_messages(local_path: Path, args: argparse.Namespace) -> list[dic
 DEFAULT_VIDEO_API = "mm_processor_kwargs"
 
 
+def _vllm_version_tuple(logger: logging.Logger) -> tuple[int, int]:
+    """Best-effort (major, minor) of the installed vLLM, or (0, 0) if unknown."""
+    try:
+        import re as _re
+
+        import vllm
+
+        match = _re.match(r"(\d+)\.(\d+)", str(getattr(vllm, "__version__", "") or ""))
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    except Exception as exc:  # noqa: BLE001 - never fatal, only selects an API
+        logger.debug("could not determine vLLM version: %s", exc)
+    return 0, 0
+
+
+def resolve_video_api(video_api: str, logger: logging.Logger) -> str:
+    """Resolve ``auto`` to the request shape the installed vLLM accepts.
+
+    The two shapes are not interchangeable: ``mm_processor_kwargs`` is fatal on
+    vLLM 0.8.5 (the processor cache hashes the kwargs dict and raises
+    ``TypeError: unhashable type: 'dict'``). Guessing wrong therefore kills the
+    whole run on the Laskin/Volta stack, so ``auto`` exists to prevent an
+    operator from having to remember which host needs which shape.
+
+    Rule: vLLM >= 0.9 supports the metadata path; 0.8.x and anything unreadable
+    fall back to ``direct``, the shape that cannot crash.
+    """
+    if video_api in ("direct", "mm_processor_kwargs"):
+        return video_api
+    major, minor = _vllm_version_tuple(logger)
+    resolved = "mm_processor_kwargs" if (major, minor) >= (0, 9) else "direct"
+    logger.info("video_api auto-resolved to %s for vLLM %s.%s", resolved, major, minor)
+    return resolved
+
+
 def prepare_vllm_request(
     messages: list[dict],
     processor,
@@ -704,17 +739,24 @@ def prepare_vllm_request(
 
     prompt = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
+    video_api = resolve_video_api(video_api, logger)
+
     if video_api == "direct":
-        image_inputs, video_inputs, video_kwargs = process_vision_info(
+        # Do NOT ask for video kwargs here. vLLM 0.8.5's processor cache does
+        # ``hash(tuple(...))`` on mm_processor_kwargs and raises
+        # ``TypeError: unhashable type: 'dict'`` for the mapping this returns,
+        # so any non-empty dict is fatal on Laskin. The video tensors go to
+        # vLLM directly instead, which is what 0.8.x supports.
+        image_inputs, video_inputs, _ = process_vision_info(
             messages,
             image_patch_size=16,
-            return_video_kwargs=True,
         )
         mm_data: dict = {}
         if image_inputs is not None:
             mm_data["image"] = image_inputs
         if video_inputs is not None:
             mm_data["video"] = video_inputs
+        video_kwargs = None
     else:
         image_inputs, video_inputs, video_kwargs = process_vision_info(
             messages,
@@ -872,8 +914,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model-backend", choices=("vllm", "stub"), default="vllm")
     parser.add_argument(
         "--video-api",
-        choices=("mm_processor_kwargs", "direct"),
-        default=os.environ.get("LACLAUGPT_VLLM_TEST_VIDEO_API", DEFAULT_VIDEO_API),
+        choices=("auto", "mm_processor_kwargs", "direct"),
+        default=os.environ.get("LACLAUGPT_VLLM_TEST_VIDEO_API", "auto"),
         help=(
             "vLLM multi-modal request shape. 'mm_processor_kwargs' is the "
             "Roihu/current-vLLM default (Qwen3-VL). 'direct' is the Laskin/"
@@ -989,6 +1031,10 @@ def main(argv: list[str] | None = None) -> int:
         record["SCROLL"] = "FALSE"
         record["SCROLL_SECONDS"] = "[]"
         record["needs_resplit"] = "FALSE"
+        # Record which request shape and engine actually ran. Without this the
+        # column is declared but always empty, so a Laskin row could not be
+        # told apart from a Roihu one.
+        record["vllm_video_api"] = resolve_video_api(args.video_api, logger)
 
         started = time.monotonic()
         local_path = None
