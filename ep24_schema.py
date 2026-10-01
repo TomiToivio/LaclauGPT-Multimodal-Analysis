@@ -1,46 +1,33 @@
-"""Canonical EP24 reprocessing metadata helpers.
+"""EP24 researcher-feed metadata helpers.
 
-The active reprocessing corpus is researcher-recorded/split feed data, not a
-scraper export. The 15-field keep-schema below is authoritative for every
-country. Legacy aliases exist only for backwards-compatible reads.
+The active EP24 reprocessing inputs are researcher-recorded/split feed data.
+The input CSV itself is authoritative. Pipeline stages must preserve every
+incoming column dynamically and append new analysis fields.
+
+Only media identity is mandatory for media stages:
+- video_id
+- allas_filename
+
+Legacy aliases exist only for backwards-compatible reads.
 """
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
-EP24_REPROCESS_COLUMNS: tuple[str, ...] = (
-    "country",
-    "author_username",
-    "account_type",
-    "source_type",
-    "source_recording",
-    "video_id",
-    "sequence_number",
-    "political_preference",
-    "allas_filename",
-    "new_entity",
-    "new_theme",
-    "video_duration",
-    "researcher_new_persons",
-    "researcher_new_themes",
-    "researcher_note",
-)
-
 REQUIRED_MEDIA_COLUMNS: tuple[str, ...] = ("video_id", "allas_filename")
 
 LEGACY_ALIASES: dict[str, tuple[str, ...]] = {
-    "country": ("scrapedCountry",),
-    "author_username": ("authorUniqueId",),
     "video_id": ("videoId",),
+    "country": ("scrapedCountry",),
     "video_duration": ("videoDuration",),
+    "author_username": ("authorUniqueId",),
 }
 
 
 def value(row: Mapping[str, Any], column: str, default: str = "") -> str:
-    """Read a canonical field, falling back to a legacy alias when necessary."""
-    candidates = (column, *LEGACY_ALIASES.get(column, ()))
-    for candidate in candidates:
+    """Read a field, falling back to legacy aliases only when needed."""
+    for candidate in (column, *LEGACY_ALIASES.get(column, ())):
         raw = row.get(candidate, "")
         text = "" if raw is None else str(raw).strip()
         if text and text.lower() != "nan":
@@ -49,25 +36,17 @@ def value(row: Mapping[str, Any], column: str, default: str = "") -> str:
 
 
 def source_metadata(row: Mapping[str, Any]) -> list[tuple[str, str]]:
-    """Return non-empty canonical source metadata in authoritative schema order."""
+    """Return every non-empty field in the incoming row, in row order."""
     items: list[tuple[str, str]] = []
-    for column in EP24_REPROCESS_COLUMNS:
-        text = value(row, column)
-        if text:
-            items.append((column, text))
+    for key in row.keys():
+        raw = row.get(key, "")
+        text = "" if raw is None else str(raw).strip()
+        if text and text.lower() != "nan":
+            items.append((str(key), text))
     return items
 
 
 def stable_source_id(row: Mapping[str, Any]) -> str:
-    """Human-readable stable identifier for logs/provenance."""
-    return "|".join(
-        item
-        for item in (
-            value(row, "country"),
-            value(row, "author_username"),
-            value(row, "video_id"),
-            value(row, "source_recording"),
-            value(row, "allas_filename"),
-        )
-        if item
-    )
+    """Stable readable ID using fields that actually exist."""
+    candidates = ("new_id", "video_id", "country", "allas_filename")
+    return "|".join(value(row, key) for key in candidates if value(row, key))
