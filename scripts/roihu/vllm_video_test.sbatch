@@ -83,14 +83,17 @@ mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${DOWNLOAD_DIR}" "${HF_HOME}" "${TRANSFOR
 module --force purge
 module load python-vllm
 module load allas
-module load gcc/15.2.0 ffmpeg
+module load gcc/14.3.0 ffmpeg
+module list
 source "${VENV}/bin/activate"
 
 unset PYTHONPATH
 unset PYTHONHOME
 
-command -v ffmpeg >/dev/null 2>&1 || { echo "ERROR: ffmpeg not found" >&2; exit 2; }
-command -v ffprobe >/dev/null 2>&1 || { echo "ERROR: ffprobe not found" >&2; exit 2; }
+echo "ffmpeg path: $(command -v ffmpeg || true)"
+echo "ffprobe path: $(command -v ffprobe || true)"
+command -v ffmpeg >/dev/null 2>&1 || { echo "ERROR: ffmpeg not found after loading gcc/14.3.0 ffmpeg" >&2; module list >&2; exit 2; }
+command -v ffprobe >/dev/null 2>&1 || { echo "ERROR: ffprobe not found after loading gcc/14.3.0 ffmpeg" >&2; module list >&2; exit 2; }
 command -v rclone >/dev/null 2>&1 || { echo "ERROR: rclone not found; module load allas failed?" >&2; exit 2; }
 
 echo "============================================================"
