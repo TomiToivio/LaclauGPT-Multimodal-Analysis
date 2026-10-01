@@ -40,7 +40,10 @@ fi
 
 : "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:?Set private runtime root}"
 : "${LACLAUGPT_VLLM_TEST_INPUT_CSV:?Set prepared private ~10-video CSV}"
-: "${ALLAS_BUCKET:?Set the Allas bucket containing EP24 video objects}"
+# ALLAS_BUCKET is optional for issue #24 because the prepared EP24 sample normally
+# carries full HTTP(S) allas_filename URLs. It is only required for rows that
+# contain a bucket-relative object key instead of a full URL.
+ALLAS_BUCKET="${ALLAS_BUCKET:-}"
 
 PRIVATE_ROOT="${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
 VENV="${LACLAUGPT_VLLM_TEST_VENV:-${PRIVATE_ROOT}/.venv-roihu-vllm}"
@@ -99,7 +102,11 @@ echo "output CSV   : ${OUTPUT_CSV}"
 echo "python log   : ${LOG_PATH}"
 echo "work dir     : ${DOWNLOAD_DIR}"
 echo "model        : ${MODEL}"
-echo "Allas remote : ${RCLONE_REMOTE}:<bucket hidden from banner>"
+if [[ -n "${ALLAS_BUCKET}" ]]; then
+  echo "Allas remote : ${RCLONE_REMOTE}:<configured bucket>"
+else
+  echo "Allas remote : full per-row allas_filename URL (ALLAS_BUCKET not required)"
+fi
 echo "initial skip : 1.0 s (mandatory)"
 echo "============================================================"
 
