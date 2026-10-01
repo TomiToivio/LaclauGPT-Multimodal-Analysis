@@ -25,8 +25,7 @@ RESEARCHER_COLUMNS = (
 )
 MODEL_PREFIXES = (
     "whisper_", "ocr_", "frame_", "video_", "summary_", "laclau_",
-    "formula_of_populism_", "dna_", "sna_", "rdf_", "codebook_", "memory_", "rag_",
-    "entity_normalization_", "theme_normalization_", "context_",
+    "formula_of_populism_", "dna_", "sna_", "rdf_", "codebook_", "memory_", "rag_",\n    "entity_normalization_", "theme_normalization_", "context_",
 )
 
 
@@ -123,8 +122,7 @@ def metadata_context(row: pd.Series, *, include_model_fields: bool = True) -> st
             "UPSTREAM MODEL / ENRICHMENT CONTEXT (derived, not human ground truth):",
             *(model_lines or ["- <none>"]),
         ])
-    return "
-".join(parts)
+    return "\n".join(parts)
 
 
 def media_key(row: pd.Series) -> str:
