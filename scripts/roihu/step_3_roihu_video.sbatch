@@ -12,7 +12,6 @@
 #SBATCH --time=04:00:00
 #SBATCH --mail-type=ALL
 set -euo pipefail
-: "${LACLAUGPT_VLLM_TEST_INPUT_CSV:?Set private EP24 input CSV path}"
 PUBLIC_ROOT=${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-/scratch/project_2009497/LaclauGPT-Multimodal-Analysis}
 PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:-/scratch/project_2009497/LaclauGPT-Private/ep24_reprocess}
 VENV=${LACLAUGPT_VLLM_TEST_VENV:-${PRIVATE_ROOT}/.venv-roihu-vllm}
@@ -28,4 +27,4 @@ if [[ -x "${VENV}/bin/python" ]]; then source "${VENV}/bin/activate"; fi
 unset PYTHONPATH
 unset PYTHONHOME
 cd "${PRIVATE_ROOT}"
-srun --ntasks=1 python3 "${PUBLIC_ROOT}/step_3_roihu_video.py"
+srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 3 --script "${PUBLIC_ROOT}/step_3_roihu_video.py"
