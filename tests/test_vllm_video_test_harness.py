@@ -261,3 +261,61 @@ def test_secret_redaction_handles_strings_and_diagnostic_objects():
     assert "hunter2" not in module.redact_sensitive("password=hunter2")
     assert "alice:secret" not in module.redact_sensitive("https://alice:secret@example.test/x")
     assert "finish_reason" in module.redact_sensitive({"finish_reason": "stop"})
+
+
+def test_structured_output_extracts_human_readable_markdown():
+    module = _load_module()
+    raw = '{"analysis_markdown":"## Result\\nUseful text","SCROLL":false,"SCROLL_SECONDS":[]}'
+    analysis, structured_json, status, error = module.parse_structured_output(raw)
+    assert analysis == "## Result\nUseful text"
+    assert structured_json == raw
+    assert status == "ok"
+    assert error == ""
+
+
+def test_structured_output_requires_analysis_markdown():
+    module = _load_module()
+    raw = '{"SCROLL":false,"SCROLL_SECONDS":[]}'
+    analysis, structured_json, status, error = module.parse_structured_output(raw)
+    assert analysis == raw
+    assert structured_json == raw
+    assert status == "parse_failed"
+    assert "analysis_markdown" in error
+
+
+def test_video_api_aliases_resolve_to_internal_shapes():
+    module = _load_module()
+    logger = module.logging.getLogger("test-video-api-aliases")
+    assert module.resolve_video_api("legacy", logger) == "direct"
+    assert module.resolve_video_api("modern", logger) == "mm_processor_kwargs"
+
+
+def test_legacy_video_request_unpacks_two_value_qwen_result(monkeypatch):
+    module = _load_module()
+
+    class Processor:
+        def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+            return "prompt"
+
+    class FakeQwen:
+        @staticmethod
+        def process_vision_info(messages, image_patch_size=16):
+            return ["image"], ["video"]
+
+    monkeypatch.setitem(sys.modules, "qwen_vl_utils", FakeQwen)
+    request = module.prepare_vllm_request(
+        [{"role": "user", "content": []}],
+        Processor(),
+        module.logging.getLogger("test-legacy-video"),
+        video_api="legacy",
+    )
+    assert request["prompt"] == "prompt"
+    assert request["multi_modal_data"]["image"] == ["image"]
+    assert request["multi_modal_data"]["video"] == ["video"]
+    assert "mm_processor_kwargs" not in request
+
+
+def test_guided_schema_matches_structured_output_contract():
+    module = _load_module()
+    assert module.guided_decoding_schema() == module.STRUCTURED_OUTPUT_SCHEMA
+    assert "analysis_markdown" in module.guided_decoding_schema()["required"]
