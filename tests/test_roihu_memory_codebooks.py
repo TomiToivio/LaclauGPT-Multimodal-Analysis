@@ -182,7 +182,20 @@ def test_memory_schema_migration_creates_backup_and_temporal_columns(tmp_path):
     with memory.connect() as db:
         columns = {row[1] for row in db.execute("PRAGMA table_info(objects)")}
         assert {"valid_from", "valid_to"}.issubset(columns)
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        # A v1 database migrates all the way to the current version, not to the
+        # version that happened to be current when this test was written. The
+        # literal `== 2` here went stale the moment #74 added the v3 `relations`
+        # table, and it failed on `main` until this was fixed. Asserting against
+        # SCHEMA_VERSION keeps the test about the *migration*, which is what it
+        # is named for, instead of about a number that moves.
+        from roihu_memory import SCHEMA_VERSION
+
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        # The v3 upgrade specifically adds the electoral-relation table (#74);
+        # a migration that reached the version without creating it would leave
+        # `add_relation` failing at runtime on any migrated database.
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "relations" in tables, "v3 migration must create the relations table"
 
 
 def test_proposal_shard_merge_is_deterministic_and_idempotent(tmp_path):
