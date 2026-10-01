@@ -134,7 +134,9 @@ def normalize_scroll_metadata(scroll: bool, seconds) -> dict[str, object]:
         if timestamp > VIDEO_INITIAL_SKIP_SECONDS:
             parsed.append(round(timestamp, 3))
     parsed = sorted(set(parsed))
-    return {"SCROLL": bool(scroll and parsed), "SCROLL_SECONDS": parsed}
+    if not scroll or not parsed:
+        return {"SCROLL": False, "SCROLL_SECONDS": []}
+    return {"SCROLL": True, "SCROLL_SECONDS": parsed}
 
 
 def parse_scroll_metadata(text: str) -> dict[str, object]:
@@ -216,3 +218,40 @@ def derived_segment_id(
     """Stable identifier for a derived clip, preserving parent provenance."""
     safe_parent = re.sub(r"[^A-Za-z0-9._-]+", "_", str(parent_id)).strip("_") or "clip"
     return f"{safe_parent}__resplit-{index:02d}__{start:.3f}-{end:.3f}s"
+
+
+def derived_rows(
+    source_row: dict,
+    duration_seconds: float,
+    scroll_seconds,
+    *,
+    parent_id: str,
+    resplit_depth: int = 0,
+) -> list[dict]:
+    """Copy source metadata into deterministic child-row plans.
+
+    This function plans the CSV/Pandas provenance contract without editing media.
+    Every child keeps all original fields, including source URL and legacy
+    columns, and receives additive resplit metadata.
+    """
+    plan = split_plan(
+        duration_seconds,
+        scroll_seconds,
+        resplit_depth=resplit_depth,
+    )
+    children: list[dict] = []
+    for index, (start, end) in enumerate(plan, start=1):
+        child = dict(source_row)
+        child["resplit_parent_id"] = str(parent_id)
+        child["resplit_depth"] = int(resplit_depth) + 1
+        child["resplit_segment_index"] = index
+        child["resplit_start_seconds"] = start
+        child["resplit_end_seconds"] = end
+        child["resplit_derived_id"] = derived_segment_id(
+            parent_id,
+            index,
+            start,
+            end,
+        )
+        children.append(child)
+    return children
