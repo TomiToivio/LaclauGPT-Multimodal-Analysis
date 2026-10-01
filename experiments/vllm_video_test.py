@@ -22,10 +22,13 @@ exact backend path and the Roihu version caveats.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import logging
 import os
 import platform
 import random
+import re
 import shutil
 import socket
 import subprocess
@@ -76,6 +79,23 @@ OUTPUT_COLUMNS = (
     "SCROLL_SECONDS",
     "needs_resplit",
     "video_initial_skip_seconds",
+    # Added for the Laskin feasibility experiment (issue #32) so the same
+    # harness can produce a like-for-like Roihu vs Laskin comparison. These
+    # are purely additive: every column above is unchanged.
+    "vllm_video_api",
+    "vllm_video_analysis_path",
+    "vllm_video_source_duration_seconds",
+    "vllm_video_analyzed_duration_seconds",
+    "vllm_video_inference_seconds",
+    "vllm_video_prompt_hash",
+    "vllm_version",
+    "vllm_torch_version",
+    "vllm_cuda_version",
+    "vllm_gpu_name",
+    "vllm_hostname",
+    "vllm_peak_gpu_memory_mb",
+    "vllm_structured_status",
+    "vllm_structured_output",
 )
 
 # Descriptive, pre-discursive. This stage produces a video *evidence
@@ -153,6 +173,29 @@ def setup_logging(log_path: Path) -> logging.Logger:
     return logger
 
 
+_SECRET_KEY_VALUE_RE = re.compile(
+    r"(?i)\b(aws_access_key_id|aws_secret_access_key|access_key|secret_key|"
+    r"api_key|token|password|passwd)\s*[:=]\s*\S+"
+)
+_BASIC_AUTH_URL_RE = re.compile(r"://[^/\s:@]+:[^/\s:@]+@")
+
+
+def redact_secret_like(text: str) -> str:
+    """Mask obvious credential-shaped substrings before they reach a log line.
+
+    This is a best-effort backstop over free-form subprocess output (rclone,
+    ffprobe), never a substitute for not reading/logging secrets in the first
+    place. The harness itself never reads credentials.
+    """
+    if not text:
+        return text
+    redacted = _SECRET_KEY_VALUE_RE.sub(
+        lambda m: f"{m.group(1)}=<redacted>", text
+    )
+    redacted = _BASIC_AUTH_URL_RE.sub("://<redacted>@", redacted)
+    return redacted
+
+
 def _run_capture(command: list[str]) -> str:
     """Run a helper command and return its output, or a note on why it failed."""
     try:
@@ -160,7 +203,7 @@ def _run_capture(command: list[str]) -> str:
     except Exception as exc:  # noqa: BLE001 - diagnostics must never be fatal
         return f"<{command[0]} unavailable: {exc}>"
     output = (result.stdout or "") + (result.stderr or "")
-    return output.strip() or f"<{command[0]} produced no output>"
+    return redact_secret_like(output.strip()) or f"<{command[0]} produced no output>"
 
 
 def log_environment(logger: logging.Logger) -> None:
@@ -176,12 +219,84 @@ def log_environment(logger: logging.Logger) -> None:
     logger.info("platform           : %s", platform.platform())
     logger.info("machine            : %s", platform.machine())
     logger.info("cwd                : %s", Path.cwd())
+    logger.info("git_commit_sha     : %s", git_commit_sha())
     logger.info("gpu_query          : %s", _run_capture([
         "nvidia-smi",
         "--query-gpu=name,memory.total,memory.used,driver_version",
         "--format=csv,noheader",
     ]))
     logger.info("=== end environment ===")
+
+
+def git_commit_sha() -> str:
+    """Best-effort commit SHA for reproducibility provenance. Never fatal."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(Path(__file__).resolve().parents[1]), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:  # noqa: BLE001 - diagnostics must never be fatal
+        return "<unknown>"
+    sha = (result.stdout or "").strip()
+    return sha or "<unknown>"
+
+
+def gpu_name_from_nvidia_smi() -> str:
+    """First GPU name reported by nvidia-smi, or a placeholder if unavailable."""
+    output = _run_capture(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"])
+    first_line = output.splitlines()[0].strip() if output.strip() else ""
+    return first_line or "<unavailable>"
+
+
+def collect_runtime_versions(logger: logging.Logger) -> dict[str, str]:
+    """Collect the version fields needed for the Roihu vs Laskin comparison.
+
+    Every lookup is independently guarded: a missing package on one host must
+    not hide the versions that *are* available, and must never raise.
+    """
+    info: dict[str, str] = {
+        "vllm_version": "<unavailable>",
+        "torch_version": "<unavailable>",
+        "cuda_version": "<unavailable>",
+        "gpu_name": gpu_name_from_nvidia_smi(),
+        "hostname": socket.gethostname(),
+    }
+    try:
+        import vllm
+
+        info["vllm_version"] = getattr(vllm, "__version__", "<unknown>")
+    except Exception as exc:  # noqa: BLE001 - diagnostics only
+        logger.debug("vllm introspection unavailable: %s", exc)
+    try:
+        import torch
+
+        info["torch_version"] = torch.__version__
+        info["cuda_version"] = getattr(torch.version, "cuda", "<unknown>") or "<unknown>"
+    except Exception as exc:  # noqa: BLE001 - diagnostics only
+        logger.debug("torch introspection unavailable: %s", exc)
+    return info
+
+
+def peak_gpu_memory_mb() -> str:
+    """Peak allocated CUDA memory across visible devices, in MB. Never fatal."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return ""
+        total_bytes = sum(
+            torch.cuda.max_memory_allocated(i) for i in range(torch.cuda.device_count())
+        )
+        return f"{total_bytes / (1024 * 1024):.1f}"
+    except Exception:  # noqa: BLE001 - diagnostics must never be fatal
+        return ""
+
+
+def prompt_hash(prompt: str) -> str:
+    """Short stable hash identifying the exact researcher prompt used."""
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
 
 
 # --------------------------------------------------------------------------- #
@@ -313,6 +428,27 @@ def probe_video_metadata(local_path: Path, logger: logging.Logger) -> dict[str, 
     return {"probe": output[:1000]}
 
 
+def probe_duration_seconds(local_path: Path) -> str:
+    """Container duration in seconds via ffprobe, or '' if unavailable.
+
+    Used for both the source and the trimmed analysis clip so the CSV carries
+    both durations for the Roihu vs Laskin comparison (issue #32).
+    """
+    if shutil.which("ffprobe") is None or not local_path.is_file():
+        return ""
+    output = _run_capture([
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(local_path),
+    ])
+    try:
+        return f"{float(output.strip()):.3f}"
+    except (TypeError, ValueError):
+        return ""
+
+
 # --------------------------------------------------------------------------- #
 # vLLM / Qwen3-VL
 # --------------------------------------------------------------------------- #
@@ -383,36 +519,67 @@ def build_video_messages(local_path: Path, args: argparse.Namespace) -> list[dic
     ]
 
 
-def prepare_vllm_request(messages: list[dict], processor, logger: logging.Logger) -> dict:
+DEFAULT_VIDEO_API = "mm_processor_kwargs"
+
+
+def prepare_vllm_request(
+    messages: list[dict],
+    processor,
+    logger: logging.Logger,
+    video_api: str = DEFAULT_VIDEO_API,
+) -> dict:
     """Turn chat messages into a vLLM generate input with video mm_data.
 
-    Qwen3-VL wants ``image_patch_size=16`` and ``return_video_metadata=True``;
-    `process_vision_info` then returns per-video metadata that must travel with
-    the request as ``mm_processor_kwargs``. The observed shape is logged so a
-    Roihu/vLLM difference is visible rather than hidden.
+    Two API variants are supported, selected by ``video_api``. The analysis
+    contract (prompt, messages, output schema) is identical either way; only
+    the shape handed to vLLM differs, matching the measured feasibility result
+    from issue TomiToivio/LaclauGPT-Multimodal-Analysis#32.
+
+    * ``mm_processor_kwargs`` (default, Roihu/current vLLM): Qwen3-VL wants
+      ``image_patch_size=16`` and ``return_video_metadata=True``;
+      `process_vision_info` then returns per-video metadata that must travel
+      with the request as ``mm_processor_kwargs``.
+    * ``direct`` (Laskin/vLLM 0.8.5-era, Qwen2.5-VL): the older
+      `process_vision_info` does not accept ``return_video_metadata`` and
+      passing ``video_metadata`` inside ``mm_processor_kwargs`` raises
+      ``TypeError: unhashable type: 'dict'``. The video tensor is passed to
+      vLLM directly instead.
     """
     from qwen_vl_utils import process_vision_info
 
     prompt = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    image_inputs, video_inputs, video_kwargs = process_vision_info(
-        messages,
-        image_patch_size=16,
-        return_video_kwargs=True,
-        return_video_metadata=True,
-    )
 
-    mm_data: dict = {}
-    if image_inputs is not None:
-        mm_data["image"] = image_inputs
-    if video_inputs is not None:
-        # Qwen3-VL yields (video, metadata) pairs; split them for vLLM.
-        videos, video_metadatas = zip(*video_inputs)
-        mm_data["video"] = list(videos)
-        video_kwargs = dict(video_kwargs or {})
-        video_kwargs["video_metadata"] = list(video_metadatas)
+    if video_api == "direct":
+        image_inputs, video_inputs, video_kwargs = process_vision_info(
+            messages,
+            image_patch_size=16,
+            return_video_kwargs=True,
+        )
+        mm_data: dict = {}
+        if image_inputs is not None:
+            mm_data["image"] = image_inputs
+        if video_inputs is not None:
+            mm_data["video"] = video_inputs
+    else:
+        image_inputs, video_inputs, video_kwargs = process_vision_info(
+            messages,
+            image_patch_size=16,
+            return_video_kwargs=True,
+            return_video_metadata=True,
+        )
+        mm_data = {}
+        if image_inputs is not None:
+            mm_data["image"] = image_inputs
+        if video_inputs is not None:
+            # Qwen3-VL yields (video, metadata) pairs; split them for vLLM.
+            videos, video_metadatas = zip(*video_inputs)
+            mm_data["video"] = list(videos)
+            video_kwargs = dict(video_kwargs or {})
+            video_kwargs["video_metadata"] = list(video_metadatas)
 
     logger.debug(
-        "prepared request: video_parts=%s mm_processor_kwargs_keys=%s",
+        "prepared request: video_api=%s video_parts=%s mm_processor_kwargs_keys=%s",
+        video_api,
         len(mm_data.get("video", [])),
         sorted((video_kwargs or {}).keys()),
     )
@@ -437,6 +604,58 @@ def generate_stub(local_path: Path, model: str) -> str:
     )
 
 
+def guided_decoding_schema() -> dict:
+    """JSON schema matching the mandatory SCROLL/SCROLL_SECONDS tail of the prompt."""
+    return {
+        "type": "object",
+        "properties": {
+            "SCROLL": {"type": "boolean"},
+            "SCROLL_SECONDS": {"type": "array", "items": {"type": "number"}},
+        },
+        "required": ["SCROLL", "SCROLL_SECONDS"],
+    }
+
+
+def attempt_structured_output(
+    analysis_path: Path,
+    args: argparse.Namespace,
+    llm,
+    processor,
+    logger: logging.Logger,
+) -> tuple[str, str]:
+    """Best-effort guided-JSON re-generation. Never fatal; mirrors issue #32 section 11.
+
+    Structured decoding is optional and must never block the experiment: the
+    free-text analysis is already captured by `analyze_one_video` regardless of
+    this function's outcome.
+
+    Returns ``(status, output_text)`` where status is one of ``disabled``
+    (flag not passed), ``skipped_stub`` (no real model loaded), ``ok``, or
+    ``unsupported: <reason>``.
+    """
+    if args.model_backend == "stub":
+        return "skipped_stub", ""
+    if not args.structured_output:
+        return "disabled", ""
+    try:
+        from vllm import SamplingParams as VllmSamplingParams
+        from vllm.sampling_params import GuidedDecodingParams
+
+        messages = build_video_messages(analysis_path, args)
+        request = prepare_vllm_request(messages, processor, logger, video_api=args.video_api)
+        structured_params = VllmSamplingParams(
+            temperature=args.temperature,
+            top_p=args.top_p,
+            max_tokens=args.max_tokens,
+            guided_decoding=GuidedDecodingParams(json=guided_decoding_schema()),
+        )
+        outputs = llm.generate([request], sampling_params=structured_params)
+        return "ok", outputs[0].outputs[0].text
+    except Exception as exc:  # noqa: BLE001 - optional path, never fatal
+        logger.warning("structured output unsupported: %s: %s", type(exc).__name__, exc)
+        return f"unsupported: {type(exc).__name__}: {exc}", ""
+
+
 def analyze_one_video(
     local_path: Path,
     args: argparse.Namespace,
@@ -450,7 +669,7 @@ def analyze_one_video(
         return generate_stub(local_path, args.model)
 
     messages = build_video_messages(local_path, args)
-    request = prepare_vllm_request(messages, processor, logger)
+    request = prepare_vllm_request(messages, processor, logger, video_api=args.video_api)
     outputs = llm.generate([request], sampling_params=sampling_params)
     return outputs[0].outputs[0].text
 
@@ -484,6 +703,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Model.
     parser.add_argument("--model", default=os.environ.get("LACLAUGPT_VLLM_TEST_MODEL", DEFAULT_MODEL))
     parser.add_argument("--model-backend", choices=("vllm", "stub"), default="vllm")
+    parser.add_argument(
+        "--video-api",
+        choices=("mm_processor_kwargs", "direct"),
+        default=os.environ.get("LACLAUGPT_VLLM_TEST_VIDEO_API", DEFAULT_VIDEO_API),
+        help=(
+            "vLLM multi-modal request shape. 'mm_processor_kwargs' is the "
+            "Roihu/current-vLLM default (Qwen3-VL). 'direct' is the Laskin/"
+            "vLLM-0.8.5-era path (Qwen2.5-VL): see issue #32."
+        ),
+    )
+    parser.add_argument(
+        "--structured-output",
+        action="store_true",
+        help="Attempt vLLM guided/structured JSON decoding in addition to free text.",
+    )
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     parser.add_argument("--max-model-len", type=int, default=32768)
     parser.add_argument("--max-tokens", type=int, default=2048)
@@ -510,7 +744,7 @@ def main(argv: list[str] | None = None) -> int:
     log_environment(logger)
     logger.info("=== configuration ===")
     for key, value in sorted(vars(args).items()):
-        logger.info("  %-24s %s", key, value)
+        logger.info("  %-24s %s", key, redact_secret_like(str(value)))
     logger.info("input_csv  : %s", input_csv)
     logger.info("output_csv : %s", output_csv)
     logger.info("log_path   : %s", log_path)
@@ -518,6 +752,14 @@ def main(argv: list[str] | None = None) -> int:
 
     df = load_input_csv(input_csv, logger)
     selected = select_sample(df, args.sample_size, args.seed, logger)
+
+    runtime_versions = collect_runtime_versions(logger)
+    logger.info("=== runtime versions (for Roihu/Laskin comparison) ===")
+    for key, value in sorted(runtime_versions.items()):
+        logger.info("  %-14s %s", key, value)
+    prompt_version_hash = prompt_hash(VIDEO_PROMPT)
+    logger.info("  %-14s %s", "prompt_hash", prompt_version_hash)
+    logger.info("=== end runtime versions ===")
 
     # The processor is only needed for real inference; load it with the model so
     # a stub run needs neither transformers nor a GPU.
