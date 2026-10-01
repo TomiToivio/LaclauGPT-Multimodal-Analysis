@@ -22,12 +22,25 @@
 
 set -euo pipefail
 
-: "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:?Set public repo checkout path}"
+# Public checkout path is optional. Prefer an explicit override; otherwise
+# resolve the Git checkout from the directory where sbatch was submitted.
+# Slurm copies this script to /var/spool/slurmd, so BASH_SOURCE points at the
+# spool copy and cannot be used to discover the repository checkout.
+if [[ -n "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-}" ]]; then
+  PUBLIC_ROOT="${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}"
+else
+  SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
+  if command -v git >/dev/null 2>&1 && git -C "${SUBMIT_DIR}" rev-parse --show-toplevel >/dev/null 2>&1; then
+    PUBLIC_ROOT="$(git -C "${SUBMIT_DIR}" rev-parse --show-toplevel)"
+  else
+    PUBLIC_ROOT="${SUBMIT_DIR}"
+  fi
+fi
+
 : "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:?Set private runtime root}"
 : "${LACLAUGPT_VLLM_TEST_INPUT_CSV:?Set prepared private ~10-video CSV}"
 : "${ALLAS_BUCKET:?Set the Allas bucket containing EP24 video objects}"
 
-PUBLIC_ROOT="${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}"
 PRIVATE_ROOT="${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
 VENV="${LACLAUGPT_VLLM_TEST_VENV:-${PRIVATE_ROOT}/.venv-roihu-vllm}"
 MODEL="${LACLAUGPT_VLLM_TEST_MODEL:-Qwen/Qwen3-VL-8B-Instruct}"
@@ -50,7 +63,11 @@ export OMP_PROC_BIND=spread
 mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${DOWNLOAD_DIR}" "${HF_HOME}" "${TRANSFORMERS_CACHE}"
 
 [[ -f "${PUBLIC_ROOT}/experiments/vllm_video_test.py" ]] || {
-  echo "ERROR: experiment script missing under ${PUBLIC_ROOT}" >&2; exit 2; }
+  echo "ERROR: experiment script missing under detected public repo root: ${PUBLIC_ROOT}" >&2
+  echo "Submit from the LaclauGPT-Multimodal-Analysis checkout, or set" >&2
+  echo "LACLAUGPT_MULTIMODAL_PUBLIC_ROOT=/path/to/LaclauGPT-Multimodal-Analysis" >&2
+  exit 2
+}
 [[ -f "${LACLAUGPT_VLLM_TEST_INPUT_CSV}" ]] || {
   echo "ERROR: input CSV missing: ${LACLAUGPT_VLLM_TEST_INPUT_CSV}" >&2; exit 2; }
 [[ -x "${VENV}/bin/python" ]] || {
