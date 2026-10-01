@@ -54,8 +54,8 @@ from ep24_video import (
     prepare_analysis_clip,
 )
 from ep24_schema import (
-    EP24_REPROCESS_COLUMNS,
     REQUIRED_MEDIA_COLUMNS,
+    source_metadata,
     stable_source_id,
     value as ep24_value,
 )
@@ -399,8 +399,7 @@ def load_input_csv(input_csv: Path, logger: logging.Logger) -> pd.DataFrame:
     # dtype=str keeps identifiers byte-for-byte as stored.
     df = pd.read_csv(input_csv, dtype=str, keep_default_na=False)
     logger.info("read input CSV %s: %d rows x %d columns", input_csv, len(df), len(df.columns))
-    canonical_present = [name for name in EP24_REPROCESS_COLUMNS if name in df.columns]
-    logger.info("canonical EP24 metadata fields present: %s", canonical_present)
+    logger.info("EP24 source metadata fields present: %s", list(df.columns))
     if "allas_filename" not in df.columns:
         legacy_fallback = {"scrapedCountry", "authorUniqueId", "videoId"}
         if not legacy_fallback.issubset(df.columns):
@@ -672,13 +671,7 @@ def ep24_metadata_context(row: pd.Series | None) -> str:
     """Render real researcher-feed metadata for the model without inventing scraper fields."""
     if row is None:
         return ""
-    lines = []
-    for column in EP24_REPROCESS_COLUMNS:
-        if column not in row.index:
-            continue
-        value = str(row.get(column, "") or "").strip()
-        if value:
-            lines.append(f"- {column}: {value}")
+    lines = [f"- {column}: {value}" for column, value in source_metadata(row)]
     if not lines:
         return ""
     return (
@@ -1048,7 +1041,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for position, index in enumerate(selected, start=1):
         row = df.loc[index]
-        author = ep24_value(row, "author_username")
+        author = ep24_value(row, "new_id") or ep24_value(row, "video_filename")
         video_id = ep24_value(row, "video_id")
         object_path = derive_remote_path(row, args.allas_path_template)
         safe_object_path = redact_sensitive(object_path)
@@ -1058,13 +1051,12 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("  source_row_index  : %s", index)
         logger.info("  source_id         : %s", redact_sensitive(source_id))
         logger.info("  remote_object     : %s", safe_object_path)
-        for metadata_key in EP24_REPROCESS_COLUMNS:
-            if metadata_key in row.index:
-                logger.info(
-                    "  metadata.%-20s %s",
-                    metadata_key + ":",
-                    redact_sensitive(str(row.get(metadata_key, ""))[:500]),
-                )
+        for metadata_key, metadata_value in source_metadata(row):
+            logger.info(
+                "  metadata.%-20s %s",
+                metadata_key + ":",
+                redact_sensitive(metadata_value[:500]),
+            )
 
         record = {column: "" for column in OUTPUT_COLUMNS}
         record["vllm_video_model"] = args.model
