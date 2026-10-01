@@ -13,9 +13,9 @@ def test_canonical_skip_is_one_second():
     assert video.analysis_start_seconds() == 1.0
 
 
-def test_frame_sampling_starts_after_initial_scroll():
-    assert video.analysis_frame_times(100) == [1.0, 31.0, 61.0, 91.0]
-    assert all(t >= 1.0 for t in video.analysis_frame_times(180))
+def test_frame_sampling_is_exactly_one_frame_at_analysis_boundary():
+    assert video.analysis_frame_times(100) == [1.0]
+    assert video.analysis_frame_times(180) == [1.0]
 
 
 def test_short_clips_are_rejected_gracefully():
@@ -128,3 +128,14 @@ def test_legacy_dataframe_fields_are_not_removed():
     ]
     for field in legacy:
         assert field in source
+
+
+def test_numbered_steps_document_cumulative_one_frame_then_video_contract():
+    step1 = Path("step_1_roihu_preprocess.py").read_text(encoding="utf-8")
+    step2 = Path("step_2_roihu_frame.py").read_text(encoding="utf-8")
+    step3 = Path("step_3_roihu_video.py").read_text(encoding="utf-8")
+    assert "exactly one keyframe" in step1
+    assert "t=1.0s" in step2
+    assert "complete Step 2 dataframe" in step3
+    assert "LACLAUGPT_INPUT_CSV" in step3
+    assert "LACLAUGPT_OUTPUT_CSV" in step3
