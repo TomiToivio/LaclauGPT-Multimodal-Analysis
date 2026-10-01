@@ -104,8 +104,6 @@ OUTPUT_COLUMNS = (
     # harness can produce a like-for-like Roihu vs Laskin comparison. These
     # are purely additive: every column above is unchanged.
     "vllm_video_api",
-    "vllm_video_analysis_path",
-    "vllm_video_source_duration_seconds",
     "vllm_video_analyzed_duration_seconds",
     "vllm_video_inference_seconds",
     "vllm_video_prompt_hash",
