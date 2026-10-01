@@ -25,7 +25,8 @@ RESEARCHER_COLUMNS = (
 )
 MODEL_PREFIXES = (
     "whisper_", "ocr_", "frame_", "video_", "summary_", "laclau_",
-    "formula_of_populism_", "dna_", "sna_", "rdf_", "codebook_", "memory_", "rag_",\n    "entity_normalization_", "theme_normalization_", "context_",
+    "formula_of_populism_", "dna_", "sna_", "rdf_", "codebook_", "memory_", "rag_",
+    "entity_normalization_", "theme_normalization_", "context_",
 )
 
 
