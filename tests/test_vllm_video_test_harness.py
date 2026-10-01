@@ -62,9 +62,9 @@ def harness(tmp_path):
                 "researcher_new_persons": "",
                 "researcher_new_themes": "",
                 "researcher_note": f"synthetic researcher note {i}",
+                "future_added_field": f"upstream-{i}",
             }
         )
-    # One unusable row has neither canonical media key nor clip identifier.
     rows.append(
         {
             "country": "Finland",
@@ -82,6 +82,7 @@ def harness(tmp_path):
             "researcher_new_persons": "",
             "researcher_new_themes": "",
             "researcher_note": "unusable row",
+            "future_added_field": "still-preserved",
         }
     )
     input_csv = tmp_path / "input.csv"
@@ -169,8 +170,10 @@ def test_end_to_end_stub_run_preserves_columns_and_writes_log(harness):
     out = pd.read_csv(out_csv, dtype=str, keep_default_na=False)
 
     assert len(out) == 5
-    # Original columns survive untouched.
-    for column in module.EP24_REPROCESS_COLUMNS:
+    # Every actual source column survives untouched, including future fields
+    # unknown to the harness.
+    source_columns = list(pd.read_csv(input_csv, nrows=0).columns)
+    for column in source_columns:
         assert column in out.columns
     # Experimental columns are appended.
     for column in module.OUTPUT_COLUMNS:
@@ -370,8 +373,10 @@ def test_prompt_receives_real_researcher_feed_metadata(harness):
     text_part = messages[1]["content"][1]["text"]
     assert "EP24 SOURCE METADATA" in text_part
     assert f"- video_id: {row['video_id']}" in text_part
+    assert f"- author_username: {row['author_username']}" in text_part
     assert f"- source_recording: {row['source_recording']}" in text_part
     assert f"- researcher_note: {row['researcher_note']}" in text_part
+    assert "future_added_field" not in text_part
     assert "authorUniqueId" not in text_part
     assert "scrapedCountry" not in text_part
 
