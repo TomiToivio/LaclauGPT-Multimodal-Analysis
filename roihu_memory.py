@@ -21,8 +21,9 @@ from typing import Any
 
 KINDS = ("entity", "topic", "signifier", "target", "actor", "formation")
 STATES = ("CANONICAL", "PROVISIONAL", "MERGED", "DEPRECATED", "REJECTED")
+RELATION_TYPES = ("has_member", "candidate_on", "member_of_list", "eu_group")
 PREFIX = {"entity": "E", "topic": "T", "signifier": "S", "target": "C", "actor": "A", "formation": "F"}
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def now_iso() -> str:
@@ -162,6 +163,20 @@ class EP24Memory:
                     UNIQUE(obj_id,organization_id,organization_label,role,valid_from,valid_to),
                     FOREIGN KEY(obj_id) REFERENCES objects(obj_id)
                 );
+                CREATE TABLE IF NOT EXISTS relations(
+                    relation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subject_id TEXT NOT NULL, predicate TEXT NOT NULL, object_id TEXT NOT NULL,
+                    country TEXT NOT NULL DEFAULT '', election TEXT NOT NULL DEFAULT '',
+                    valid_from TEXT NOT NULL DEFAULT '', valid_to TEXT NOT NULL DEFAULT '',
+                    source_type TEXT NOT NULL DEFAULT '', source_ref TEXT NOT NULL DEFAULT '',
+                    source_language TEXT NOT NULL DEFAULT '', publication_date TEXT NOT NULL DEFAULT '',
+                    evidence_locator TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+                    UNIQUE(subject_id,predicate,object_id,country,election,valid_from,valid_to,source_ref,evidence_locator),
+                    FOREIGN KEY(subject_id) REFERENCES objects(obj_id),
+                    FOREIGN KEY(object_id) REFERENCES objects(obj_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_rel_subject ON relations(subject_id,predicate,country,election);
+                CREATE INDEX IF NOT EXISTS idx_rel_object ON relations(object_id,predicate,country,election);
                 CREATE TABLE IF NOT EXISTS proposals(
                     proposal_id TEXT PRIMARY KEY, kind TEXT NOT NULL, raw_label TEXT NOT NULL,
                     country TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT '',
@@ -465,6 +480,112 @@ class EP24Memory:
                 (obj_id, organization_id, organization_label, role, valid_from, valid_to, source_ref),
             )
 
+    def add_relation(
+        self,
+        subject_id: str,
+        predicate: str,
+        object_id: str,
+        *,
+        country: str = "",
+        election: str = "",
+        valid_from: str = "",
+        valid_to: str = "",
+        source_type: str = "",
+        source_ref: str = "",
+        source_language: str = "",
+        publication_date: str = "",
+        evidence_locator: str = "",
+    ) -> None:
+        """Add a source-backed, time-scoped background relation.
+
+        Relations never imply that either endpoint was observed in the current
+        source item. They exist to disambiguate and enrich already-resolved
+        evidence, especially electoral lists and coalitions.
+        """
+        if predicate not in RELATION_TYPES:
+            raise ValueError(f"unsupported relation predicate: {predicate}")
+        with self.connect() as db:
+            for obj_id in (subject_id, object_id):
+                if not db.execute("SELECT 1 FROM objects WHERE obj_id=?", (obj_id,)).fetchone():
+                    raise KeyError(obj_id)
+            db.execute(
+                """INSERT OR IGNORE INTO relations(
+                    subject_id,predicate,object_id,country,election,valid_from,valid_to,
+                    source_type,source_ref,source_language,publication_date,evidence_locator,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    subject_id, predicate, object_id, country.upper(), election,
+                    valid_from, valid_to, source_type, source_ref, source_language.lower(),
+                    publication_date, evidence_locator, now_iso(),
+                ),
+            )
+
+    def related_context(
+        self,
+        obj_id: str,
+        *,
+        country: str = "",
+        election: str = "",
+        at_date: str = "",
+    ) -> list[dict[str, Any]]:
+        """Return relation context without promoting related objects to evidence."""
+        with self.connect() as db:
+            if not db.execute("SELECT 1 FROM objects WHERE obj_id=?", (obj_id,)).fetchone():
+                raise KeyError(obj_id)
+            rows = db.execute(
+                """SELECT r.*, s.canonical_label AS subject_label, s.entity_type AS subject_type,
+                          o.canonical_label AS object_label, o.entity_type AS object_type
+                   FROM relations r
+                   JOIN objects s ON s.obj_id=r.subject_id
+                   JOIN objects o ON o.obj_id=r.object_id
+                   WHERE r.subject_id=? OR r.object_id=?
+                   ORDER BY r.predicate, r.subject_id, r.object_id, r.relation_id""",
+                (obj_id, obj_id),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            if country and row["country"] not in ("", country.upper()):
+                continue
+            if election and row["election"] not in ("", election):
+                continue
+            if at_date:
+                if row["valid_from"] and at_date < row["valid_from"]:
+                    continue
+                if row["valid_to"] and at_date > row["valid_to"]:
+                    continue
+            item = dict(row)
+            item["evidence_role"] = "background_relation_not_observed_evidence"
+            item["observed_in_current_item"] = False
+            out.append(item)
+        return out
+
+    def resolve_with_relations(
+        self,
+        raw: str,
+        kind: str,
+        *,
+        country: str = "",
+        language: str = "",
+        election: str = "",
+        at_date: str = "",
+    ) -> dict[str, Any]:
+        """Resolve one observed mention and attach non-evidentiary relation context."""
+        resolved = self.resolve_identity(raw, kind, country=country, language=language)
+        relations: list[dict[str, Any]] = []
+        if resolved["decision"] == "EXISTING" and resolved["obj_id"]:
+            relations = self.related_context(
+                resolved["obj_id"], country=country, election=election, at_date=at_date
+            )
+        return {
+            **resolved,
+            "observed_in_current_item": resolved["decision"] == "EXISTING",
+            "related_context": relations,
+            "prompt_firewall": (
+                "Background relations may disambiguate observed evidence but must never "
+                "create actor/entity evidence that is absent from the current source item."
+            ),
+        }
+
     def add_crosswalk(self, external_id: str, obj_id: str, *, reason: str) -> None:
         """Map an upstream/codebook identifier to the actual resolved EP24 object."""
         if not external_id:
@@ -622,7 +743,7 @@ class EP24Memory:
         directory.mkdir(parents=True, exist_ok=True)
         outputs = []
         with self.connect() as db:
-            for table in ("objects", "aliases", "redirects", "id_crosswalk", "provenance", "affiliations", "proposals", "audit_log"):
+            for table in ("objects", "aliases", "redirects", "id_crosswalk", "provenance", "affiliations", "relations", "proposals", "audit_log"):
                 rows = list(db.execute(f"SELECT * FROM {table}"))
                 path = directory / f"memory_{table}.csv"
                 with path.open("w", encoding="utf-8", newline="") as fh:
