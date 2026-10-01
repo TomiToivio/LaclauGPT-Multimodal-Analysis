@@ -37,7 +37,7 @@ def test_analysis_clip_is_deterministic_and_non_destructive():
 def test_scroll_schema_false_has_empty_timestamps():
     assert video.normalize_scroll_metadata(False, [8.4]) == {
         "SCROLL": False,
-        "SCROLL_SECONDS": [8.4],
+        "SCROLL_SECONDS": [],
     }
     parsed = video.parse_scroll_metadata(
         'description\\n{"SCROLL": false, "SCROLL_SECONDS": []}'
@@ -91,6 +91,24 @@ def test_vllm_prompt_and_output_expose_scroll_contract():
     assert '"needs_resplit"' in source
     assert "known initial" in source
     assert "feed-scroll" in source
+
+
+def test_resplit_rows_copy_source_url_and_legacy_metadata():
+    source = {
+        "source_url": "https://example.invalid/video/123",
+        "whisperResult": "legacy transcript",
+        "videoId": "123",
+    }
+    children = video.derived_rows(
+        source,
+        30,
+        [8.4],
+        parent_id="alice/123",
+    )
+    assert len(children) == 2
+    assert all(row["source_url"] == source["source_url"] for row in children)
+    assert all(row["whisperResult"] == "legacy transcript" for row in children)
+    assert all(row["resplit_parent_id"] == "alice/123" for row in children)
 
 
 def test_legacy_dataframe_fields_are_not_removed():
