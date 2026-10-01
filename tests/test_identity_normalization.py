@@ -203,3 +203,25 @@ def test_alias_map_uses_the_shared_key():
     _entries, meta = cb.load_profile(root, "FI")
     ambiguous = meta.get("ambiguous_forms") or []
     assert any("shared" in str(a).casefold() for a in ambiguous), meta
+
+
+# --------------------------------------------------------------------------- #
+# Croatia (#72): diacritics and country profile are deliberate constraints
+# --------------------------------------------------------------------------- #
+
+def test_croatian_diacritics_are_not_silently_collapsed():
+    """HR aliases may record ASCII spellings, but identity keeps orthography."""
+    for canonical, ascii_variant in (
+        ("Možemo!", "Mozemo!"),
+        ("Željana Zovko", "Zeljana Zovko"),
+        ("Sunčana Glavak", "Suncana Glavak"),
+        ("Božo Petrov", "Bozo Petrov"),
+    ):
+        assert cb.identity_key(canonical) != cb.identity_key(ascii_variant)
+
+
+def test_croatia_profile_is_country_scoped_and_bilingual():
+    profile = cb.COUNTRY_PROFILES["HR"]
+    assert profile["country"] == "Croatia"
+    assert profile["languages"] == ["hr", "en"]
+    assert profile["file"] == "ep24_hr_private.json"
