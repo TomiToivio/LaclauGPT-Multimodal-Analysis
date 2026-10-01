@@ -175,6 +175,10 @@ def test_end_to_end_stub_run_preserves_columns_and_writes_log(harness):
     assert "python_version" in log
     assert "raw_response" in log
     assert "succeeded" in log
+    assert set(module.OUTPUT_COLUMNS).issubset(out.columns)
+    assert set(out["vllm_video_api"]) == {"mm_processor_kwargs"}
+    assert set(out["vllm_video_inference_seconds"]) == {"0.000"}
+    assert out["vllm_video_prompt_hash"].str.len().eq(12).all()
 
 
 def test_one_missing_video_does_not_abort_the_sample(harness):
@@ -248,5 +252,12 @@ def test_script_does_not_touch_pipeline_or_ollama(harness):
 
 def test_output_columns_are_unique():
     """The shared Roihu/Laskin CSV contract must not contain duplicate headers."""
-    module = load_module()
+    module = _load_module()
     assert len(module.OUTPUT_COLUMNS) == len(set(module.OUTPUT_COLUMNS))
+
+
+def test_secret_redaction_handles_strings_and_diagnostic_objects():
+    module = _load_module()
+    assert "hunter2" not in module.redact_sensitive("password=hunter2")
+    assert "alice:secret" not in module.redact_sensitive("https://alice:secret@example.test/x")
+    assert "finish_reason" in module.redact_sensitive({"finish_reason": "stop"})

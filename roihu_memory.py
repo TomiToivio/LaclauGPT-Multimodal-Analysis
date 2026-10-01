@@ -13,6 +13,7 @@ import hashlib
 import json
 import sqlite3
 import unicodedata
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -105,7 +106,9 @@ class EP24Memory:
         tmp = target.with_suffix(target.suffix + ".tmp")
         if tmp.exists():
             tmp.unlink()
-        with self.connect() as src, sqlite3.connect(tmp) as dst:
+        # sqlite3.Connection context managers commit/rollback but do not close.
+        # Close both handles before os.replace; Windows otherwise keeps tmp locked.
+        with closing(self.connect()) as src, closing(sqlite3.connect(tmp)) as dst:
             src.backup(dst)
         tmp.replace(target)
         return target
@@ -606,7 +609,9 @@ class EP24Memory:
         tmp = target.with_suffix(target.suffix + ".tmp")
         if tmp.exists():
             tmp.unlink()
-        with self.connect() as src, sqlite3.connect(tmp) as dst:
+        # sqlite3.Connection context managers commit/rollback but do not close.
+        # Close both handles before os.replace; Windows otherwise keeps tmp locked.
+        with closing(self.connect()) as src, closing(sqlite3.connect(tmp)) as dst:
             src.backup(dst)
         tmp.replace(target)
         return target

@@ -214,13 +214,16 @@ _SECRET_KEY_VALUE_RE = re.compile(
 _BASIC_AUTH_URL_RE = re.compile(r"://[^/\s:@]+:[^/\s:@]+@")
 
 
-def redact_secret_like(text: str) -> str:
+def redact_secret_like(text: object) -> str:
     """Mask obvious credential-shaped substrings before they reach a log line.
 
     This is a best-effort backstop over free-form subprocess output (rclone,
     ffprobe), never a substitute for not reading/logging secrets in the first
     place. The harness itself never reads credentials.
     """
+    if text is None:
+        return ""
+    text = str(text)
     if not text:
         return text
     redacted = _SECRET_KEY_VALUE_RE.sub(
@@ -228,6 +231,11 @@ def redact_secret_like(text: str) -> str:
     )
     redacted = _BASIC_AUTH_URL_RE.sub("://<redacted>@", redacted)
     return redacted
+
+
+# Backwards-compatible internal name retained for the older Roihu harness
+# call sites. Both hosts use the same redaction implementation.
+redact_sensitive = redact_secret_like
 
 
 def _run_capture(command: list[str]) -> str:
@@ -588,7 +596,7 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
         max_tokens=args.max_tokens,
     )
     structured_status = "off"
-    if args.structured_output == "json_schema":
+    if args.structured_output:
         try:
             from vllm.sampling_params import StructuredOutputsParams
 
@@ -780,13 +788,15 @@ def analyze_one_video(
     sampling_params,
     processor,
     logger: logging.Logger,
-) -> tuple[str, str]:
-    """Run whole-video analysis for one downloaded file and return the text."""
+) -> tuple[str, str, float]:
+    """Return analysis text, structured-output status, and inference seconds."""
     if args.model_backend == "stub":
-        return generate_stub(local_path, args.model), "off"
+        return generate_stub(local_path, args.model), "off", 0.0
 
     messages = build_video_messages(local_path, args)
     request = prepare_vllm_request(messages, processor, logger, video_api=args.video_api)
+    inference_started = time.monotonic()
+    logger.info("inference_start_utc=%s", datetime.now(timezone.utc).isoformat())
     outputs = llm.generate([request], sampling_params=sampling_params)
     inference_seconds = time.monotonic() - inference_started
     logger.info("inference_end_utc=%s inference_runtime_seconds=%.3f",
@@ -798,7 +808,7 @@ def analyze_one_video(
         "prompt_tokens": len(getattr(outputs[0], "prompt_token_ids", []) or []),
         "generated_tokens": len(getattr(completion, "token_ids", []) or []),
     }))
-    return completion.text, getattr(args, "structured_output_status", "off")
+    return completion.text, getattr(args, "structured_output_status", "off"), inference_seconds
 
 
 # --------------------------------------------------------------------------- #
@@ -936,7 +946,14 @@ def main(argv: list[str] | None = None) -> int:
 
         record = {column: "" for column in OUTPUT_COLUMNS}
         record["vllm_video_model"] = args.model
-        record["vllm_video_version"] = _package_version("vllm")
+        record["vllm_video_version"] = runtime_versions["vllm_version"]
+        record["vllm_video_api"] = args.video_api
+        record["vllm_version"] = runtime_versions["vllm_version"]
+        record["vllm_torch_version"] = runtime_versions["torch_version"]
+        record["vllm_cuda_version"] = runtime_versions["cuda_version"]
+        record["vllm_gpu_name"] = runtime_versions["gpu_name"]
+        record["vllm_hostname"] = runtime_versions["hostname"]
+        record["vllm_video_prompt_hash"] = prompt_version_hash
         record["vllm_video_selected_index"] = index
         record["vllm_video_source_row_index"] = index
         record["vllm_video_source_id"] = redact_sensitive(source_id)
@@ -1006,6 +1023,7 @@ def main(argv: list[str] | None = None) -> int:
                 analysis_metadata = probe_video_metadata(analysis_path, logger)
                 analysis_duration = float(analysis_metadata["duration_seconds"])
                 record["vllm_video_analysis_duration_seconds"] = str(analysis_duration)
+                record["vllm_video_analyzed_duration_seconds"] = str(analysis_duration)
                 expected_duration = source_duration - VIDEO_INITIAL_SKIP_SECONDS
                 tolerance = max(0.15, source_duration * 0.01)
                 if analysis_duration <= 0 or abs(analysis_duration - expected_duration) > tolerance:
@@ -1018,15 +1036,19 @@ def main(argv: list[str] | None = None) -> int:
                 logger.info("  analysis_path     : %s", analysis_path)
                 record["vllm_video_analysis_path"] = str(analysis_path)
             logger.info("  initial_skip_s    : %.1f", VIDEO_INITIAL_SKIP_SECONDS)
-            raw_output, structured_status = analyze_one_video(
+            raw_output, structured_status, inference_seconds = analyze_one_video(
                 analysis_path, args, llm, sampling_params, processor, logger
             )
+            record["vllm_video_inference_seconds"] = f"{inference_seconds:.3f}"
+            record["vllm_peak_gpu_memory_mb"] = peak_gpu_memory_mb()
+            record["vllm_structured_status"] = structured_status
             record["vllm_video_raw_output"] = redact_sensitive(raw_output)
             analysis = raw_output
             record["vllm_video_structured_output_status"] = structured_status
             if structured_status == "requested":
                 analysis, structured_json, parse_status, parse_error = parse_structured_output(raw_output)
                 record["vllm_video_structured_json"] = structured_json
+                record["vllm_structured_output"] = structured_json
                 record["vllm_video_structured_output_status"] = parse_status
                 record["vllm_video_structured_output_error"] = parse_error
                 logger.info("structured_parse_status=%s error=%s json=%s",

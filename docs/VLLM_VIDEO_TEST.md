@@ -545,3 +545,8 @@ and inspect the final CSV under:
 ```
 $LACLAUGPT_MULTIMODAL_PRIVATE_ROOT/csv/
 ```
+
+
+## Laskin fallback experiment
+
+For the measured Volta compatibility result, pinned fallback environment, and non-Slurm wrapper, see [LASKIN_VLLM_VIDEO_TEST.md](LASKIN_VLLM_VIDEO_TEST.md).
