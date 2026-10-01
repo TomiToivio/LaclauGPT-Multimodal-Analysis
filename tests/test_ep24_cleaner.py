@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
-from ep24_cleaner import (
+# `pytest -q tests/` (CI) does not put the repository root on sys.path, only
+# `python -m pytest` does. Sibling test modules already handle this the same
+# way; without it this module is a collection error that aborts the whole job.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from ep24_cleaner import (  # noqa: E402
     clean_dataframe,
     explicit_bool,
     merge_human_labels,

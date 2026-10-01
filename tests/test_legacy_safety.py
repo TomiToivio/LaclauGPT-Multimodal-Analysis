@@ -74,4 +74,9 @@ def test_preprocess_rejects_invalid_video_metadata() -> None:
     assert "if not video.isOpened():" in text
     assert "fps <= 0" in text
     assert "frame_count <= 0" in text
-    assert "if success and cv2.imwrite" in text
+    # The write guard is `if not cv2.imwrite(...)`. This assertion previously
+    # looked for `if success and cv2.imwrite`, which no version of this pipeline
+    # ever contained -- the write is guarded by its own return value, not by the
+    # read status -- so the check could not pass against the frozen `legacy`
+    # script or against its active `roihu_` successor.
+    assert "if not cv2.imwrite" in text

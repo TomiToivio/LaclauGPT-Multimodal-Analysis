@@ -248,5 +248,5 @@ def test_script_does_not_touch_pipeline_or_ollama(harness):
 
 def test_output_columns_are_unique():
     """The shared Roihu/Laskin CSV contract must not contain duplicate headers."""
-    module = load_module()
+    module = _load_module()
     assert len(module.OUTPUT_COLUMNS) == len(set(module.OUTPUT_COLUMNS))

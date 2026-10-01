@@ -214,7 +214,7 @@ _SECRET_KEY_VALUE_RE = re.compile(
 _BASIC_AUTH_URL_RE = re.compile(r"://[^/\s:@]+:[^/\s:@]+@")
 
 
-def redact_secret_like(text: str) -> str:
+def redact_sensitive(text: str) -> str:
     """Mask obvious credential-shaped substrings before they reach a log line.
 
     This is a best-effort backstop over free-form subprocess output (rclone,
@@ -237,7 +237,7 @@ def _run_capture(command: list[str]) -> str:
     except Exception as exc:  # noqa: BLE001 - diagnostics must never be fatal
         return redact_sensitive(f"<{command[0]} unavailable: {exc}>")
     output = (result.stdout or "") + (result.stderr or "")
-    return redact_secret_like(output.strip()) or f"<{command[0]} produced no output>"
+    return redact_sensitive(output.strip()) or f"<{command[0]} produced no output>"
 
 
 def log_environment(logger: logging.Logger) -> None:
@@ -284,6 +284,21 @@ def gpu_name_from_nvidia_smi() -> str:
     output = _run_capture(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"])
     first_line = output.splitlines()[0].strip() if output.strip() else ""
     return first_line or "<unavailable>"
+
+
+def _package_version(distribution: str) -> str:
+    """Installed version of a distribution, or a placeholder. Never raises.
+
+    Uses distribution metadata rather than importing the package, because
+    importing vLLM on a host where it is broken (Laskin/Volta, issue #32) would
+    turn a diagnostics lookup into a fatal error.
+    """
+    try:
+        from importlib.metadata import version
+
+        return version(distribution)
+    except Exception:  # noqa: BLE001 - diagnostics must never be fatal
+        return "<unavailable>"
 
 
 def collect_runtime_versions(logger: logging.Logger) -> dict[str, str]:
@@ -879,7 +894,7 @@ def main(argv: list[str] | None = None) -> int:
     log_environment(logger)
     logger.info("=== configuration ===")
     for key, value in sorted(vars(args).items()):
-        logger.info("  %-24s %s", key, redact_secret_like(str(value)))
+        logger.info("  %-24s %s", key, redact_sensitive(str(value)))
     logger.info("input_csv  : %s", input_csv)
     logger.info("output_csv : %s", output_csv)
     logger.info("log_path   : %s", log_path)
@@ -936,7 +951,17 @@ def main(argv: list[str] | None = None) -> int:
 
         record = {column: "" for column in OUTPUT_COLUMNS}
         record["vllm_video_model"] = args.model
-        record["vllm_video_version"] = _package_version("vllm")
+        record["vllm_video_version"] = runtime_versions["vllm_version"]
+        # Additive Laskin comparison fields (issue #32). These were collected
+        # into `runtime_versions` but never reached the row, so both hosts
+        # advertised the columns while writing them empty.
+        record["vllm_version"] = runtime_versions["vllm_version"]
+        record["vllm_torch_version"] = runtime_versions["torch_version"]
+        record["vllm_cuda_version"] = runtime_versions["cuda_version"]
+        record["vllm_gpu_name"] = runtime_versions["gpu_name"]
+        record["vllm_hostname"] = runtime_versions["hostname"]
+        record["vllm_peak_gpu_memory_mb"] = peak_gpu_memory_mb()
+        record["vllm_video_api"] = args.model_backend
         record["vllm_video_selected_index"] = index
         record["vllm_video_source_row_index"] = index
         record["vllm_video_source_id"] = redact_sensitive(source_id)
