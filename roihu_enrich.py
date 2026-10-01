@@ -15,6 +15,7 @@ from pathlib import Path
 
 from roihu_codebooks import COUNTRY_PROFILES, context_block, load_profile
 from roihu_memory import EP24Memory
+from roihu_identity import ENTITY_KINDS, SENTIMENT_KINDS, THEME_KINDS, resolve_many, seed_context_lines
 
 EP24_FILES = {
     "FI": ("ep24_fi.csv", "fi"),
@@ -40,6 +41,8 @@ def split_values(value) -> list[str]:
     text = str(value).strip()
     if not text:
         return []
+    for separator in ("\\n", ";", "|"):
+        text = text.replace(separator, ",")
     return [item.strip() for item in text.split(",") if item.strip()]
 
 
@@ -177,6 +180,10 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         "ep24_memory_entity_ids",
         "ep24_memory_topic_ids",
         "ep24_memory_unresolved_json",
+        "ep24_seed_entities_json",
+        "ep24_seed_themes_json",
+        "ep24_sentiment_targets_json",
+        "ep24_human_seed_context",
     )
     for column in new_columns:
         if column not in frame.columns:
@@ -187,6 +194,31 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         _block, selection = context_block(text, entries, country=country, language=language)
         frame.at[index, "ep24_codebook_fingerprint"] = profile["fingerprint"]
         frame.at[index, "ep24_codebook_context_json"] = json.dumps(selection, ensure_ascii=False, sort_keys=True)
+
+        entity_seed_values = [
+            *split_values(row.get("new_entity")),
+            *split_values(row.get("researcher_new_persons")),
+        ]
+        theme_seed_values = [
+            *split_values(row.get("new_theme")),
+            *split_values(row.get("researcher_new_themes")),
+        ]
+        entity_seeds = resolve_many(entity_seed_values, entries, country=country, kinds=ENTITY_KINDS)
+        theme_seeds = resolve_many(theme_seed_values, entries, country=country, kinds=THEME_KINDS)
+        sentiment_targets = []
+        for polarity in ("positive", "neutral", "negative"):
+            for result in resolve_many(split_values(row.get(polarity)), entries, country=country, kinds=SENTIMENT_KINDS):
+                sentiment_targets.append({"polarity": polarity, **result})
+
+        frame.at[index, "ep24_seed_entities_json"] = json.dumps(entity_seeds, ensure_ascii=False, sort_keys=True)
+        frame.at[index, "ep24_seed_themes_json"] = json.dumps(theme_seeds, ensure_ascii=False, sort_keys=True)
+        frame.at[index, "ep24_sentiment_targets_json"] = json.dumps(sentiment_targets, ensure_ascii=False, sort_keys=True)
+        seed_lines = [
+            "[EP24 HUMAN-INFORMED SEEDS] Contextual supervision only; verify every label from the current item.",
+            *seed_context_lines("entity/person", entity_seeds),
+            *seed_context_lines("theme", theme_seeds),
+        ]
+        frame.at[index, "ep24_human_seed_context"] = "\\n".join(seed_lines)
 
         entity_ids: list[str] = []
         topic_ids: list[str] = []
