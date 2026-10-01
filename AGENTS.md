@@ -91,3 +91,20 @@ For active EP2024 reprocessing on Roihu:
 - New analytical fields are additive. Every major step must provide a human-readable Markdown summary field as well as any structured JSON/machine output.
 - Use MongoDB collection names `laclaugpt_ep2024_reprocess_<country_name>_<collection_name>`.
 - Real MongoDB/Redis credentials are read from the private companion repository/runtime environment and must never be copied into this public repository or logs.
+
+
+## EP24 video invariant
+
+For EP24 TikTok/Instagram screen recordings, every split clip contains a known
+scroll transition from the previous item in its first 1.0 second. All new media
+analysis must import the canonical rule from ep24_video.py and exclude that
+interval from ASR, frames, OCR, whole-video VLM input, embeddings, scene
+sampling, summaries, fusion, and future video modules. Do not add independent
+magic numbers.
+
+Additional feed scrolls after the known artifact are data-quality failures.
+Whole-video VLM output must preserve human-readable analysis and expose SCROLL
+and SCROLL_SECONDS. Detected additional scrolls enter the deterministic
+needs_resplit workflow with source provenance and legacy fields preserved.
+Never overwrite source media, never modify the legacy branch for this rule, and
+keep recursion bounded.
