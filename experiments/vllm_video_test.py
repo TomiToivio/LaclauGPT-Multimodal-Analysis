@@ -1041,7 +1041,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for position, index in enumerate(selected, start=1):
         row = df.loc[index]
-        author = ep24_value(row, "new_id") or ep24_value(row, "video_filename")
+        author = ep24_value(row, "author_username")
         video_id = ep24_value(row, "video_id")
         object_path = derive_remote_path(row, args.allas_path_template)
         safe_object_path = redact_sensitive(object_path)
