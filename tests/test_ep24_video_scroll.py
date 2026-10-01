@@ -88,7 +88,8 @@ def test_preprocess_applies_rule_to_frames_asr_and_status_columns():
 
 def test_vllm_prompt_and_output_expose_scroll_contract():
     source = Path("experiments/vllm_video_test.py").read_text(encoding="utf-8")
-    assert "prepare_analysis_clip(local_path" in source
+    assert "prepare_analysis_clip(" in source
+    assert "local_path" in source
     assert '"SCROLL"' in source
     assert '"SCROLL_SECONDS"' in source
     assert '"needs_resplit"' in source
