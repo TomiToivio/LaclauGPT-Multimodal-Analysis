@@ -6,3 +6,5 @@ easyocr>=1.7
 openai-whisper
 deep-translator>=1.11
 openpyxl>=3.1
+pymongo>=4.6
+redis>=5.0
