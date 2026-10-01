@@ -237,3 +237,21 @@ designed to answer each one from the job output:
    count, or whether `--video-total-pixels` / `fps` must be lowered.
 5. **Whether the model is already cached** in project scratch or must be
    downloaded on first run (a large one-off download).
+
+
+## EP24 initial-scroll and splitter-failure rule
+
+This experiment now follows the repository-wide EP24 video contract documented
+in EP24_VIDEO_SCROLL_ARTIFACTS.md. After downloading the unchanged source clip
+from Allas, the harness creates a derived analysis clip beginning at original
+t=1.0s and sends that derived clip to vLLM.
+
+The model is instructed not to count the known initial splitter artifact. It
+checks the remaining video for later TikTok/Instagram feed transitions and
+appends structured SCROLL and SCROLL_SECONDS metadata while retaining the
+human-readable descriptive analysis. The CSV also includes needs_resplit and
+video_initial_skip_seconds.
+
+SCROLL_SECONDS uses timestamps on the original source timeline. A detected
+additional scroll is queued for the deterministic, depth-limited re-split
+workflow rather than destructively editing the source on first-pass model output.
