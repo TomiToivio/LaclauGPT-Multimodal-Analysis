@@ -1041,7 +1041,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for position, index in enumerate(selected, start=1):
         row = df.loc[index]
-        author = ep24_value(row, "new_id") or ep24_value(row, "video_filename")
+        author = ep24_value(row, "author_username")
         video_id = ep24_value(row, "video_id")
         object_path = derive_remote_path(row, args.allas_path_template)
         safe_object_path = redact_sensitive(object_path)
@@ -1102,8 +1102,8 @@ def main(argv: list[str] | None = None) -> int:
                 record["vllm_video_analysis_path"] = str(analysis_path)
                 record["vllm_video_structured_output_status"] = "off"
             else:
-                source_metadata = probe_video_metadata(local_path, logger)
-                source_duration = float(source_metadata["duration_seconds"])
+                probed_video_metadata = probe_video_metadata(local_path, logger)
+                source_duration = float(probed_video_metadata["duration_seconds"])
                 record["vllm_video_source_duration_seconds"] = str(source_duration)
                 if source_duration <= VIDEO_INITIAL_SKIP_SECONDS:
                     raise ValueError(
