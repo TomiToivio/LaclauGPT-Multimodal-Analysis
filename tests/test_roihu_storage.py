@@ -186,3 +186,21 @@ def test_reviewed_sqlite_memory_bridge_exports_only_canonical(tmp_path):
     assert len(docs) == 1
     assert docs[0]["source_id"] == "E-1"
     assert docs[0]["memory_type"] == "entity"
+
+
+def test_exported_storage_id_is_preserved_on_reimport():
+    cfg = config()
+    first = dataframe_to_documents(
+        pd.DataFrame([{"id": "42", "text": "first"}]),
+        config=cfg,
+        stage="summary",
+        run_id="a",
+    )
+    exported = documents_to_dataframe(first)
+    second = dataframe_to_documents(
+        exported,
+        config=cfg,
+        stage="summary",
+        run_id="b",
+    )
+    assert second[0]["_storage_id"] == first[0]["_storage_id"]
