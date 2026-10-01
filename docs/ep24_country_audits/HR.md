@@ -196,4 +196,36 @@ The HR-specific, in-scope follow-ups remain as pass-1 designed them: acronym rec
 3. Croatian diacritic-loss should be handled as observed alias evidence, not destructive normalization. → **Pass 2: not measurable from data alone; design rule stands.**
 4. Country context should be stage-specific: entity extraction needs aliases/list relations; Laclau analysis needs only retrieved context relevant to entities/themes already evidenced in the item. → **Pass 2: supported — `spacy_entities` is empty and `new_entity` deletes rather than canonicalizes, so there is currently no stage that produces canonical entities at all.**
 5. If legacy HR rows show systematic coalition flattening across stages, open a separate pipeline issue for list/coalition relation preservation. → **Pass 2: CONFIRMED, escalated separately.**
-6. **New for the next reviewer:** verify whether the 938 dropped acronyms across all 10 books have a second cause besides the min-length guard (e.g. a per-book owner map that gives up on a colliding form). If so, both causes need fixing before acronyms can be recovered.
+6. **New for the next reviewer:** verify whether the 938 dropped acronyms across all 10 books have a second cause besides the min-length guard (e.g. a per-book owner map that gives up on a colliding form). If so, both causes need fixing before acronyms can be recovered. → **Pass 2 addendum: ANSWERED below. There are two independent guards, and neither is necessary.**
+
+## Pass 2 addendum — why the acronyms are dropped, and why the guard is unnecessary
+
+Hypothesis 6 asked for the second cause. There is one, and the failure class is broader than "short labels are dropped":
+
+**Guard 1 — builder.** `build_all_country_codebooks.py` has `--min-length` default **5** and drops any collected label shorter than that. That is what empties `dropped_short_surface_forms.json`.
+
+**Guard 2 — merge.** `merge_research_codebooks.py` applies the *same* `min_length: int = 5` to the public-context layer, three separate times:
+- on the label itself (`len(label) < min_length` → `skipped`);
+- on aliases folded into an existing entry (`len(a) >= min_length`);
+- on aliases kept for a fresh entry (`len(a) >= min_length`).
+
+So an acronym is checked *again* on the way in, and **aliases are subject to the same threshold**. This matters more than the label case: the correct shape is a long canonical label (`Partido Popular` / `Vox`) carrying the acronym as an **alias**. Guard 2 deletes exactly those aliases, so even a public-context entry that arrives correctly shaped loses its acronym on merge. That is why HR records `Most (label shorter than 5)` and `NATO (label shorter than 5)` as *skipped* despite the entries being otherwise fine.
+
+**The guard is unnecessary, because the runtime already solves the problem it is guarding against.** `score_entry` in `roihu_codebooks.py` branches on length:
+
+    if len(normalized) >= 3 and normalized in q:            # substring for >=3 chars
+        return 1.0
+    if len(normalized) < 3 and re.search(r"(?<!\w)...(?!\w)", q):  # word-boundary for <3
+        return 1.0
+
+Verified empirically against a synthetic two-entry book:
+
+| probe | result |
+|---|---|
+| alias `Vox` (3 chars) in "Hoy habla Vox en el mitin" | **matches** |
+| alias `PP` (2 chars) in "El PP gana en Madrid" | **matches** |
+| alias `PP` inside "a**pp**roposito de nada" | **does not match** |
+
+So the runtime's `len >= 3` substring rule plus the `< 3` word-boundary rule is *exactly* the safe behaviour the build guard was trying to guarantee — and it is strictly better, because it still matches `PP` as a word while refusing the substring. The build-time `>= 5` threshold therefore buys nothing and costs every party acronym in the corpus.
+
+**Fix direction (for whoever picks it up):** remove (or lower to 2–3) the min-length guard in both places, and instead let the runtime's existing length-aware matcher do the work — while keeping the *country/kind scoping* that prevents `PP`/`PSOE`/`DP` from leaking across countries. The alias must survive, scoped; it must not be deleted. A regression test should assert both halves: `PP` matches as a word in ES and does **not** match inside an unrelated word.
