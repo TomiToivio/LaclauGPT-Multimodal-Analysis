@@ -56,8 +56,28 @@ def _tokens(value: Any) -> set[str]:
     return {t for t in _fold(value).split() if len(t) > 2}
 
 
+class CodebookUnreadable(RuntimeError):
+    """A codebook file exists but cannot be read (LFS pointer, malformed JSON)."""
+
+
 def _load_entries(path: Path) -> list[dict[str, Any]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    """Load entries, failing cleanly on an LFS pointer or malformed JSON.
+
+    A checked-out-but-unsmudged LFS pointer is a 130-byte text file beginning
+    with `version https://git-lfs.github.com/spec/v1`. That is an environment
+    problem (`git lfs pull`), not a codebook defect, and it must be reported as
+    such rather than as a JSON traceback.
+    """
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if text.lstrip().startswith("version https://git-lfs.github.com/spec/v1"):
+        raise CodebookUnreadable(
+            f"{path.name} is an unsmudged Git LFS pointer - run "
+            f"`git lfs pull --include='{path.name}'` first"
+        )
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise CodebookUnreadable(f"{path.name} is not valid JSON: {exc}") from exc
     out: list[dict[str, Any]] = []
     for item in payload.get("entries", []) or []:
         if isinstance(item, dict):
@@ -159,18 +179,54 @@ def theme_near_duplicates(entries: list[dict[str, Any]], *, threshold: float = 0
     return out
 
 
-def audit(root: Path, country: str) -> dict[str, Any]:
+def _candidate_paths(root: Path, country: str) -> list[Path]:
+    """Resolve a country's codebook files using the repo's own country map.
+
+    The filename is NOT derivable from the ISO2 code: Finland is
+    `ep24_finland_private.json` (not `ep24_fi_private.json`) and Poland is
+    `ep24_poland_private.json`. Guessing from the code silently reports
+    "no codebook found" for those countries, so use COUNTRY_PROFILES when it is
+    importable and fall back to the slug only for unmapped countries.
+    """
     iso = country.upper()
     slug = country.casefold()
-    candidates = [
-        root / f"ep24_{slug}_private.json",
-        root / "countries" / f"{slug}.json",
-    ]
+    candidates: list[Path] = []
+    try:
+        from roihu_codebooks import COUNTRY_PROFILES  # type: ignore
+
+        mapped = COUNTRY_PROFILES.get(iso)
+        if mapped and mapped.get("file"):
+            candidates.append(root / str(mapped["file"]))
+        elif mapped and mapped.get("country"):
+            candidates.append(root / f"ep24_{str(mapped['country']).casefold()}_private.json")
+    except Exception:  # pragma: no cover - map is a convenience, not a hard dep
+        pass
+    candidates.append(root / f"ep24_{slug}_private.json")
+    candidates.append(root / "countries" / f"{slug}.json")
+    # de-duplicate, preserving order
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for path in candidates:
+        if path.name not in seen:
+            seen.add(path.name)
+            unique.append(path)
+    return unique
+
+
+def audit(root: Path, country: str) -> dict[str, Any]:
+    iso = country.upper()
+    candidates = _candidate_paths(root, country)
     layers: dict[str, Any] = {}
     for path in candidates:
         if not path.exists():
             continue
-        entries = _load_entries(path)
+        try:
+            entries = _load_entries(path)
+        except CodebookUnreadable as exc:
+            # Report the unreadable layer instead of aborting: a pointer in one
+            # layer must not hide the numbers for the layer that IS readable.
+            layers[path.name] = {"unreadable": str(exc)}
+            continue
         layers[path.name] = {
             "entries": entries,
             "alias_coverage": alias_coverage(entries),
@@ -191,9 +247,12 @@ def _print_human(report: dict[str, Any], *, top: int) -> None:
     print(f"EP24 codebook coverage report — {report['country_code']}")
     print(f"root: {report['root']}")
     for name, layer in report["layers"].items():
-        cov = layer["alias_coverage"]
         print()
         print(f"=== {name} ===")
+        if "unreadable" in layer:
+            print(f"  UNREADABLE: {layer['unreadable']}")
+            continue
+        cov = layer["alias_coverage"]
         print(f"  entries                    : {cov['entries']}")
         print(f"  without aliases            : {cov['entries_without_aliases']} ({cov['entries_without_aliases_pct']}%)")
         print(f"  aliases total / per entry  : {cov['aliases_total']} / {cov['aliases_per_entry']}")
