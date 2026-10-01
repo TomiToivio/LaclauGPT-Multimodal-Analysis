@@ -132,7 +132,10 @@ echo "ffmpeg path: $(command -v ffmpeg || true)"
 echo "ffprobe path: $(command -v ffprobe || true)"
 command -v ffmpeg >/dev/null 2>&1 || { echo "ERROR: ffmpeg not found after loading gcc/14.3.0 ffmpeg" >&2; module list >&2; exit 2; }
 command -v ffprobe >/dev/null 2>&1 || { echo "ERROR: ffprobe not found after loading gcc/14.3.0 ffmpeg" >&2; module list >&2; exit 2; }
-command -v rclone >/dev/null 2>&1 || { echo "ERROR: rclone not found; module load allas failed?" >&2; exit 2; }
+RCLONE_BIN="$(command -v rclone || true)"
+[[ -n "${RCLONE_BIN}" && -x "${RCLONE_BIN}" ]] || { echo "ERROR: rclone not found; module load allas failed?" >&2; exit 2; }
+export RCLONE_BIN
+echo "rclone path: ${RCLONE_BIN}"
 
 echo "============================================================"
 echo "EP24 vLLM 10-video experiment"
@@ -160,7 +163,7 @@ for name in ("vllm", "torch", "transformers", "qwen_vl_utils", "pandas", "av"):
 PY
 
 # Check that the configured Allas remote is usable without printing credentials.
-rclone lsd "${RCLONE_REMOTE}:" >/dev/null
+"${RCLONE_BIN}" lsd "${RCLONE_REMOTE}:" >/dev/null
 
 cd "${PUBLIC_ROOT}"
 
