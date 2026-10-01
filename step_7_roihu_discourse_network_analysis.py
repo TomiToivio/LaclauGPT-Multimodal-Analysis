@@ -37,8 +37,13 @@ false only for explicit opposition, otherwise null. Preserve ambiguity.
 Return a short human-readable Markdown analysis plus structured statements."""
 
 def source(lang):
+    explicit = os.getenv("LACLAUGPT_INPUT_CSV")
+    if explicit:
+        p = Path(explicit)
+        return p if p.exists() else None
     for p in (Path(f"ep24_{lang}.csv"), Path(f"csv/tiktok_{lang}.csv")):
-        if p.exists(): return p
+        if p.exists():
+            return p
     return None
 
 def run_language(lang):
@@ -69,5 +74,8 @@ def run_language(lang):
     df.to_csv(p,index=False)
 
 if __name__=="__main__":
-    for lang in os.getenv("LACLAUGPT_LANGUAGES","fi,sv,pl,pt,de,es,hu,hr,fr,bg,en").split(","):
-        run_language(lang.strip())
+    if os.getenv("LACLAUGPT_INPUT_CSV"):
+        run_language("")
+    else:
+        for lang in os.getenv("LACLAUGPT_LANGUAGES","fi,sv,pl,pt,de,es,hu,hr,fr,bg,en").split(","):
+            run_language(lang.strip())
