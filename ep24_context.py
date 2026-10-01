@@ -5,7 +5,6 @@ source evidence. Current records are excluded from their own RAG retrieval.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from dataclasses import asdict
