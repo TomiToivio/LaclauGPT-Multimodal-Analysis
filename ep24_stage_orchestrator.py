@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from ep24_allas import stage_media
 from ep24_backups import write_checkpoint
 from ep24_redis import RedisCoordinator
 from roihu_storage import MongoStorage, StorageConfig
@@ -58,6 +59,8 @@ def _eligible_query(step: int, *, retry_errors: bool, force: bool) -> dict:
 
 def _claim(storage: MongoStorage, step: int, run_id: str, *, limit: int,
            retry_errors: bool, force: bool, stale_hours: int = 6) -> list[dict]:
+    from pymongo import ReturnDocument
+
     collection = storage.db[storage.collection_name("dataframe")]
     now = datetime.now(timezone.utc)
     stale = now - timedelta(hours=stale_hours)
@@ -78,7 +81,7 @@ def _claim(storage: MongoStorage, step: int, run_id: str, *, limit: int,
                 f"{_status_path(step)}.claimed_at": now.isoformat(),
             }},
             sort=[("_storage_id", 1)],
-            return_document=True,
+            return_document=ReturnDocument.AFTER,
         )
         if not doc:
             break
@@ -133,6 +136,9 @@ def run_country(country: str, *, step: int, script: Path, limit: int,
             return len(claimed)
 
         before = _flat_rows(claimed)
+        if step == 1:
+            staged = stage_media(before)
+            LOG.info("country=%s step=1 Allas staged=%d", country, staged)
         source_ids = set(before["_storage_id"].astype(str))
         output_root = Path(os.getenv("LACLAUGPT_EP24_OUTPUT_ROOT",
             "/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/outputs"))
