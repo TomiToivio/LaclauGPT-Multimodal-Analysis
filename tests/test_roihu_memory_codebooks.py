@@ -51,3 +51,25 @@ def test_private_profile_merge_keeps_locked_human_entry_and_bilingual_context(tm
     assert "Esimerkkipuolue / Example Party" in block
     assert "ilmasto / climate" in block
     assert provenance["evidence_role"] == "background_context_not_source_evidence"
+
+
+from roihu_enrich import enrich_file
+
+
+def test_enrichment_appends_columns_without_rewriting_legacy_values(tmp_path):
+    codebooks = tmp_path / "codebooks"
+    codebooks.mkdir()
+    _write_book(codebooks / "ep24_common_private.json", {"schema": "fixture", "country_code": "COMMON", "entries": []})
+    _write_book(codebooks / "ep24_finland_private.json", {"schema": "fixture", "country_code": "FI", "language": "fi", "entries": [{"id": "fi-actor", "kind": "entity", "label": "Puolue", "english_label": "Party", "status": "researcher-grounded"}]})
+    csv_path = tmp_path / "ep24_fi.csv"
+    pd = __import__("pandas")
+    original = pd.DataFrame([{"video_filename": "a/1", "summary_analysis": "Puolue esiintyy videolla", "entities": "Puolue", "topics": "demokratia"}])
+    original.to_csv(csv_path, index=False)
+    memory = EP24Memory(tmp_path / "memory.sqlite3")
+    obj_id = memory.add_object("entity", "Puolue", country="FI", language="fi", state="CANONICAL", locked=True)
+    enrich_file(csv_path, country="FI", language="fi", private_root=tmp_path, memory=memory)
+    out = pd.read_csv(csv_path)
+    assert out.loc[0, "entities"] == "Puolue"
+    assert out.loc[0, "topics"] == "demokratia"
+    assert obj_id in out.loc[0, "ep24_memory_entity_ids"]
+    assert "ep24_codebook_context_json" in out.columns
