@@ -21,6 +21,7 @@ import pandas as pd
 
 from ep24_allas import stage_media
 from ep24_backups import write_checkpoint
+from ep24_context import enrich_dataframe, update_retrieval
 from ep24_redis import RedisCoordinator
 from roihu_storage import MongoStorage, StorageConfig
 
@@ -289,7 +290,7 @@ def run_country(
                 LOG.info("country=%s step=%d nothing else eligible", country, step)
                 break
 
-            before = flat_rows(claimed)
+            before = enrich_dataframe(storage, flat_rows(claimed))
             source_ids = set(before["_storage_id"].astype(str))
             LOG.info(
                 "country=%s step=%d batch_claimed=%d total_before=%d run_id=%s",
@@ -319,6 +320,7 @@ def run_country(
                     after,
                     source_ids=source_ids,
                 )
+                update_retrieval(storage, after, stage=f"step_{step:02d}")
             except Exception as exc:
                 mark_claimed_error(storage, step, run_id, exc)
                 raise
