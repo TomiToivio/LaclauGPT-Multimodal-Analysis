@@ -15,5 +15,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install pytest
+      - name: Install test dependencies
+        # Read the dependency list from pyproject.toml's [test] extra instead of
+        # keeping a second hand-written list here. The hand-written list has
+        # drifted twice in this repository -- rdflib was missing when the RDF
+        # tests were added, pandas when the storage and vLLM-harness tests
+        # landed -- and because both imports are at module scope, the failure is
+        # a collection error that aborts the whole suite rather than one test.
+        run: |
+          python -m pip install --upgrade pip
+          python -c "import tomllib,pathlib;print(chr(10).join(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['optional-dependencies']['test']))" > /tmp/test-requirements.txt
+          cat /tmp/test-requirements.txt
+          python -m pip install -r /tmp/test-requirements.txt
       - run: python -m pytest -q
