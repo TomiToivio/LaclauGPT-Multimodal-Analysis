@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -37,6 +38,26 @@ def _clean(value: Any) -> str:
         return ""
     text = str(value).strip()
     return "" if text.casefold() in {"nan", "none", "null"} else text
+
+
+def identity_key(text: Any) -> str:
+    """Conservative identity key for codebook labels and aliases.
+
+    Deliberately identical in behaviour to ``roihu_memory.surface_key``: Unicode
+    NFC, casefold, and internal-whitespace collapse, and nothing else. Accents,
+    qualifiers and punctuation are preserved, because those distinctions are
+    meaningful for discourse analysis and must not be normalized away.
+
+    Using the same key on both sides is what lets a codebook entry and a memory
+    object agree on identity. A bare ``str.casefold()`` does not: it leaves
+    leading/trailing whitespace and NBSP untouched, so the same concept written
+    with a stray space would hash to a different ``CB-`` id than memory gives it,
+    and would also miss the merge's duplicate detection.
+
+    This normalizes the KEY, never the stored label: the original text is kept
+    verbatim in the entry.
+    """
+    return " ".join(unicodedata.normalize("NFC", str(text or "")).strip().casefold().split())
 
 
 def _tokens(text: str) -> set[str]:
@@ -92,7 +113,9 @@ def _entry_id(item: dict[str, Any], kind: str, label: str, country: str) -> str:
     if explicit:
         return explicit
     disambiguation = _clean(item.get("disambiguation"))
-    seed = "|".join((country.upper(), kind, label.casefold(), disambiguation.casefold()))
+    # Same normalization as memory, so an id is stable under whitespace and
+    # Unicode-form drift. An explicit id above is still returned untouched.
+    seed = "|".join((country.upper(), kind, identity_key(label), identity_key(disambiguation)))
     return f"CB-{hashlib.sha256(seed.encode()).hexdigest()[:18]}"
 
 
@@ -212,7 +235,7 @@ def load_profile(root: str | Path, country: str, *, language: str = "") -> tuple
     conflicts: list[dict[str, Any]] = []
     for entries, _meta, _layer in loaded:
         for entry in entries:
-            key = (entry.kind, entry.label.casefold(), entry.country or country.upper())
+            key = (entry.kind, identity_key(entry.label), entry.country or country.upper())
             old = merged.get(key)
             if old is None:
                 merged[key] = entry
@@ -229,7 +252,7 @@ def load_profile(root: str | Path, country: str, *, language: str = "") -> tuple
     aliases: dict[tuple[str, str], set[str]] = {}
     for entry in entries:
         for form in entry.forms:
-            aliases.setdefault((entry.kind, form.casefold()), set()).add(entry.entry_id)
+            aliases.setdefault((entry.kind, identity_key(form)), set()).add(entry.entry_id)
     ambiguous = sorted({form for (_kind, form), ids in aliases.items() if len(ids) > 1})
     fingerprint = hashlib.sha256("|".join(sorted(m[1]["sha256"] for m in loaded)).encode()).hexdigest()
     missing_english = [
