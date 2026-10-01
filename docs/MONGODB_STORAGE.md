@@ -1,114 +1,158 @@
-# External MongoDB storage on CSC Roihu
+# EP2024 distributed research storage on CSC Roihu
 
-Issue #12 adds an optional persistent storage layer around the EP24-compatible pipeline. The legacy CSV workflow remains supported and MongoDB does not replace raw media storage.
+This document defines the storage architecture for the active EP2024 reprocessing work on CSC Roihu.
 
-## Storage roles
+## Canonical roles
 
-- CSC project storage / Allas: raw media and large files.
-- Pandas CSV/DataFrames: researcher-readable import, exchange and stage outputs.
-- External MongoDB: durable structured analysis state, memory, RAG, entities, provenance and structured backups.
-- Redis: may be used for cache/coordination elsewhere, but is not durable memory here.
+- **Pandas CSV/DataFrames**: canonical human-readable input/output and legacy-compatible research interchange.
+- **MongoDB**: shared durable research record for analysis rows, codebooks, memory, RAG, researcher notes, graph/RDF material, embeddings, provenance and backups.
+- **Redis**: transient distributed coordination, cache, messaging, locks, job/status information and similar ephemeral state.
+- **CSC Allas**: video/media object storage. Videos are downloaded on demand using their stored URL/object identifier after the user configures Allas with `allas_conf`.
+- **SQLite / DuckDB**: optional local helpers, compatibility artifacts, imports/exports, temporary indexes and job-local checkpoints. They are not the canonical shared distributed backend.
+- **PostgreSQL**: not used for this EP2024 reprocess architecture.
 
-MongoDB is external. Do not run a MongoDB server on a Roihu compute node.
+Do not run MongoDB or Redis servers on Roihu compute nodes. Roihu jobs connect to the configured shared services.
 
-## Configuration
+## Private configuration
 
-Public code contains no credentials. Supply secrets from LaclauGPT-Private, private CSC storage, or the job environment.
+Public code and documentation contain variable names only. The real values are stored in the private companion repository:
 
-    export LACLAUGPT_MONGO_ENABLED=1
-    export LACLAUGPT_MONGO_URI='mongodb+srv://...'
-    export LACLAUGPT_MONGO_DATABASE=laclaugpt
-    export LACLAUGPT_DATASET=ep24
-    export LACLAUGPT_COUNTRY=fi
+`TomiToivio/LaclauGPT-Private/analysis/ep24_reprocess/.env`
 
-Never commit a real URI, certificate, password or token.
+Expected variables:
 
-With LACLAUGPT_MONGO_ENABLED=0, which is the default, the new storage stage is a no-op and the pipeline remains CSV-only.
+```bash
+LACLAUGPT_MONGODB_URI=...
+LACLAUGPT_MONGODB_DATABASE=...
+LACLAUGPT_REDIS_URL=...
+```
+
+Never copy those live values into this public repository, logs, tests, issue comments or documentation.
 
 ## Collection naming
 
-Collections are generated, never hard-coded:
+Every country-specific collection uses:
 
-    laclaugpt_<dataset>_<country>_<purpose>
+```text
+laclaugpt_ep2024_reprocess_<country_name>_<collection_name>
+```
 
-For Finland:
+Examples:
 
-    laclaugpt_ep24_fi_memory
-    laclaugpt_ep24_fi_rag
-    laclaugpt_ep24_fi_analysis
-    laclaugpt_ep24_fi_entities
-    laclaugpt_ep24_fi_backup
+```text
+laclaugpt_ep2024_reprocess_finland_dataframe
+laclaugpt_ep2024_reprocess_finland_codebooks
+laclaugpt_ep2024_reprocess_finland_memory
+laclaugpt_ep2024_reprocess_finland_rag
+laclaugpt_ep2024_reprocess_finland_research_notes
+laclaugpt_ep2024_reprocess_finland_rdf
+laclaugpt_ep2024_reprocess_finland_dna
+laclaugpt_ep2024_reprocess_finland_sna
+laclaugpt_ep2024_reprocess_finland_provenance
+laclaugpt_ep2024_reprocess_finland_backup
+```
 
-For Poland the same configuration automatically produces laclaugpt_ep24_pl_memory, laclaugpt_ep24_pl_rag, and so on. A new EP24 country only requires changing LACLAUGPT_COUNTRY.
+Use the same scheme for all actual EP2024 countries. Shared EU-wide/common material may use an explicitly documented common namespace.
 
-## Roihu pipeline
+Collection purpose names should remain stable once data has been written.
 
-The canonical legacy compatibility sequence remains:
+## MongoDB as document, graph and vector-capable research storage
 
-    preprocess -> frame -> summary -> postprocess -> populism
+MongoDB is the canonical durable store even when different access patterns are needed.
 
-If enrichment is enabled, enrich is inserted immediately before populism. The additive storage stage runs after populism:
+### Documents
 
-    ... -> populism -> storage
+Store complete research records with stable IDs, source URLs, country/language, stage/run/model provenance and version information. Human-authored material must remain distinguishable from model-generated proposals.
 
-The final stage calls roihu_storage_sync.py. When MongoDB is disabled it exits successfully without changing CSV files. When enabled, it imports CSVs matching LACLAUGPT_STORAGE_INPUT_GLOB, default csv/*.csv, into the country-specific analysis collection using upsert semantics. If LACLAUGPT_MEMORY_DB points to the reviewed SQLite memory snapshot, CANONICAL memory objects are also mirrored to the country-specific memory collection. If LACLAUGPT_RAG_JSONL is set, newline-delimited RAG records are upserted into the country-specific RAG collection.
+### Graph / RDF
 
-Submit normally after exporting private configuration:
+Represent graph material honestly as documents, for example:
 
-    sbatch --account="$CSC_ACCOUNT" scripts/roihu/multimodal_roihu.sbatch
+- node documents with stable IDs and type/provenance;
+- edge documents with source, target, relation and evidence;
+- RDF-style subject/predicate/object documents;
+- DNA/SNA statements and derived edges.
 
-The job connects outward to the configured MongoDB. Connection failure is explicit when MongoDB mode is requested.
+MongoDB is not described as a native property-graph database merely because graph-shaped documents are stored in it.
 
-## DataFrame and CSV API
+### Vectors / RAG
 
-roihu_storage.py supports DataFrame to MongoDB, MongoDB to DataFrame, CSV to DataFrame to MongoDB, and MongoDB to DataFrame to CSV.
+Store:
 
-Example:
+- source/chunk ID;
+- original text;
+- English translation where applicable;
+- embedding vector;
+- embedding model/version;
+- country/language;
+- provenance and timestamps.
 
-    from roihu_storage import MongoStorage, StorageConfig
+If the deployed MongoDB supports suitable vector search, use it behind an adapter. Otherwise retrieve embeddings/documents from MongoDB and perform similarity search in application code. A local Chroma or other helper may be evaluated only as an optional accelerator/index; it must not become a second canonical research record.
 
-    store = MongoStorage(StorageConfig.from_env())
-    store.dataframe_upsert("analysis", df, stage="summary", run_id="123")
-    df2 = store.dataframe_export("analysis")
-    store.csv_import("csv/ep24_fi.csv", purpose="analysis", run_id="123")
-    store.csv_export("exports/ep24_fi_from_mongo.csv", purpose="analysis")
-    store.close()
+## Redis
 
-Rows carry a stable _storage_id. Existing identifiers such as id, post_id, video_id, document_id, source_id or url are preferred; otherwise a deterministic source/row/content fingerprint is used. Mongo exports preserve _storage_id, so repeated round-trips remain idempotent.
+Redis is intentionally non-authoritative. Good uses include:
 
-Legacy columns are not renamed or removed. Mongo-specific provenance is additive.
+- job coordination and locks;
+- cache;
+- messaging;
+- worker/run status;
+- short-lived retrieval caches;
+- deduplication or rate-limit state;
+- optional queues.
 
-## Memory
+Durable memory, researcher notes, accepted codebooks and final analysis results belong in MongoDB and/or versioned CSV artifacts, not only Redis.
 
-Storage(...).memory writes to <prefix>_memory. Records can contain source IDs, memory type, text, structured metadata, pipeline stage/model provenance, references, embeddings and version/supersession metadata. The facade adds dataset, country and timestamp and uses upsert-based stable IDs.
+## CSV/DataFrame contract
 
-MongoDB memory is complementary to the existing reviewed SQLite memory workflow. SQLite remains useful as a controlled snapshot/review artifact; external MongoDB provides cross-job durable state where enabled.
+MongoDB does **not** replace the dataframe.
 
-## RAG
+Every EP2024 run must continue to read/write Pandas-compatible CSV and preserve the legacy dataframe schema. New fields are additive.
 
-Storage(...).rag writes to <prefix>_rag. Store canonical source/chunk IDs, original and translated English text, language, source metadata, embeddings, embedding model/version and run provenance.
+Requirements:
 
-The interface hides MongoDB details:
+1. preserve every legacy field and its historical meaning;
+2. keep original-language evidence and English translations side by side;
+3. add structured JSON fields when useful;
+4. also add a **human-readable Markdown-formatted summary for every major analytical step**;
+5. make the final CSV understandable without requiring MongoDB access;
+6. support deterministic MongoDB -> DataFrame -> CSV export and CSV -> DataFrame -> MongoDB import;
+7. preserve stable row/source/video identifiers across round trips.
 
-    storage.rag.upsert(record)
-    hits = storage.rag.retrieve("European Parliament Finland")
+Recommended new fields use stable stage-specific names such as `<stage>_summary_md`, plus structured companions such as `<stage>_json` where needed.
 
-retrieve currently provides a portable lexical fallback. Deployments with MongoDB vector-search capability can replace that implementation behind the same interface while retaining stored embeddings and audit metadata.
+## CSC Allas video flow
 
-## Backup and recovery
+The dataframe's Allas/public object URL is the source-media key.
 
-MongoDB is an additional structured-data persistence/backup target, not a raw media backup. For research-friendly recovery, export collections back to CSV using csv_export and copy those files to durable CSC storage/Allas according to the project's data-management plan.
+Roihu workflow:
 
-Never overwrite research exports silently. Write timestamped/versioned destinations or explicitly review replacements.
+1. user configures Allas with `allas_conf`;
+2. the job reads the video URL/object identifier from the dataframe;
+3. only required videos are downloaded to job-local/project scratch storage;
+4. analysis runs locally;
+5. derived results go to CSV + MongoDB;
+6. provenance retains the original URL/object identifier;
+7. video binaries are not stored in MongoDB or Redis.
 
-For full database-native backup/restore, use the external MongoDB deployment's approved mongodump/mongorestore or managed backup mechanism from an appropriate host, not by starting database services on Roihu compute nodes.
+## Backups and reproducibility
 
-## Dependencies and testing
+MongoDB is the shared durable research backend, but reproducibility must not depend on one live database instance.
 
-Install Mongo support explicitly:
+Maintain:
 
-    python -m pip install -e '.[mongo]'
+- versioned CSV exports;
+- collection/run manifests;
+- model/prompt/codebook versions;
+- stable source/video IDs;
+- timestamps and run IDs;
+- backup/export procedures;
+- optional Allas/project-storage copies of exported research artifacts.
 
-CSV-only mode does not import pymongo.
+Never silently overwrite researcher-reviewed material. Human locks/overrides must be explicit and auditable.
 
-Tests use an in-memory fake backend and never connect to the real external MongoDB. They cover collection prefixing, FI/PL isolation, DataFrame mapping/export, idempotent upserts, disabled mode, failure behavior, memory persistence and RAG retrieval.
+## Optional local technologies
+
+SQLite, DuckDB, Parquet and local vector indexes are allowed where they simplify Roihu batch processing. They are implementation aids, not replacements for the canonical MongoDB/CSV architecture.
+
+Evaluate Chroma or a dedicated graph engine only if there is a demonstrated benefit, it works reliably on Roihu, and it does not make the pipeline harder to inspect or reproduce.
