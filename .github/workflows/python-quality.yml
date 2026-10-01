@@ -22,5 +22,5 @@ jobs:
         continue-on-error: true
         run: ruff check puhti_*.py
 
-      - name: Roihu baseline contract tests
-        run: pytest -q tests/test_roihu_baseline.py
+      - name: Contract tests (Roihu baseline + legacy pipeline contract)
+        run: pytest -q tests/
