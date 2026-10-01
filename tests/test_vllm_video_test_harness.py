@@ -357,7 +357,10 @@ def test_modern_video_request_keeps_qwen_video_metadata_in_mm_data(monkeypatch):
     )
 
     assert request["multi_modal_data"]["video"] == [(video_tensor, metadata)]
-    assert request["mm_processor_kwargs"] == {"fps": 2.0}
+    assert request["mm_processor_kwargs"] == {
+        "fps": 2.0,
+        "cap_pixels_per_frame": True,
+    }
     assert "video_metadata" not in request["mm_processor_kwargs"]
 
 
@@ -379,6 +382,41 @@ def test_prompt_receives_real_researcher_feed_metadata(harness):
     assert "future_added_field" not in text_part
     assert "authorUniqueId" not in text_part
     assert "scrapedCountry" not in text_part
+
+
+def test_source_metadata_iterator_is_not_shadowed_in_main():
+    module = _load_module()
+    assert callable(module.iter_source_metadata)
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "source_metadata as iter_source_metadata" in source
+    assert "source_metadata =" not in source
+
+
+def test_modern_request_opts_into_reference_pixel_cap(monkeypatch):
+    module = _load_module()
+
+    class Processor:
+        def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+            return "prompt"
+
+    class FakeQwen:
+        @staticmethod
+        def process_vision_info(
+            messages,
+            image_patch_size=16,
+            return_video_kwargs=True,
+            return_video_metadata=True,
+        ):
+            return None, [("video", {"fps": 2.0})], {}
+
+    monkeypatch.setitem(sys.modules, "qwen_vl_utils", FakeQwen)
+    request = module.prepare_vllm_request(
+        [{"role": "user", "content": []}],
+        Processor(),
+        module.logging.getLogger("test-cap-pixels"),
+        video_api="modern",
+    )
+    assert request["mm_processor_kwargs"]["cap_pixels_per_frame"] is True
 
 
 def test_guided_schema_matches_structured_output_contract():
