@@ -11,7 +11,7 @@
 #   LACLAUGPT_VLLM_TEST_DOWNLOAD_DIR local media staging dir
 #   LACLAUGPT_VLLM_TEST_MODEL        model id (default is the Laskin-viable default)
 #   LACLAUGPT_VLLM_TEST_SEED         selection seed
-#   LACLAUGPT_VLLM_TEST_VIDEO_API    auto | modern | legacy  (auto recommended)
+#   LACLAUGPT_VLLM_TEST_VIDEO_API    auto | modern | legacy | mm_processor_kwargs | direct
 #   LACLAUGPT_VLLM_TEST_FETCH_BACKEND rclone | local | none
 #   LASKIN_VLLM_HF_HOME              model cache (kept outside HOME by default)
 #
@@ -74,14 +74,22 @@ print("sm_70_in_build:", any("70" in a for a in torch.cuda.get_arch_list()))
 PY
 echo
 
-set -x
-exec "${VENV}/bin/python" "${HARNESS}" \
-  --input-csv "${INPUT_CSV}" \
-  --output-csv "${OUTPUT_CSV}" \
-  --log-path "${LOG_PATH}" \
-  --download-dir "${DOWNLOAD_DIR}" \
-  --model "${MODEL}" \
-  --video-api "${LACLAUGPT_VLLM_TEST_VIDEO_API:-auto}" \
-  --fetch-backend "${LACLAUGPT_VLLM_TEST_FETCH_BACKEND:-rclone}" \
-  --sample-size "${LACLAUGPT_VLLM_TEST_SAMPLE_SIZE:-10}" \
+CMD=(
+  "${VENV}/bin/python" "${HARNESS}"
+  --input-csv "${INPUT_CSV}"
+  --output-csv "${OUTPUT_CSV}"
+  --log-path "${LOG_PATH}"
+  --download-dir "${DOWNLOAD_DIR}"
+  --model "${MODEL}"
+  --video-api "${LACLAUGPT_VLLM_TEST_VIDEO_API:-auto}"
+  --fetch-backend "${LACLAUGPT_VLLM_TEST_FETCH_BACKEND:-rclone}"
   --seed "${LACLAUGPT_VLLM_TEST_SEED:-20261001}"
+)
+# The prepared private CSV is the experiment sample. Process every row by
+# default, as issue #24 requires. Sampling is opt-in only.
+if [[ -n "${LACLAUGPT_VLLM_TEST_SAMPLE_SIZE:-}" ]]; then
+  CMD+=(--sample-size "${LACLAUGPT_VLLM_TEST_SAMPLE_SIZE}")
+fi
+
+set -x
+exec "${CMD[@]}"
