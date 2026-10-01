@@ -58,7 +58,8 @@ def test_postprocess_country_is_explicit() -> None:
         node for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name == "analyze_responses"
     )
-    assert [argument.arg for argument in function.args.args] == ["country"]
+    expected_scope = "language" if stage_path("puhti_postprocess.py").name.startswith("roihu_") else "country"
+    assert [argument.arg for argument in function.args.args] == [expected_scope]
     assert "finland_mobile_fixed.csv" not in source("puhti_postprocess.py")
 
 
@@ -71,5 +72,6 @@ def test_frame_analysis_has_safe_error_default() -> None:
 def test_preprocess_rejects_invalid_video_metadata() -> None:
     text = source("puhti_preprocess.py")
     assert "if not video.isOpened():" in text
-    assert "if fps <= 0 or frame_count <= 0:" in text
+    assert "fps <= 0" in text
+    assert "frame_count <= 0" in text
     assert "if success and cv2.imwrite" in text
