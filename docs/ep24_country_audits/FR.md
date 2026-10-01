@@ -339,7 +339,7 @@ Scoped, verified, committed:
 4. **`tests/test_ep24_french_codebook.py`** *(new, 28 tests)* — FR profile, ligature fold,
    apostrophe identity split, acronym retrieval, acronym word-bounding, country scoping,
    parenthetical-label unreachability, coalition-vs-party, person-vs-party.
-5. **`tests/test_ep24_apostrophe_hygiene.py`** *(new, 19 tests)* — detector positive and
+5. **`tests/test_ep24_apostrophe_hygiene.py`** *(new, 21 tests)* — detector positive and
    negative cases, the not-an-apostrophe family, `identity_split` noise rejection, CLI.
 6. **`tests/test_ep24_codebook_fold_defect.py`** — extended with the auditor-wiring pin, the
    Cyrillic blast-radius case and the FR ligature case.
@@ -364,7 +364,8 @@ The 4 failures are **pre-existing and unrelated**: `tests/test_roihu_storage.py`
 worktree: **4 failed, 376 passed**, identical failures. Reported on #91 previously by
 another pass; the storage test double is out of date with the real access path.
 
-Note the count moves 376 → 431 because this branch adds 47 tests; the 4 failures are the same
+Note the count moves 376 → 431 because this branch adds 55 tests (28 + 21 new, plus 6 added to
+`test_ep24_codebook_fold_defect.py`, which goes 14 → 20); the 4 failures are the same
 4.
 
 ## Open hypotheses for the next reviewer
@@ -425,7 +426,7 @@ belong to existing threads:
   the apostrophe split creates two CANONICAL memory objects per entity; 100%
   `missing_english_count`; stopword tokens produce 27 spurious selections over 8 neutral probes
 - **fixes made:** auditor wired to `fold_fixed`; blast-radius scan widened to all scripts;
-  new `apostrophe_hygiene.py`; 47 new/extended tests
+  new `apostrophe_hygiene.py`; 55 tests added (`test_ep24_codebook_fold_defect.py` 14 → 20)
 - **PR:** see PR **#100**
 - **remaining uncertainties:** the 8 shared-layer apostrophe splits and their per-country
   reach; where the bilingual gate belongs; whether NER ran at all for FR; the two
