@@ -84,9 +84,12 @@
       "requires_previous": 4,
       "preserve_all": true,
       "known_outputs": [
-        "entities",
-        "themes",
-        "topics"
+        "postprocess_entities",
+        "postprocess_themes",
+        "positive",
+        "neutral",
+        "negative",
+        "postprocess_summary_md"
       ]
     },
     "6": {
@@ -139,4 +142,4 @@
     "bulgaria",
     "sweden"
   ]
-}\n
+}
