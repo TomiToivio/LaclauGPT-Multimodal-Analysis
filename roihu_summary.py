@@ -656,6 +656,11 @@ def analyze_videos(language=None):
                                 "mongo_persist_failed source_id=%s local_checkpoint_is_safe=true",
                                 source_id,
                             )
+                            # MongoDB is the durable shared source of truth. The
+                            # already-written CSV/cache make retry safe, but the
+                            # record must not be reported completed until Mongo
+                            # persistence succeeds.
+                            raise
                     redis.mark(source_id, "completed")
             except Exception as exc:
                 stats["failed"] += 1
@@ -704,4 +709,3 @@ if __name__ == "__main__":
     else:
         for language in languages:
             analyze_videos(language)
-
