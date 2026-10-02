@@ -179,6 +179,10 @@ def describe_backend() -> dict[str, str]:
         "whisper": "large",
         "faster-whisper": "large-v3",
     }
+    if engine not in defaults:
+        raise ValueError(
+            f"Unknown LACLAUGPT_ASR_ENGINE={engine!r}; expected one of {tuple(defaults)}"
+        )
     return {
         "engine": engine,
         "model": os.getenv("LACLAUGPT_ASR_MODEL", defaults.get(engine, "")),
