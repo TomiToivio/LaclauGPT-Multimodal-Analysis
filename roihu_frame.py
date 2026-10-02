@@ -49,6 +49,7 @@ Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Le
 - Treat this as the deep visual/context still that complements the later whole-video narrative analysis.
 - It may contain people, objects, environments, captions, subtitles, memes, screenshots, platform UI, graphics, diagrams, logos, symbols, emojis, or embedded media.
 - Inspect platform/video metadata that is visibly rendered in the frame: username/handle, display name, date/time, title/caption, hashtags, subtitles, counters, labels, buttons and other interface text. Report only what is actually visible and mark uncertainty.
+- You also receive other information like date the video feed was recorded, political preference of the synthetic profile of the researcher recording the video, transcript of the video etc. Focus on the visual analysis of the keyframe but you can use the other data to augment your analysis.
 
 ### Analysis categories
 
