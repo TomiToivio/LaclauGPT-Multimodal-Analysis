@@ -17,10 +17,8 @@ from ep24_schema import LEGACY_ALIASES, REQUIRED_MEDIA_COLUMNS, value
 SOURCE_METADATA_COLUMNS: tuple[str, ...] = ()
 RESEARCHER_COLUMNS = (
     "political_preference",
-    "new_entity",
-    "new_theme",
-    "researcher_new_persons",
-    "researcher_new_themes",
+    "entities",
+    "themes",
     "researcher_note",
 )
 MODEL_PREFIXES = (
@@ -103,7 +101,7 @@ def metadata_context(row: pd.Series, *, include_model_fields: bool = True) -> st
         elif include_model_fields and (
             column.startswith(MODEL_PREFIXES)
             or column in {
-                "entities", "themes", "topics", "positive", "neutral", "negative",
+                "topics", "positive", "neutral", "negative",
                 "summary_analysis", "metadata", "SCROLL", "SCROLL_SECONDS",
             }
         ):
