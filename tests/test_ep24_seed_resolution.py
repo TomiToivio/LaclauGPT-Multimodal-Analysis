@@ -140,12 +140,11 @@ def test_enrichment_recycles_human_seed_columns_without_overwriting_legacy(tmp_p
     csv_path = tmp_path / "ep24_fi.csv"
     pd.DataFrame([{
         "summary_analysis": "Synthetic fixture",
-        "entities": "OLD MODEL ENTITY",
-        "topics": "OLD MODEL TOPIC",
-        "new_entity": "EP",
-        "researcher_new_persons": "Alice",
-        "new_theme": "hintojen nousu",
-        "researcher_new_themes": "cost of living",
+        # Under the canonical input contract (#21) `entities`/`themes` ARE the
+        # researcher annotation, so the seeds live here. The model-derived
+        # columns are the separate `positive`/`neutral`/`negative` targets.
+        "entities": "EP; Alice",
+        "themes": "hintojen nousu; cost of living",
         "positive": "EP",
         "neutral": "",
         "negative": "Alice",
@@ -161,8 +160,8 @@ def test_enrichment_recycles_human_seed_columns_without_overwriting_legacy(tmp_p
     out = pd.read_csv(csv_path)
     row = out.iloc[0]
 
-    assert row["entities"] == "OLD MODEL ENTITY"
-    assert row["topics"] == "OLD MODEL TOPIC"
+    # The human annotation is authoritative and is never overwritten.
+    assert row["entities"] == "EP; Alice"
 
     entity_seeds = json.loads(row["ep24_seed_entities_json"])
     theme_seeds = json.loads(row["ep24_seed_themes_json"])

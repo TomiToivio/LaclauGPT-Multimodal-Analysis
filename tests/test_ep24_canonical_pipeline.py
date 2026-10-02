@@ -55,7 +55,12 @@ def test_cumulative_write_preserves_source_and_upstream_fields(tmp_path):
     assert list(reloaded.columns[:len(EP24_REPROCESS_COLUMNS)]) == list(EP24_REPROCESS_COLUMNS)
     for column, expected in ROW.items():
         assert reloaded.loc[0, column] == expected
-    for column in ("whisper_transcript", "frame_analysis_1", "summary_analysis", "dna_statements_json"):
+    # Every field the stage added must survive the round-trip. This list must
+    # name the columns the test actually sets above: it previously asserted
+    # `whisper_transcript`, which the stage no longer produces after the
+    # generic ASR rename (#128), so the test failed on an assertion about a
+    # column it never created.
+    for column in ("asr_transcript", "frame_analysis_1", "summary_analysis", "dna_statements_json"):
         assert column in reloaded.columns
 
 

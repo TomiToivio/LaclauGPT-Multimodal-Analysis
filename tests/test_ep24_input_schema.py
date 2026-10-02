@@ -90,7 +90,7 @@ def test_fifteen_column_finland_is_the_canonical_signature(tmp_path):
     assert result.missing_canonical_columns == []
 
 
-def test_twenty_three_column_country_keeps_cleaning_fields_as_extras(tmp_path):
+def test_twenty_one_column_country_keeps_cleaning_fields_as_extras(tmp_path):
     """The real divergence: 8 of 10 countries carry the cleaning fields.
 
     They must be reported as extra incoming columns, never dropped and never
@@ -101,7 +101,9 @@ def test_twenty_three_column_country_keeps_cleaning_fields_as_extras(tmp_path):
                [*CANONICAL, *CLEANING_EXTRA], [_row()])
     result = insp.inspect_country(root, "Croatia")
     assert result.matches_canonical is False
-    assert result.column_count == 23
+    # 13 canonical columns + 8 cleaning extras, after the #21 canonicalization
+    # reduced the canonical set from 15 to 13.
+    assert result.column_count == 21
     assert result.extra_columns == CLEANING_EXTRA
     assert result.missing_canonical_columns == []
     assert not result.required_media_missing

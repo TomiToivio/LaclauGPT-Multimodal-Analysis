@@ -33,9 +33,16 @@ def test_canonical_input_columns_are_defined_here():
     because the pipeline reads rows dynamically.
     """
     assert isinstance(EP24_REPROCESS_COLUMNS, tuple)
-    assert len(EP24_REPROCESS_COLUMNS) == 15, "the researcher-feed keep-schema is 15 columns"
+    # The keep-schema is the source CSV schema after the #21 canonicalization:
+    # the 15-column researcher-feed shape had `new_entity`/`new_theme`/
+    # `researcher_new_persons`/`researcher_new_themes` replaced by the two
+    # canonical `entities`/`themes` columns, so it is 13.
+    assert len(EP24_REPROCESS_COLUMNS) == 13, "the canonical researcher-feed keep-schema is 13 columns"
     for column in ("country", "author_username", "allas_filename", "video_id"):
         assert column in EP24_REPROCESS_COLUMNS
+    assert "entities" in EP24_REPROCESS_COLUMNS and "themes" in EP24_REPROCESS_COLUMNS
+    for legacy in ("new_entity", "new_theme", "researcher_new_persons", "researcher_new_themes"):
+        assert legacy not in EP24_REPROCESS_COLUMNS
 
 
 def test_required_media_columns_are_defined_here():
