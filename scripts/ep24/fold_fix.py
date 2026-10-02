@@ -71,17 +71,50 @@ def fold_fixed(value: object) -> str:
 
 
 def non_decomposing_letters() -> list[str]:
-    """Latin-script letters that survive NFKD unchanged (the bug's blast radius)."""
+    """Non-ASCII letters that survive NFKD unchanged (the bug's blast radius).
+
+    Original scope was the Latin Extended-A/B blocks (``U+0100``–``U+024F``).
+    That was too narrow in a way that hid the worst instance of the defect: the
+    scan must cover **every script**, because the class is "letters NFKD cannot
+    decompose", and the largest such class in this project's data is Cyrillic.
+
+    The Bulgarian pass (#91) found that the old ``[^a-z0-9 ]`` filter deleted
+    *all* 80+ non-decomposing Cyrillic capital letters, so BG labels folded to
+    the empty string. A scan restricted to a Latin block cannot report that, and
+    therefore cannot warn the fixer that the Cyrillic script is affected at all.
+    """
     out = []
-    for cp in range(0x100, 0x250):
+    for cp in range(0x80, 0x30000):
         ch = chr(cp)
-        if (
-            unicodedata.category(ch).startswith("L")
-            and unicodedata.normalize("NFKD", ch) == ch
-            and ch.isascii() is False
-        ):
-            out.append(ch)
+        if not unicodedata.category(ch).startswith("L"):
+            continue
+        if unicodedata.normalize("NFKD", ch) != ch:
+            continue
+        if ch.isascii():
+            continue
+        out.append(ch)
     return out
+
+
+def non_decomposing_scripts() -> dict[str, int]:
+    """How many non-decomposing letters each script contributes.
+
+    A per-script count, so a reviewer can see at a glance which writing systems
+    a folding change would affect. ``Cyrillic`` and ``Latin`` dominate the EP24
+    data, but the number is derived rather than asserted.
+
+    Unicode names are all-uppercase ("CYRILLIC CAPITAL LETTER GHE"), so the
+    leading token is title-cased to make the report readable.
+    """
+    counts: dict[str, int] = {}
+    for ch in non_decomposing_letters():
+        try:
+            name = unicodedata.name(ch)
+        except ValueError:  # pragma: no cover - unnamed code points
+            name = ""
+        script = name.split(" ")[0].capitalize() if name else "Unknown"
+        counts[script] = counts.get(script, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
 
 
 if __name__ == "__main__":  # pragma: no cover - manual demonstration

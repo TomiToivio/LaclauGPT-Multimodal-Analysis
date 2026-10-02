@@ -32,9 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
-import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -43,6 +41,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# The corrected fold lives beside this module. Import it rather than keeping a
+# second copy: the PL pass (#88) shipped the fix but never wired it in, so the
+# auditor and the regression tests disagreed about what folding means. One
+# implementation, one behaviour.
+from scripts.ep24.fold_fix import fold_fixed  # noqa: E402
 
 #: Trailing tokens that name an entity *kind*, not an entity. A label like
 #: "Centre Party" or "Brothers of Italy party" ends in one of these, so using it
@@ -60,11 +63,29 @@ KIND_WORDS = frozenset(
 
 
 def _fold(value: Any) -> str:
-    """Casefold + strip accents + drop punctuation, for grouping only."""
-    text = unicodedata.normalize("NFKD", str(value or "").strip().casefold())
-    text = "".join(c for c in text if not unicodedata.combining(c))
-    text = re.sub(r"[^a-z0-9 ]+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    """Casefold + strip accents + drop punctuation, for grouping only.
+
+    Delegates to :func:`scripts.ep24.fold_fix.fold_fixed`. The local
+    implementation this replaced deleted every character outside ``[a-z0-9 ]``,
+    which silently destroyed two classes of letters that NFKD does not decompose:
+
+    * Latin ``ł``/``đ``/``œ``/``æ`` — Polish ``Arłukowicz`` became ``ar ukowicz``,
+      one token split into two (found in the PL pass, #88);
+    * **every Cyrillic letter** — Bulgarian ``ГЕРБ`` became the empty string, so
+      52 of 316 BG labels were invisible to grouping and 4 BG themes were
+      invisible to duplicate detection.
+
+    That second case is why the published cross-country table in
+    ``docs/EP24_CODEBOOK_COVERAGE_CROSS_COUNTRY.md`` is not comparable across
+    countries, and why its BG fragmentation figure (34) is reproducible by
+    neither the broken nor the corrected fold.
+
+    The corrected fold keeps non-decomposing letters as themselves: folding
+    ``ł -> l`` would be a false merge (Polish ``ł`` is /w/), and deleting ``ł``
+    loses the token. Diacritics that DO decompose (``ż``, ``ó``, ``ñ``, ``ü``)
+    still fold as before, so the useful part of the original behaviour survives.
+    """
+    return fold_fixed(value)
 
 
 def _tokens(value: Any) -> set[str]:
