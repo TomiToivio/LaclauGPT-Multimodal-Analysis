@@ -348,7 +348,7 @@ def analyze_videos(language=None):
             video_id = ep24_value(row, "video_id")
             author_username = ep24_value(row, "author_username")
             platform = _detect_platform(row)
-            model = os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b")
+            model = ollama_model()
 
             logger.debug(
                 "row_start index=%s source_id=%s platform=%s author=%s video_id=%s incoming_fields=%d",
