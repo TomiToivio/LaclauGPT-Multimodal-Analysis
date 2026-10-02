@@ -200,8 +200,8 @@ def test_swedish_one_letter_alias_matches_only_as_a_token(tmp_path: Path) -> Non
 
 def test_three_and_four_character_forms_do_not_match_inside_words(tmp_path: Path) -> None:
     entries, _meta = load_codebook(_book(tmp_path, PARTIES))
-    assert _selected("voxpopuli diskuteras") == []
-    assert _selected("psoriasis nämns") == []
+    assert _selected("voxpopuli diskuteras", entries) == []
+    assert _selected("psoriasis nämns", entries) == []
 
 
 def test_same_country_ambiguous_one_letter_alias_abstains(tmp_path: Path) -> None:
