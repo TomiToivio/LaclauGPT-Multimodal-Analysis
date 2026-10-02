@@ -160,7 +160,13 @@ def test_prompt_context_budget_is_enforced():
     assert len(prompt) == 100
 
 
-def test_legacy_projection_omits_candidates_without_evidenced_affect():
+def test_legacy_projection_keeps_candidates_without_evidenced_affect():
+    """An evidenced element survives with no evidenced affect (#180).
+
+    The opposite was tried and is the defect this guards: dropping the line lost
+    the coding, so abstention cost the analysis its finding. A bare ``element``
+    line carries the element and asserts no affect.
+    """
     result = _base_result(
         us_constructs=[
             UsConstruct(label="citizens", text_span="we citizens", confidence=0.8),
@@ -179,9 +185,14 @@ def test_legacy_projection_omits_candidates_without_evidenced_affect():
         formula_minimum_conditions_met=True,
         formula_abstention_reason=None,
     )
-    # RDF compatibility requires element^affect. Empty is safer than a malformed
-    # bare label and does not fabricate an emotion.
-    assert compatibility_columns(result) == ("", "")
+    # RDF compatibility requires one coding per evidenced element. A bare line is
+    # valid (an element with no evidenced affect), so the element survives and no
+    # emotion is fabricated.
+    us, frontier = compatibility_columns(result)
+    assert us == "citizens", "the evidenced Us must not be dropped for lack of an affect"
+    assert frontier == "commission"
+    # Crucially: no affect is invented to fill the gap.
+    assert "^" not in us and "^" not in frontier
 
 
 def test_formula_conditions_are_mechanically_guarded(monkeypatch):
