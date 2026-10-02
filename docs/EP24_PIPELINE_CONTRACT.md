@@ -57,8 +57,9 @@ after relation extraction.
 The LLM relation extractor may only admit evidence-supported relations. The
 Castells prompt runs **after topology is fixed** and cannot add or remove
 nodes/edges. Its output is stored separately as
-`sna_castells_interpretation_markdown` and embedded in the human-readable
-`sna_analysis_markdown` report.
+`sna_castells_interpretation_markdown` and embedded in the additive human-readable
+`sna_report_markdown` report. The historical `sna_analysis_markdown` field remains the
+empirical extraction summary for compatibility.
 
 Step 8 also writes sibling machine-readable tables next to the cumulative CSV:
 
