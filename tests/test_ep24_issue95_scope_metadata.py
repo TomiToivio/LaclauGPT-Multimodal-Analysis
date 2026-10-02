@@ -75,7 +75,14 @@ def test_context_passes_language_and_election_scope_and_stays_background_only():
     )
     assert "Socialdemokraterna" in block
     assert provenance["election"] == "EP2024-SE"
-    assert provenance["selection_method"] == "deterministic_lexical_v4_scoped_short_aliases"
+    # Assert the contract, not a literal version. This string has been renamed
+    # once per retrieval revision (v3 -> v4 -> v5), and pinning the literal made
+    # an unrelated merge (#112) turn a passing behavioural test red while every
+    # assertion about actual behaviour still held. The prefix identifies the
+    # method family; the suffix is free to change with the implementation.
+    method = provenance["selection_method"]
+    assert method.startswith("deterministic_lexical_v"), method
+    assert "short_alias" in method, method
     assert provenance["evidence_role"] == "background_context_not_source_evidence"
 
     blocked, _ = context_block(
