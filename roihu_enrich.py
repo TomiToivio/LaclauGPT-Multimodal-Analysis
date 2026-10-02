@@ -52,7 +52,7 @@ def split_values(value) -> list[str]:
         parsed = None
     if isinstance(parsed, list):
         return [str(item).strip() for item in parsed if str(item).strip()]
-    parts = re.split(r"[;|\\n]+", text)
+    parts = re.split(r"[;|\n]+", text)
     return [item.strip() for item in parts if item.strip()]
 
 def _abstain_fields(identity: dict[str, Any]) -> dict[str, Any]:
