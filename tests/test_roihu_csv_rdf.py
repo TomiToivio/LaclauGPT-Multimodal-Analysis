@@ -154,7 +154,9 @@ class RDFExportTests(unittest.TestCase):
         self.assertIn("", values)
         self.assertEqual(len(list(graph.triples((None, ns.column, None)))), len(self.rows[0]))
         manifest = json.loads((self.root / "run/manifest.json").read_text())
-        self.assertEqual(manifest["status"], "complete-with-warnings")
+        # The fixture's bare "malformed" line is a valid coding with no evidenced
+        # affect (#180), so the run completes without warnings.
+        self.assertEqual(manifest["status"], "complete")
 
 
 if __name__ == "__main__":
