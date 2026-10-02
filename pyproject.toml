@@ -32,11 +32,19 @@ dev = [
 # What the test suite imports at collection time. CI installs this extra so the
 # dependency list lives in exactly one place: a test that needs a new package
 # means declaring it here, not editing the workflow (see python-quality.yml).
+#
+# pymongo is here because MongoStorage.upsert_documents selects its implementation
+# by `from pymongo import ReplaceOne` inside a try/except: with pymongo installed it
+# calls collection.bulk_write(..., ordered=False), and without it, it falls back to
+# per-document replace_one. A test that asserts the *production* bulk-write
+# semantics is therefore testing a code path that only exists when pymongo is
+# present, so pymongo is a test dependency, not an optional runtime one.
 test = [
   "pytest>=8.3,<9",
   "pandas>=2.2,<3",
   "openpyxl>=3.1,<4",
   "rdflib>=7,<8",
+  "pymongo>=4.10,<5",
 ]
 
 [tool.ruff]
