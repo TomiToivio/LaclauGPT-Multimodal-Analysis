@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Report english_label coverage for one or all EP24 country codebooks.
+"""Report explicit-English review-state coverage for EP24 country codebooks.
+
+This is the provenance/review metric: non-English-sourced entries need an
+explicit english_label even when the English spelling is identical, unless a
+documented exemption exists. For translation-work coverage, use
+check_bilingual_coverage.py.
 
 Default mode is read-only and returns 0 even when review is required.
 Use --strict for QA/CI: any required missing English label returns exit code 1.
@@ -40,7 +45,11 @@ def audit(private_root: Path, countries: list[str]) -> dict:
                 "state": qa["state"],
             }
         )
-    return {"policy": "explicit English label required for non-English entries unless a documented exemption exists", "countries": rows}
+    return {
+        "metric": "explicit_english_review_state",
+        "policy": "explicit English label required for non-English entries unless a documented exemption exists",
+        "countries": rows,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -61,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
-        print("EP24 bilingual english_label coverage")
+        print("EP24 explicit-English review-state coverage")
         print("country entries required present missing exempt coverage state")
         for row in report["countries"]:
             if row["state"] == "UNAVAILABLE":
