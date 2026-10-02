@@ -8,27 +8,37 @@ computed later from the emitted edge JSON without changing the CSV contract.
 from __future__ import annotations
 import json, logging, os
 from pathlib import Path
-import ollama, pandas as pd
+import pandas as pd
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_entities import fold_key, resolution_lookup
-from pydantic import BaseModel, Field
 from ep24_cli import configure_step_cli
 import sys
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG=logging.getLogger("step_8_roihu_social_network_analysis")
 
-class SNAEdge(BaseModel):
-    source_actor: str
-    target_actor: str
-    relation_type: str
-    directed: bool = True
-    evidence_quote: str
-    confidence: float = Field(ge=0.0, le=1.0)
+def _sna_models():
+    """Build the SNA structured-output models on demand.
 
-class SNAResult(BaseModel):
-    analysis_markdown: str
-    edges: list[SNAEdge]
+    pydantic is imported here rather than at module scope so that ``--help`` and
+    argument validation work in a minimal environment without ollama/pydantic
+    (issue #152). The Ollama client is deferred the same way in ``run_language``.
+    """
+    from pydantic import BaseModel, Field
+
+    class SNAEdge(BaseModel):
+        source_actor: str
+        target_actor: str
+        relation_type: str
+        directed: bool = True
+        evidence_quote: str
+        confidence: float = Field(ge=0.0, le=1.0)
+
+    class SNAResult(BaseModel):
+        analysis_markdown: str
+        edges: list[SNAEdge]
+
+    return SNAResult
 
 SYSTEM="""You are extracting evidence-supported social/communication network relations
 from an EP24 social-media analysis, following the Phase 2 LaclauGPT SNA layer.
@@ -57,6 +67,8 @@ def run_language(lang):
         if col not in df.columns: df[col]=""
     limit=int(os.getenv("LACLAUGPT_MAX_ROWS","100") or 100)
     model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL","gemma4:12b")
+    import ollama
+    SNAResult=_sna_models()
     for i,row in df.head(limit).iterrows():
         evidence = metadata_context(row) + "\n\nANALYTICAL EVIDENCE:\n" + "\n\n".join(
             str(row.get(k, "")) for k in
@@ -75,11 +87,11 @@ def run_language(lang):
             edges=[]
             for edge in out.edges:
                 item=edge.model_dump()
-                source=lookup.get(fold_key(edge.source_actor))
+                source_hit=lookup.get(fold_key(edge.source_actor))
                 target=lookup.get(fold_key(edge.target_actor))
-                if source:
-                    item["source_actor_id"]=source["entity_id"]
-                    item["source_actor_canonical_name"]=source["canonical_name"]
+                if source_hit:
+                    item["source_actor_id"]=source_hit["entity_id"]
+                    item["source_actor_canonical_name"]=source_hit["canonical_name"]
                 if target:
                     item["target_actor_id"]=target["entity_id"]
                     item["target_actor_canonical_name"]=target["canonical_name"]

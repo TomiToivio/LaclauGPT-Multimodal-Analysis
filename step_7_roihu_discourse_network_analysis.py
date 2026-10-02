@@ -8,28 +8,38 @@ while adding typed JSON statements for later graph construction.
 from __future__ import annotations
 import json, logging, os
 from pathlib import Path
-import ollama, pandas as pd
+import pandas as pd
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_entities import fold_key, resolution_lookup
-from pydantic import BaseModel, Field
 from ep24_cli import configure_step_cli
 import sys
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG=logging.getLogger("step_7_roihu_discourse_network_analysis")
 
-class DNAStatement(BaseModel):
-    actor_name: str
-    concept_label: str
-    proposition: str
-    stance: str = Field(description="support, oppose, neutral, mixed, or unknown")
-    agreement: bool | None = None
-    evidence_quote: str
-    confidence: float = Field(ge=0.0, le=1.0)
+def _dna_models():
+    """Build the DNA structured-output models on demand.
 
-class DNAResult(BaseModel):
-    analysis_markdown: str
-    statements: list[DNAStatement]
+    pydantic is imported here rather than at module scope so that ``--help`` and
+    argument validation work in a minimal environment without ollama/pydantic
+    (issue #152). The Ollama client is deferred the same way in ``run_language``.
+    """
+    from pydantic import BaseModel, Field
+
+    class DNAStatement(BaseModel):
+        actor_name: str
+        concept_label: str
+        proposition: str
+        stance: str = Field(description="support, oppose, neutral, mixed, or unknown")
+        agreement: bool | None = None
+        evidence_quote: str
+        confidence: float = Field(ge=0.0, le=1.0)
+
+    class DNAResult(BaseModel):
+        analysis_markdown: str
+        statements: list[DNAStatement]
+
+    return DNAResult
 
 SYSTEM="""You are extracting evidence-linked Discourse Network Analysis (DNA) statements
 from an EP24 social-media analysis. Follow the Phase 2 LaclauGPT DNA logic:
@@ -58,6 +68,8 @@ def run_language(lang):
         if col not in df.columns: df[col]=""
     limit=int(os.getenv("LACLAUGPT_MAX_ROWS","100") or 100)
     model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL","gemma4:12b")
+    import ollama
+    DNAResult=_dna_models()
     for i,row in df.head(limit).iterrows():
         evidence = metadata_context(row) + "\n\nANALYTICAL EVIDENCE:\n" + "\n\n".join(
             str(row.get(k, "")) for k in
