@@ -146,8 +146,10 @@ def analyze_videos(language=None):
         df = df.head(max_rows).copy()
         logger.info("Demo row limit active: processing first %s rows", max_rows)
     if 'whisperResult' in df.columns:
+        df = df.dropna(subset=['whisperResult'])
         df = df[df['whisperResult'].astype(str).str.strip() != ''].copy()
     if 'frame_files' in df.columns:
+        df = df.dropna(subset=['frame_files'])
         df = df[df['frame_files'].astype(str).str.strip() != ''].copy()
     df['frame_analysis_1'] = ''
     df['frame_analysis_2'] = ''
