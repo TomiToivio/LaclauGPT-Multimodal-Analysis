@@ -99,10 +99,13 @@ def test_prime_is_not_an_apostrophe() -> None:
     """FR-04: `′` means minutes/feet. Folding it would be a semantic change.
 
     This is the boundary the hygiene module already draws; the fold must agree
-    with it rather than being a broader punctuation stripper.
+    with it rather than being a broader punctuation stripper. Asserted both ways:
+    a prime is unchanged by the fold, and it is not equated with an apostrophe.
     """
     assert cb.elision_key("5\u20325") == cb.identity_key("5\u20325")
     assert cb.elision_key("5\u20325") != cb.elision_key(f"5{ASCII}5")
+    assert cb.elision_key("5\u20325") != cb.elision_key(f"5{RIGHT}5")
+    assert cb.elision_merged("5\u20325", f"5{ASCII}5") is False
 
 
 def test_grave_accent_is_not_an_apostrophe() -> None:

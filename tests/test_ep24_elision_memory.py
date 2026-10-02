@@ -138,29 +138,49 @@ def test_no_id_moves_when_recognition_happens(tmp_path: Path) -> None:
 
 
 def test_elision_recognition_is_kind_scoped(tmp_path: Path) -> None:
-    """MEM-07: an actor must not resolve to a theme that folds the same way."""
+    """MEM-07: an actor must not resolve to a topic that folds the same way.
+
+    The query must use a *typographic* apostrophe and the stored object the ASCII
+    one (or vice versa), so the fold is actually exercised rather than
+    short-circuiting on an already-canonical query. The stored topic carries the
+    typographic form and the actor query the ASCII form, with both in country FR:
+    if kind scoping were dropped from the twin search, the actor query would
+    resolve to the topic object.
+    """
     mem = _memory(tmp_path)
-    mem.add_object("topic", f"l{ASCII}Europe sociale", country="FR", language="fr", state="CANONICAL")
-    resolved = mem.resolve(f"l{RIGHT}Europe sociale", "actor", country="FR", language="fr")
+    topic = mem.add_object("topic", f"l{RIGHT}Europe sociale", country="FR", language="fr", state="CANONICAL")
+    resolved = mem.resolve(f"l{ASCII}Europe sociale", "actor", country="FR", language="fr")
     assert resolved.decision == "NEW", "kind isolation must hold across the fold"
+    assert resolved.obj_id != topic
 
 
 def test_elision_recognition_is_country_scoped(tmp_path: Path) -> None:
-    """MEM-08: the same folded label in another country is a different entity."""
+    """MEM-08: the same folded label in another country is a different entity.
+
+    Stored in DE with the typographic apostrophe, queried in FR with the ASCII
+    one — same folded key, different country. Both directions of the fold are
+    exercised, so dropping the country check in the twin search fails this.
+    """
     mem = _memory(tmp_path)
-    mem.add_object("actor", f"l{ASCII}Europe", country="DE", language="de", state="CANONICAL")
-    resolved = mem.resolve(f"l{RIGHT}Europe", "actor", country="FR", language="fr")
+    other = mem.add_object("actor", f"l{RIGHT}Europe", country="DE", language="de", state="CANONICAL")
+    resolved = mem.resolve(f"l{ASCII}Europe", "actor", country="FR", language="fr")
     assert resolved.decision == "NEW", "country isolation must hold across the fold"
+    assert resolved.obj_id != other
 
 
 def test_deprecated_objects_are_not_resurrected_by_the_fold(tmp_path: Path) -> None:
-    """MEM-09: `accepted_only` must still gate the fold, as it gates exact lookup."""
+    """MEM-09: `accepted_only` must still gate the fold, as it gates exact lookup.
+
+    The query uses the OTHER apostrophe from the stored object so the fold path is
+    genuinely reached; a query in the same form would short-circuit on the
+    exact-alias branch and this would pass for the wrong reason.
+    """
     mem = _memory(tmp_path)
-    obj = mem.add_object("actor", f"l{ASCII}Europe", country="FR", language="fr", state="CANONICAL")
+    obj = mem.add_object("actor", f"l{RIGHT}Europe", country="FR", language="fr", state="CANONICAL")
     mem.set_state(obj, "DEPRECATED")
-    assert mem.resolve(f"l{RIGHT}Europe", "actor", country="FR", language="fr").decision == "NEW"
+    assert mem.resolve(f"l{ASCII}Europe", "actor", country="FR", language="fr").decision == "NEW"
     # with accepted_only=False it is visible again, exactly like an exact alias hit
-    assert mem.resolve(f"l{RIGHT}Europe", "actor", country="FR", language="fr", accepted_only=False).decision == "EXISTING"
+    assert mem.resolve(f"l{ASCII}Europe", "actor", country="FR", language="fr", accepted_only=False).decision == "EXISTING"
 
 
 # --------------------------------------------------------------------------- #
@@ -178,10 +198,18 @@ def test_a_different_entity_is_not_recognised_by_the_fold(tmp_path: Path) -> Non
 
 
 def test_prime_is_not_treated_as_an_elision(tmp_path: Path) -> None:
-    """MEM-11: the not-an-apostrophe boundary holds on the memory side too."""
+    """MEM-11: the not-an-apostrophe boundary holds on the memory side too.
+
+    Uses a typographic apostrophe in the query against a stored prime form (a
+    prime has no elision variant, so the fold path is reached and must decline).
+    A query in the same form as the stored object would short-circuit and prove
+    nothing.
+    """
     mem = _memory(tmp_path)
     mem.add_object("actor", "5\u20325", country="FR", language="fr", state="CANONICAL")
-    assert mem.resolve(f"5{ASCII}5", "actor", country="FR", language="fr").decision == "NEW"
+    assert mem.resolve(f"5{RIGHT}5", "actor", country="FR", language="fr").decision == "NEW"
+    # and the fold must not equate a prime with an apostrophe at the key level
+    assert rm.elision_surface_key("5\u20325") != rm.elision_surface_key(f"5{ASCII}5")
 
 
 def test_the_two_modules_agree_on_the_folded_family() -> None:

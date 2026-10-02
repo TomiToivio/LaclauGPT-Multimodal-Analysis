@@ -350,8 +350,11 @@ class EP24Memory:
         two objects.
         """
         folded = elision_surface_key(label)
-        if not folded or folded == surface_key(label):
-            # No apostrophe variant in this label: nothing to recognise.
+        if not folded or not any(c in ELISION_APOSTROPHES for c in label):
+            # No apostrophe in the label: nothing to recognise. (Guarding on the
+            # apostrophe rather than on "folded != surface_key" matters here too —
+            # the earlier form silently skipped the reverse direction, where the
+            # stored label is typographic and the new one is ASCII.)
             return ""
         rows = db.execute(
             "SELECT obj_id, canonical_label, country, language FROM objects WHERE kind=? AND obj_id!=?",
@@ -420,7 +423,15 @@ class EP24Memory:
         deprecated object.
         """
         folded = elision_surface_key(raw)
-        if not folded or folded == surface_key(raw):
+        if not folded:
+            return None
+        # Cheap and provably safe guard: a fold match requires the two keys to
+        # differ ONLY by an apostrophe character. If the query contains no elision
+        # apostrophe at all, its folded key equals its surface key, and a stored
+        # label can only reach that key if it also contains no apostrophe — which
+        # would have been found by the exact-alias lookup that already missed. So
+        # no fold match is possible and the scan can be skipped.
+        if not any(c in ELISION_APOSTROPHES for c in raw):
             return None
         states = ("CANONICAL",) if accepted_only else ("CANONICAL", "PROVISIONAL", "DEPRECATED")
         qs = ",".join("?" for _ in states)
