@@ -36,6 +36,7 @@ OUTPUT_COLUMNS = (
     "neutral",
     "negative",
     "postprocess_summary_md",
+    "video_status",
 )
 ENRICHMENT_COLUMNS = (
     "ep24_entity_resolution_json",
@@ -75,6 +76,7 @@ def _result_model():
         positive: list[str]
         neutral: list[str]
         negative: list[str]
+        video_status: str
 
     return PostprocessResult
 
@@ -165,11 +167,13 @@ def get_system_prompt():
 1. Extract political themes, merging obvious duplicates or synonyms.
 2. Extract political entities, merging obvious duplicates or synonyms.
 3. Extract sentiment targets and classify each as positive, neutral, or negative.
+4. Check if the previous steps report the video has problems: return `REPROCESS` or `DELETE` if the video is problematic, `OK` if the video is OK.
 
 **Formatting Rules**:
 - Respond only with a valid JSON object.
-- Use exactly these keys: `themes`, `entities`, `positive`, `neutral`, `negative`.
-- Every value must be a JSON array of strings.
+- Use exactly these keys: `themes`, `entities`, `positive`, `neutral`, `negative`, `video_status`.
+- Value of `themes`, `entities`, `positive`, `neutral` and `negative` must be a JSON array of strings.
+- Value of `video_status` must be string `OK`, `REPROCESS` or `DELETE`.
 - Do not include introductions, markdown fences, comments, or extra fields.
 '''
 
