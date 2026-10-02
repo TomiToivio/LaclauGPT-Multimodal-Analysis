@@ -42,13 +42,13 @@ it is not one.
 |---|---|---|
 | 1 ASR | specialist backend, no LLM | `canary` → `nvidia/canary-1b-v2` (`LACLAUGPT_ASR_ENGINE`) |
 | 1 OCR | specialist backend, no LLM | `paddleocr` → `PP-OCRv5` (`LACLAUGPT_OCR_ENGINE`) |
-| 2 keyframe VLM | **Ollama** | `gemma4:12b` (`LACLAUGPT_MULTIMODAL_MODEL`) |
+| 2 keyframe VLM | **Ollama** | `qwen3.8:27b` (`LACLAUGPT_MULTIMODAL_MODEL`) |
 | 3 whole video | **vLLM** | `Qwen/Qwen3-VL-8B-Instruct` (`LACLAUGPT_VLLM_TEST_MODEL`) |
-| 4 summary/fusion | **Ollama** | `gemma4:12b` |
-| 5 structured postprocess | **Ollama** | `gemma4:12b` |
-| 6 discourse analysis | **Ollama** | `gemma4:12b` |
-| 7 DNA extraction | **Ollama** | `gemma4:12b` |
-| 8 SNA extraction | **Ollama** | `gemma4:12b` |
+| 4 summary/fusion | **Ollama** | `qwen3.8:27b` |
+| 5 structured postprocess | **Ollama** | `qwen3.8:27b` |
+| 6 discourse analysis | **Ollama** | `qwen3.8:27b` |
+| 7 DNA extraction | **Ollama** | `qwen3.8:27b` |
+| 8 SNA extraction | **Ollama** | `qwen3.8:27b` |
 | 9 RDF export | none — deterministic | `model=none` |
 
 Source: `asr_backend.py`, `ocr_backend.py`, `roihu_frame.py`, `roihu_summary.py`,
@@ -65,9 +65,10 @@ Two facts shape the whole decision:
    `vllm_video_runtime_seconds`, `vllm_structured_output_status` and the prompt
    SHA-256. That is the empirical baseline to reuse, not a synthetic comparison.
 2. **Steps 2 and 4–8 share one Ollama model.** `LACLAUGPT_MULTIMODAL_MODEL`
-   defaults to `gemma4:12b` for all six. Whether that one model is right for six
-   different tasks (image reasoning, text fusion, JSON extraction, theory) is
-   exactly what §7 decides.
+   defaults to `qwen3.8:27b` for all six (issue #156). Whether that one model is
+   right for six different tasks (image reasoning, text fusion, JSON extraction,
+   theory) is exactly what §7 decides. Historically the shared default was
+   `gemma4:12b`; the matrix below reflects the current code.
 
 ---
 

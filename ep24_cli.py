@@ -15,11 +15,13 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 LOG = logging.getLogger("ep24_cli")
+
+DEFAULT_OLLAMA_MODEL = "qwen3.8:27b"
 
 COUNTRY_ALIASES = {
     "finland": "finland", "fi": "finland",
@@ -67,6 +69,32 @@ class StepSelection:
     country_source: str
     limit_source: str
     remaining_argv: list[str]
+
+
+def resolve_model(
+    *variables: str,
+    default: str = DEFAULT_OLLAMA_MODEL,
+    logger: logging.Logger | None = None,
+) -> str:
+    """Resolve an inference model from an override chain and log where it came from.
+
+    ``variables`` are the override environment variables in precedence order,
+    most specific first. The first non-empty value wins; otherwise ``default``.
+
+    Issue #156 requirement 5 asks each model-using step to log the selected model
+    and whether it came from an explicit override or the repository default. Doing
+    that in one place keeps the resolution hierarchy identical across steps.
+    Only the variable name and the model identifier are logged, never values of
+    anything else.
+    """
+    out = logger or LOG
+    for name in variables:
+        value = str(os.getenv(name) or "").strip()
+        if value:
+            out.info("model=%s source=%s", value, name)
+            return value
+    out.info("model=%s source=repository-default", default)
+    return default
 
 
 def normalize_country(value: str | None) -> str | None:

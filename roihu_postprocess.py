@@ -8,6 +8,7 @@ from logging.handlers import RotatingFileHandler
 from pydantic import BaseModel
 from ep24_pipeline import ensure_columns, load_cumulative_csv, metadata_context
 from ep24_schema import stable_source_id, value as ep24_value
+from ep24_cli import resolve_model
 
 os.makedirs('./logs', exist_ok=True)
 
@@ -68,7 +69,7 @@ def get_response(user_prompt, system_prompt):
     }
     try:
         response = ollama.chat(
-            model=os.getenv('LACLAUGPT_MULTIMODAL_MODEL', 'gemma4:12b'),
+            model=resolve_model('LACLAUGPT_MULTIMODAL_MODEL'),
             messages=[
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': user_prompt},

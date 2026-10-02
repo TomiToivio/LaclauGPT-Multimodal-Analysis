@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from logging.handlers import RotatingFileHandler
 from ep24_pipeline import ensure_columns, load_cumulative_csv, metadata_context
 from ep24_schema import stable_source_id, value as ep24_value
+from ep24_cli import resolve_model
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(handlers=[RotatingFileHandler('formula.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
@@ -344,7 +345,7 @@ def get_response(user_prompt, system_prompt):
                "num_predict": 2048}
     try:
         # llama3.3:70b or gemma3:27b or qwen3:32b or mistral-large:123b or llama4:latest
-        response = ollama.chat(model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"), messages=[
+        response = ollama.chat(model=resolve_model("LACLAUGPT_MULTIMODAL_MODEL"), messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ], options=options, format=FormulaOfPopulism.model_json_schema())

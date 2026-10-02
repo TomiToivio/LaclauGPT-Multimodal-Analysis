@@ -976,7 +976,7 @@ def resolution_summary(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
 def ollama_adjudicator(model: str | None = None) -> Callable[[dict[str, Any]], Any]:
     """Return a conservative Ollama-backed candidate adjudicator."""
     import os
-    chosen_model = model or os.getenv("LACLAUGPT_ENTITY_ADJUDICATOR_MODEL") or os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b")
+    chosen_model = model or os.getenv("LACLAUGPT_ENTITY_ADJUDICATOR_MODEL") or os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "qwen3.8:27b")
 
     def adjudicate(payload: dict[str, Any]) -> Any:
         import ollama

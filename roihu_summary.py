@@ -6,6 +6,7 @@ from logging.handlers import RotatingFileHandler
 import ollama
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_schema import value as ep24_value
+from ep24_cli import resolve_model
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
@@ -199,7 +200,7 @@ def get_llama_summary_response(system_prompt, user_prompt):
                "num_predict": 2048}
     logger.debug(f"System prompt: {system_prompt}")
     logger.debug(f"User prompt: {user_prompt}")
-    response = ollama.chat(model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"), messages=[
+    response = ollama.chat(model=resolve_model("LACLAUGPT_MULTIMODAL_MODEL"), messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
     ], options=options)

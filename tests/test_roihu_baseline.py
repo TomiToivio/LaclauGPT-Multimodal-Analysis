@@ -19,10 +19,15 @@ def test_runner_preserves_historical_stage_order():
 
 
 def test_inference_stages_use_configurable_model():
+    """Each stage resolves the model through the shared override chain."""
+    import sys
+    from pathlib import Path as _P
+    sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+    from ep24_cli import DEFAULT_OLLAMA_MODEL
     for name in ("roihu_frame.py", "roihu_summary.py", "roihu_postprocess.py", "roihu_populism.py"):
         text = (ROOT / name).read_text(encoding="utf-8")
         assert "LACLAUGPT_MULTIMODAL_MODEL" in text, name
-        assert "gemma4:12b" in text, name
+        assert "resolve_model" in text or DEFAULT_OLLAMA_MODEL in text, name
 
 
 def test_readme_marks_legacy_frozen_and_main_phase2_roihu():

@@ -13,6 +13,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "MODEL_RUNTIME_MATRIX.md"
 
+#: The shared Ollama default (issue #156). Kept as a literal here on purpose:
+#: this test's job is to notice when the code's constant changes without the doc
+#: following, so reading the constant from the code would defeat it.
+OLLAMA_DEFAULT = "qwen3.8:27b"
+
 
 def _text(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
@@ -25,7 +30,9 @@ def test_doc_exists_and_covers_every_step():
 
 
 def test_ollama_steps_share_the_documented_default_model():
-    """Steps 2 and 4-8 all default to gemma4:12b via LACLAUGPT_MULTIMODAL_MODEL."""
+    """Steps 2 and 4-8 resolve the documented default via the override chain."""
+    import ep24_cli
+    assert ep24_cli.DEFAULT_OLLAMA_MODEL == OLLAMA_DEFAULT
     for relative in (
         "roihu_frame.py",
         "roihu_summary.py",
@@ -36,8 +43,8 @@ def test_ollama_steps_share_the_documented_default_model():
     ):
         text = _text(relative)
         assert "LACLAUGPT_MULTIMODAL_MODEL" in text, relative
-        assert "gemma4:12b" in text, relative
-    assert "gemma4:12b" in DOC.read_text(encoding="utf-8")
+        assert ("resolve_model" in text or OLLAMA_DEFAULT in text), relative
+    assert OLLAMA_DEFAULT in DOC.read_text(encoding="utf-8")
 
 
 def test_step3_uses_vllm_with_the_documented_baseline_model():
