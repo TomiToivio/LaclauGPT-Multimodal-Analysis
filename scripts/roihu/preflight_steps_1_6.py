@@ -21,7 +21,7 @@ STEP_IMPORTS = {
 COUNTRIES = {"finland", "poland", "portugal", "germany", "spain", "hungary", "croatia", "france", "bulgaria", "sweden"}
 
 def fail(message: str) -> None:
-    print(f"PRELIGHT ERROR: {message}", file=sys.stderr)
+    print(f"PREFLIGHT ERROR: {message}", file=sys.stderr)
     raise SystemExit(2)
 
 def require_imports(names: tuple[str, ...]) -> None:
@@ -41,7 +41,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
 
-    private_root = Path(os.environ.get("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", ""))
+    private_root = Path(os.environ.get("LACLAUGPT_EP24_PRIVATE_ROOT") or os.environ.get("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", ""))
     if not private_root.is_dir():
         fail(f"private EP24 root not found: {private_root}")
     output_root = Path(os.environ.get("LACLAUGPT_EP24_OUTPUT_ROOT", private_root / "outputs"))
