@@ -117,6 +117,8 @@ def test_clips_at_or_below_the_boundary_are_too_short_not_error(
                 "author_username": "author",
                 "allas_filename": "clip.avi",
                 "source_type": "tiktok",
+                "entities": "[]",
+                "themes": "[]",
             }
         ]
     )
@@ -173,6 +175,8 @@ def test_just_above_the_boundary_still_produces_one_frame(tmp_path, monkeypatch)
                 "author_username": "author",
                 "allas_filename": "clip.avi",
                 "source_type": "tiktok",
+                "entities": "[]",
+                "themes": "[]",
             }
         ]
     )
