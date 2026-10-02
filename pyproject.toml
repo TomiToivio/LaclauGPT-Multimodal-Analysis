@@ -41,6 +41,7 @@ dev = [
 # present, so pymongo is a test dependency, not an optional runtime one.
 test = [
   "pytest>=8.3,<9",
+  "pydantic>=2.9,<3",
   "pandas>=2.2,<3",
   "openpyxl>=3.1,<4",
   "rdflib>=7,<8",
