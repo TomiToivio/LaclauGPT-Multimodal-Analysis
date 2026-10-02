@@ -45,9 +45,14 @@ cd "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
 source "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/scripts/roihu/lib_roihu_diagnostics.sh"
 roihu_diagnostics 1
 
-srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_stage_orchestrator.py" \
-  --step 1 \
-  --script "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_1_roihu_preprocess.py" \
-  "$@"
+if [[ "${LACLAUGPT_MONGO_ENABLED:-0}" =~ ^(1|true|yes|on)$ ]]; then
+  srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_stage_orchestrator.py" \
+    --step 1 \
+    --script "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_1_roihu_preprocess.py" \
+    "$@"
+else
+  echo "MongoDB not configured; running Step 1 directly with CSV/SQLite checkpoints."
+  srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_1_roihu_preprocess.py" "$@"
+fi
 
 echo "EP24 Step 1 completed at $(date --iso-8601=seconds)"
