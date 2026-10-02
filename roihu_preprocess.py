@@ -17,6 +17,8 @@ import os
 import shutil
 import sqlite3
 import time
+import uuid
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -25,8 +27,13 @@ import cv2
 import pandas as pd
 
 from asr_backend import describe_backend, language_hint, load_asr_model
-from ep24_pipeline import local_media_path
+from ep24_pipeline import assert_source_metadata_preserved, local_media_path
 from ep24_schema import value as ep24_value
+from ep24_db import country_storage
+from ep24_memory import seed_researcher_memory
+from ep24_rag import upsert_stage_rag
+from ep24_redis import RedisCoordinator
+from roihu_storage import dataframe_to_documents, stable_record_id
 from ep24_video import analysis_start_seconds as video_initial_skip_seconds
 from ep24_video import (
     is_too_short,
@@ -262,13 +269,17 @@ def cache_fingerprint(country: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def cache_key(row: pd.Series, *, country: str = "") -> str:
+def cache_key(
+    row: pd.Series, *, country: str = "", media_sha256: str = ""
+) -> str:
+    """Stable cache key including processing config and source-media content."""
     resolved_country = str(country or ep24_value(row, "country") or "")
     return "|".join(
         [
             resolved_country,
             str(ep24_value(row, "video_id") or ""),
             str(ep24_value(row, "allas_filename") or ""),
+            media_sha256,
             cache_fingerprint(resolved_country),
         ]
     )
@@ -320,7 +331,13 @@ def backup_and_write(df: pd.DataFrame, output: Path) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     if output.exists():
         shutil.copy2(output, output.with_name(f"{output.name}.prewrite.{stamp}.bak"))
-    df.to_csv(output, index=False, encoding="utf-8")
+    temporary = output.with_name(f".{output.name}.{stamp}.tmp")
+    try:
+        df.to_csv(temporary, index=False, encoding="utf-8")
+        os.replace(temporary, output)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
     backup = output.with_name(f"{output.stem}.{stamp}.backup{output.suffix}")
     shutil.copy2(output, backup)
     LOG.info(
@@ -332,6 +349,71 @@ def backup_and_write(df: pd.DataFrame, output: Path) -> Path:
         list(df.columns),
     )
     return backup
+
+
+
+def mongo_enabled() -> bool:
+    return os.getenv("LACLAUGPT_MONGO_ENABLED", "0").casefold() in {"1", "true", "yes", "on"}
+
+
+def record_id_for_row(row: pd.Series, country: str) -> str:
+    """Use the same stable identity algorithm as Mongo persistence."""
+    return stable_record_id(
+        row.to_dict(),
+        dataset=os.getenv("LACLAUGPT_DATASET", "ep24"),
+        country=country,
+        source_hint="step_01_preprocess",
+    )
+
+
+def persist_shared_state(
+    df: pd.DataFrame, *, source_csv: Path | None = None
+) -> dict[str, int]:
+    """Persist direct Step-1 results through the shared Mongo/Memory/RAG layer.
+
+    Mongo is optional for CSV-only development, but when explicitly enabled a
+    connection/persistence error is fatal rather than silently downgrading the
+    durable source of truth. Analysis documents are patched so rerunning Step 1
+    cannot erase fields written by later stages.
+    """
+    if not mongo_enabled():
+        LOG.info("mongo_persistence disabled")
+        return {"analysis": 0, "memory": 0, "rag": 0}
+
+    run_id = os.getenv("LACLAUGPT_STAGE_RUN_ID") or f"direct-{uuid.uuid4()}"
+    counts = {"analysis": 0, "memory": 0, "rag": 0}
+    country_rows: dict[str, list[int]] = {}
+    for index, row in df.iterrows():
+        country = str(ep24_value(row, "country") or os.getenv("LACLAUGPT_COUNTRY", "")).strip().casefold()
+        if not country:
+            raise ValueError(f"Step 1 row {index} has no country for Mongo persistence")
+        country_rows.setdefault(country, []).append(index)
+
+    for country, indexes in country_rows.items():
+        subset = df.loc[indexes].copy()
+        with country_storage(country) as storage:
+            documents = dataframe_to_documents(
+                subset,
+                config=storage.config,
+                stage="step_01_preprocess",
+                run_id=run_id,
+                source_hint=str(source_csv or ""),
+            )
+            counts["analysis"] += storage.patch_documents("analysis", documents)
+            counts["memory"] += seed_researcher_memory(storage, subset, country=country)
+            rag_frame = pd.DataFrame(documents)
+            counts["rag"] += upsert_stage_rag(
+                storage, rag_frame, stage="step_01_preprocess"
+            )
+            LOG.info(
+                "shared_persistence country=%s analysis=%d memory=%d rag=%d run_id=%s",
+                country,
+                len(documents),
+                counts["memory"],
+                counts["rag"],
+                run_id,
+            )
+    return counts
 
 
 def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) -> pd.DataFrame:
@@ -367,160 +449,195 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
     LOG.info("asr_backend=%s", describe_backend())
     LOG.info("ocr_backend=%s", describe_ocr_backend())
     conn = connect_cache()
-    counters = {"ok": 0, "cached": 0, "missing_video": 0, "too_short": 0, "error": 0}
-    try:
-        for source_row_index, (index, row) in enumerate(out.iterrows()):
-            country = str(ep24_value(row, "country") or os.getenv("LACLAUGPT_COUNTRY", ""))
-            video_id = str(ep24_value(row, "video_id") or "")
-            author = str(ep24_value(row, "author_username") or "")
-            allas = str(ep24_value(row, "allas_filename") or "")
-            source_type = str(ep24_value(row, "source_type") or "video")
-            local_path = str(local_media_path(row))
-            key = cache_key(row)
+    counters = {"ok": 0, "cached": 0, "missing_video": 0, "too_short": 0, "locked": 0, "error": 0}
+    redis_by_country: dict[str, RedisCoordinator] = {}
+    locked_rows: set[object] = set()
+    record_ids: dict[object, str] = {}
+    with ExitStack() as redis_locks:
+        for index, row in out.iterrows():
+            country = str(ep24_value(row, "country") or os.getenv("LACLAUGPT_COUNTRY", "")).strip().casefold()
+            rid = record_id_for_row(row, country)
+            coordinator = redis_by_country.setdefault(country, RedisCoordinator(country, 1))
+            acquired = redis_locks.enter_context(coordinator.lock(rid))
+            record_ids[index] = rid
+            if acquired:
+                locked_rows.add(index)
+            else:
+                LOG.warning("redis_lock_unavailable country=%s record_id=%s", country, rid)
 
-            LOG.debug(
-                "row_begin country=%s source_csv=%s source_row_index=%d video_id=%s "
-                "allas_filename=%s local_video=%s",
-                country,
-                source_csv or "",
-                source_row_index,
-                video_id,
-                allas,
-                local_path,
-            )
-
-            cached = load_cached(conn, key)
-            if cached:
-                for column, value in cached.items():
-                    out.at[index, column] = value
-                out.at[index, "preprocess_status"] = "cached"
-                out.at[index, "preprocess_note"] = (
-                    "Loaded Step-1 result from SQLite restart cache "
-                    f"(fingerprint={cache_fingerprint(country)})."
-                )
-                counters["cached"] += 1
-                LOG.debug(
-                    "cache_hit country=%s video_id=%s fingerprint=%s fields=%d",
-                    country,
-                    video_id,
-                    cache_fingerprint(country),
-                    len(cached),
-                )
-                continue
-
-            LOG.debug("cache_miss country=%s video_id=%s", country, video_id)
-            if not Path(local_path).exists():
-                out.at[index, "preprocess_status"] = "missing_video"
-                out.at[index, "preprocess_note"] = "Source media is not available after staging."
-                counters["missing_video"] += 1
-                LOG.error("missing_video country=%s video_id=%s path=%s", country, video_id, local_path)
-                continue
-
-            try:
-                duration = get_video_duration(local_path)
-                out.at[index, "video_duration_seconds"] = f"{duration:.6f}"
-                LOG.debug("video_duration country=%s video_id=%s seconds=%.6f", country, video_id, duration)
-                # Use the shared rule instead of a local `duration <` comparison.
-                # ep24_video.is_too_short treats a clip of exactly 1.0s as too
-                # short (no analyzable media remains after the mandatory skip),
-                # while `<` classified it as work and then failed with a bogus
-                # preprocess_status "error" when the frame read came back empty.
-                if is_too_short(duration):
-                    out.at[index, "preprocess_status"] = "too_short"
-                    out.at[index, "preprocess_note"] = (
-                        f"Video duration {duration:.3f}s is shorter than t={FRAME_TIMESTAMP_SECONDS:.1f}s."
-                    )
-                    counters["too_short"] += 1
+        try:
+            for source_row_index, (index, row) in enumerate(out.iterrows()):
+                country = str(ep24_value(row, "country") or os.getenv("LACLAUGPT_COUNTRY", "")).strip().casefold()
+                rid = record_ids[index]
+                coordinator = redis_by_country[country]
+                if index not in locked_rows:
+                    out.at[index, "preprocess_status"] = "locked"
+                    out.at[index, "preprocess_note"] = "Redis record lock is held by another worker."
+                    counters["locked"] += 1
                     continue
+                coordinator.mark(rid, "running")
+                video_id = str(ep24_value(row, "video_id") or "")
+                author = str(ep24_value(row, "author_username") or "")
+                allas = str(ep24_value(row, "allas_filename") or "")
+                source_type = str(ep24_value(row, "source_type") or "video")
+                local_path = str(local_media_path(row))
+                media_path = Path(local_path)
+                if not media_path.exists():
+                    out.at[index, "preprocess_status"] = "missing_video"
+                    out.at[index, "preprocess_note"] = "Source media is not available after staging."
+                    counters["missing_video"] += 1
+                    coordinator.mark(rid, "missing_video")
+                    LOG.error("missing_video country=%s video_id=%s path=%s", country, video_id, local_path)
+                    continue
+                media_sha256 = sha256_file(media_path)
+                key = cache_key(row, country=country, media_sha256=media_sha256)
 
-                frame_file = save_single_keyframe(
-                    local_path,
-                    video_id=video_id,
-                    author_username=author,
-                    source_type=source_type,
-                )
-
-                ocr_started = time.perf_counter()
-                ocr_text, ocr_count = ocr.read(frame_file)
-                ocr_ms = (time.perf_counter() - ocr_started) * 1000.0
                 LOG.debug(
-                    "ocr_complete country=%s video_id=%s backend=%s model=%s runtime_ms=%.1f "
-                    "raw_result_count=%d text=%r",
+                    "row_begin country=%s source_csv=%s source_row_index=%d video_id=%s "
+                    "allas_filename=%s local_video=%s media_sha256=%s record_id=%s",
                     country,
-                    video_id,
-                    ocr.engine,
-                    ocr.model,
-                    ocr_ms,
-                    ocr_count,
-                    ocr_text,
-                )
-
-                # ASR must not ingest the known 0-1s feed-scroll artifact.
-                # Use the shared ep24_video rule and a non-destructive derived clip.
-                analysis_clip = prepare_analysis_clip(local_path, "./analysis_clips")
-                LOG.debug(
-                    "asr_analysis_clip country=%s video_id=%s source=%s analysis_clip=%s",
-                    country,
-                    video_id,
-                    local_path,
-                    analysis_clip,
-                )
-                asr_started = time.perf_counter()
-                result = asr.transcribe(str(analysis_clip), language_hint(country))
-                asr_ms = (time.perf_counter() - asr_started) * 1000.0
-                LOG.debug(
-                    "asr_complete country=%s video_id=%s backend=%s model=%s runtime_ms=%.1f "
-                    "language=%s transcript_chars=%d translated_chars=%d",
-                    country,
-                    video_id,
-                    asr.engine,
-                    asr.model,
-                    asr_ms,
-                    result.language,
-                    len(result.transcript),
-                    len(result.translated),
-                )
-
-                completed = datetime.now(timezone.utc).isoformat()
-                values = {
-                    "frame_file": frame_file,
-                    "frame_timestamp_seconds": f"{FRAME_TIMESTAMP_SECONDS:.1f}",
-                    "ocr_1": ocr_text,
-                    "ocr_backend": ocr.engine,
-                    "ocr_model": ocr.model,
-                    "ocr_runtime_ms": f"{ocr_ms:.1f}",
-                    "asr_transcript": result.transcript,
-                    "asr_language": result.language,
-                    "asr_translated": result.translated,
-                    "asr_backend": asr.engine,
-                    "asr_model": asr.model,
-                    "asr_runtime_ms": f"{asr_ms:.1f}",
-                    "video_duration_seconds": f"{duration:.6f}",
-                    "preprocess_completed_at": completed,
-                }
-                for column, value in values.items():
-                    out.at[index, column] = value
-                out.at[index, "preprocess_status"] = "ok"
-                out.at[index, "preprocess_note"] = (
-                    "Exactly one OCR call on exactly one original-video frame at t=1.0s; "
-                    "ASR processed the derived analyzable clip after the mandatory 1.0s skip."
-                )
-                save_cached(conn, key, values)
-                counters["ok"] += 1
-                LOG.debug("row_complete country=%s video_id=%s state=ok", country, video_id)
-            except Exception as exc:
-                counters["error"] += 1
-                out.at[index, "preprocess_status"] = "error"
-                out.at[index, "preprocess_note"] = f"{type(exc).__name__}: {exc}"
-                LOG.exception(
-                    "row_error country=%s source_row_index=%d video_id=%s path=%s",
-                    country,
+                    source_csv or "",
                     source_row_index,
                     video_id,
+                    allas,
                     local_path,
+                    media_sha256,
+                    rid,
                 )
-    finally:
-        conn.close()
+
+                cached = load_cached(conn, key)
+                if cached:
+                    for column, value in cached.items():
+                        out.at[index, column] = value
+                    out.at[index, "preprocess_status"] = "cached"
+                    out.at[index, "preprocess_note"] = (
+                        "Loaded Step-1 result from SQLite restart cache "
+                        f"(fingerprint={cache_fingerprint(country)})."
+                    )
+                    counters["cached"] += 1
+                    coordinator.mark(rid, "cached")
+                    LOG.debug(
+                        "cache_hit country=%s video_id=%s fingerprint=%s fields=%d",
+                        country,
+                        video_id,
+                        cache_fingerprint(country),
+                        len(cached),
+                    )
+                    continue
+
+                LOG.debug(
+                    "cache_miss country=%s video_id=%s fingerprint=%s media_sha256=%s",
+                    country, video_id, cache_fingerprint(country), media_sha256,
+                )
+
+                try:
+                    duration = get_video_duration(local_path)
+                    out.at[index, "video_duration_seconds"] = f"{duration:.6f}"
+                    LOG.debug("video_duration country=%s video_id=%s seconds=%.6f", country, video_id, duration)
+                    # Use the shared rule instead of a local `duration <` comparison.
+                    # ep24_video.is_too_short treats a clip of exactly 1.0s as too
+                    # short (no analyzable media remains after the mandatory skip),
+                    # while `<` classified it as work and then failed with a bogus
+                    # preprocess_status "error" when the frame read came back empty.
+                    if is_too_short(duration):
+                        out.at[index, "preprocess_status"] = "too_short"
+                        out.at[index, "preprocess_note"] = (
+                            f"Video duration {duration:.3f}s is shorter than t={FRAME_TIMESTAMP_SECONDS:.1f}s."
+                        )
+                        counters["too_short"] += 1
+                        coordinator.mark(rid, "too_short")
+                        continue
+
+                    frame_file = save_single_keyframe(
+                        local_path,
+                        video_id=video_id,
+                        author_username=author,
+                        source_type=source_type,
+                    )
+
+                    ocr_started = time.perf_counter()
+                    ocr_text, ocr_count = ocr.read(frame_file)
+                    ocr_ms = (time.perf_counter() - ocr_started) * 1000.0
+                    LOG.debug(
+                        "ocr_complete country=%s video_id=%s backend=%s model=%s runtime_ms=%.1f "
+                        "raw_result_count=%d text=%r",
+                        country,
+                        video_id,
+                        ocr.engine,
+                        ocr.model,
+                        ocr_ms,
+                        ocr_count,
+                        ocr_text,
+                    )
+
+                    # ASR must not ingest the known 0-1s feed-scroll artifact.
+                    # Use the shared ep24_video rule and a non-destructive derived clip.
+                    analysis_clip = prepare_analysis_clip(local_path, "./analysis_clips")
+                    LOG.debug(
+                        "asr_analysis_clip country=%s video_id=%s source=%s analysis_clip=%s",
+                        country,
+                        video_id,
+                        local_path,
+                        analysis_clip,
+                    )
+                    asr_started = time.perf_counter()
+                    result = asr.transcribe(str(analysis_clip), language_hint(country))
+                    asr_ms = (time.perf_counter() - asr_started) * 1000.0
+                    LOG.debug(
+                        "asr_complete country=%s video_id=%s backend=%s model=%s runtime_ms=%.1f "
+                        "language=%s transcript_chars=%d translated_chars=%d",
+                        country,
+                        video_id,
+                        asr.engine,
+                        asr.model,
+                        asr_ms,
+                        result.language,
+                        len(result.transcript),
+                        len(result.translated),
+                    )
+
+                    completed = datetime.now(timezone.utc).isoformat()
+                    values = {
+                        "frame_file": frame_file,
+                        "frame_timestamp_seconds": f"{FRAME_TIMESTAMP_SECONDS:.1f}",
+                        "ocr_1": ocr_text,
+                        "ocr_backend": ocr.engine,
+                        "ocr_model": ocr.model,
+                        "ocr_runtime_ms": f"{ocr_ms:.1f}",
+                        "asr_transcript": result.transcript,
+                        "asr_language": result.language,
+                        "asr_translated": result.translated,
+                        "asr_backend": asr.engine,
+                        "asr_model": asr.model,
+                        "asr_runtime_ms": f"{asr_ms:.1f}",
+                        "video_duration_seconds": f"{duration:.6f}",
+                        "preprocess_completed_at": completed,
+                    }
+                    for column, value in values.items():
+                        out.at[index, column] = value
+                    out.at[index, "preprocess_status"] = "ok"
+                    out.at[index, "preprocess_note"] = (
+                        "Exactly one OCR call on exactly one original-video frame at t=1.0s; "
+                        "ASR processed the derived analyzable clip after the mandatory 1.0s skip."
+                    )
+                    save_cached(conn, key, values)
+                    counters["ok"] += 1
+                    coordinator.mark(rid, "completed")
+                    LOG.debug("row_complete country=%s video_id=%s state=ok", country, video_id)
+                except Exception as exc:
+                    counters["error"] += 1
+                    coordinator.mark(rid, "failed")
+                    out.at[index, "preprocess_status"] = "error"
+                    out.at[index, "preprocess_note"] = f"{type(exc).__name__}: {exc}"
+                    LOG.exception(
+                        "row_error country=%s source_row_index=%d video_id=%s path=%s",
+                        country,
+                        source_row_index,
+                        video_id,
+                        local_path,
+                    )
+        finally:
+            conn.close()
 
     lost = [column for column in incoming_columns if column not in out.columns]
     if lost:
@@ -531,7 +648,11 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
 
 def process_csv(input_csv: Path, output_csv: Path) -> None:
     df = read_materialized_csv(input_csv)
+    max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
+    expected = df.head(max_rows).copy() if max_rows > 0 else df
     result = preprocess_dataframe(df, source_csv=input_csv)
+    assert_source_metadata_preserved(expected, result)
+    persist_shared_state(result, source_csv=input_csv)
     backup_and_write(result, output_csv)
 
 
