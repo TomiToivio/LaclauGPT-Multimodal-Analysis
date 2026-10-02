@@ -16,7 +16,7 @@ from typing import Any
 
 from roihu_codebooks import COUNTRY_PROFILES, context_block, load_profile
 from roihu_codebook_sources import load_registry_from_dir
-from ep24_entities import EntityRegistry, resolve_dataframe
+from ep24_entities import EntityRegistry, ollama_adjudicator, registry_documents, resolve_dataframe
 from roihu_memory import EP24Memory
 from roihu_identity import ENTITY_KINDS, SENTIMENT_KINDS, THEME_KINDS, resolve_many, seed_context_lines
 
@@ -207,13 +207,25 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
 
     frame = pd.read_csv(path)
     before_columns = list(frame.columns)
+    adjudicator = None
+    if os.getenv("LACLAUGPT_ENTITY_LLM_ADJUDICATION", "0").casefold() in {"1", "true", "yes", "on"}:
+        adjudicator = ollama_adjudicator()
     resolution_report = resolve_dataframe(
         frame,
         registry,
         country=country,
         language=language,
         mention_columns=("new_entity", "researcher_new_persons", "entities"),
+        adjudicator=adjudicator,
     )
+
+    mongo_registry_upserts = 0
+    if os.getenv("LACLAUGPT_MONGO_ENABLED", "0").casefold() in {"1", "true", "yes", "on"}:
+        from ep24_db import country_storage
+        with country_storage(country) as mongo:
+            mongo_registry_upserts = mongo.upsert_documents(
+                "entities", registry_documents(registry), id_field="_storage_id"
+            )
     new_columns = (
         "ep24_codebook_fingerprint",
         "ep24_codebook_context_json",
@@ -305,6 +317,7 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         "entity_registry": {
             "records": len(registry),
             "workbook_source": workbook_report,
+            "mongo_upserts": mongo_registry_upserts,
         },
     }
 
