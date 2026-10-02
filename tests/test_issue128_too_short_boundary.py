@@ -104,6 +104,7 @@ def test_clips_at_or_below_the_boundary_are_too_short_not_error(
 
     monkeypatch.setattr(preprocess, "load_ocr_backend", lambda: StubOCR())
     monkeypatch.setattr(preprocess, "load_asr_model", lambda: StubASR())
+    monkeypatch.setattr(preprocess, "prepare_analysis_clip", lambda path, output_dir: video_path)
     monkeypatch.setattr(
         preprocess, "local_media_path", lambda row, root=None: video_path
     )
