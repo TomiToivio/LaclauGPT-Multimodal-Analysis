@@ -7,9 +7,8 @@ layers:
 1. the contract itself is internally consistent and names real files;
 2. every ``appends`` column is really written by the module the contract credits
    (checked against the source text, so it runs without Ollama/GPU/private data);
-3. a synthetic row that has been through bootstrap keeps every source column and
-   gains the canonical merged fields, with the four researcher/source columns
-   preserved alongside them.
+3. a synthetic migrated row keeps every canonical source column; bootstrap only
+   adds stable storage identity.
 
 The fixtures here are synthetic. No private EP24 rows, researcher notes,
 codebooks or credentials appear in this file.
@@ -39,11 +38,9 @@ SYNTHETIC_ROW = {
     "sequence_number": "1",
     "political_preference": "synthetic preference",
     "allas_filename": "https://example.invalid/HEPP24/FI/CR/IG/synthetic.mp4",
-    "new_entity": "Synthetic Person",
-    "new_theme": "synthetic theme",
+    "entities": '["Synthetic Person"]',
+    "themes": '["synthetic theme"]',
     "video_duration": "10.0",
-    "researcher_new_persons": "[]",
-    "researcher_new_themes": "[]",
     "researcher_note": "",
 }
 
@@ -80,20 +77,18 @@ def test_stage_lookup_rejects_an_unknown_number_and_lists_the_known_ones():
         raise AssertionError("contract.stage(99) should raise")
 
 
-def test_source_columns_are_the_fifteen_column_keep_schema():
-    assert len(contract.SOURCE_COLUMNS) == 15
+def test_source_columns_are_the_canonical_keep_schema():
+    assert len(contract.SOURCE_COLUMNS) == 13
     assert contract.SOURCE_COLUMNS == EP24_REPROCESS_COLUMNS
 
 
-def test_bootstrap_merges_from_columns_it_does_not_consume():
-    """`entities`/`themes` are added; the four researcher columns they merge from
-    must remain, or provenance is destroyed (issue #64, non-negotiable rule)."""
-    for column in contract.BOOTSTRAP_PRESERVED_COLUMNS:
-        assert column in contract.SOURCE_COLUMNS, f"{column} must be preserved"
-        assert column not in contract.BOOTSTRAP_ADDED_COLUMNS, f"{column} must not be consumed"
-    for column in ("entities", "themes"):
-        assert column in contract.BOOTSTRAP_ADDED_COLUMNS
-        assert column not in contract.SOURCE_COLUMNS
+def test_bootstrap_only_adds_stable_storage_identity():
+    assert contract.BOOTSTRAP_PRESERVED_COLUMNS == ()
+    assert contract.BOOTSTRAP_ADDED_COLUMNS == ("_storage_id",)
+    assert "entities" in contract.SOURCE_COLUMNS
+    assert "themes" in contract.SOURCE_COLUMNS
+    for legacy in ("new_entity", "researcher_new_persons", "new_theme", "researcher_new_themes"):
+        assert legacy not in contract.SOURCE_COLUMNS
 
 
 # --- 2. every contracted column is really written by its stage -------------
@@ -182,9 +177,7 @@ def test_all_contracted_columns_start_with_the_source_columns():
 def test_bootstrap_shaped_row_keeps_every_source_column_and_gains_the_merged_ones():
     """The merged fields are additive: nothing is renamed, dropped or replaced."""
     merged = dict(SYNTHETIC_ROW)
-    merged["record_id"] = "SYNTH-FI-0001|Finland|0"
-    merged["entities"] = "Synthetic Person"
-    merged["themes"] = "synthetic theme"
+    merged["_storage_id"] = "synthetic-storage-id"
 
     for column in contract.SOURCE_COLUMNS:
         assert column in merged, f"bootstrap dropped the source column {column}"
