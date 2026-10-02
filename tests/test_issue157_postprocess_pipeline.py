@@ -25,8 +25,8 @@ def _entry(entry_id, kind, label, *, aliases=(), country="FI"):
 def test_structured_schema_matches_prompt_contract_exactly():
     model = post._result_model()
     assert set(model.model_fields) == {
-        "postprocess_entities",
-        "postprocess_themes",
+        "entities",
+        "themes",
         "positive",
         "neutral",
         "negative",
@@ -125,8 +125,8 @@ def test_ambiguous_or_fuzzy_cleanup_is_not_silently_accepted():
 def test_stage5_contract_declares_raw_and_normalized_outputs():
     stage5 = contract.stage(5)
     required = {
-        "entities",
-        "themes",
+        "postprocess_entities",
+        "postprocess_themes",
         "positive",
         "neutral",
         "negative",
@@ -137,6 +137,12 @@ def test_stage5_contract_declares_raw_and_normalized_outputs():
         "ep24_sentiment_targets_json",
     }
     assert required.issubset(set(stage5.appends))
+    assert "entities" in contract.SOURCE_COLUMNS
+    assert "themes" in contract.SOURCE_COLUMNS
+    assert "entities" not in stage5.appends
+    assert "themes" not in stage5.appends
+    assert "entities" not in post.OUTPUT_COLUMNS
+    assert "themes" not in post.OUTPUT_COLUMNS
 
 
 def test_existing_values_are_preserved_when_model_adds_new_items():
