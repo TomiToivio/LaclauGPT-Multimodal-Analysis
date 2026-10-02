@@ -25,6 +25,7 @@ RAG_TEXT_FIELDS = (
     "formula_of_populism_analysis",
     "dna_analysis_markdown",
     "sna_analysis_markdown",
+    "dna_statements_json",
 )
 
 
@@ -48,6 +49,7 @@ def rag_text(row: pd.Series) -> str:
         _first_nonempty(row, ("formula_of_populism_analysis",)),
         _first_nonempty(row, ("dna_analysis_markdown",)),
         _first_nonempty(row, ("sna_analysis_markdown",)),
+        _first_nonempty(row, ("dna_statements_json",)),
     ]
     return "\n".join(part for part in parts if part)
 
