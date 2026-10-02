@@ -173,6 +173,39 @@ def test_context_budget_is_explicit_and_hash_changes():
     assert a != b
 
 
+
+def test_formula_minimum_conditions_are_mechanically_guarded(monkeypatch):
+    payload = pop.EP24DiscourseResult(
+        analysis_markdown="Only ordinary opposition is evidenced.",
+        us_constructs=[
+            pop.UsConstruct(
+                label="citizens",
+                text_span="we citizens",
+                confidence=0.9,
+            )
+        ],
+        frontier_constructs=[
+            pop.FrontierConstruct(
+                us_side="citizens",
+                them_side="commission",
+                relation="opposition",
+                text_span="we disagree with the commission",
+                confidence=0.8,
+            )
+        ],
+        formula_minimum_conditions_met=True,
+    ).model_dump_json()
+
+    class FakeOllama:
+        @staticmethod
+        def chat(**kwargs):
+            return {"message": {"content": payload}}
+
+    monkeypatch.setitem(sys.modules, "ollama", FakeOllama)
+    _, result = pop.analyze_context("synthetic evidence", model="test-model")
+    assert result.formula_minimum_conditions_met is False
+
+
 def test_invalid_llm_json_retains_raw_response(monkeypatch):
     class FakeOllama:
         @staticmethod
