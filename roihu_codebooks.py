@@ -274,151 +274,6 @@ def seed_entries_from_research_notes(
     return entries
 
 
-# ---------------------------------------------------------------------------
-# Bilingual-label policy (issue #101)
-#
-# The rule this module enforces: an entry needs an ``english_label`` when its
-# canonical label is *not already English*. That is not the same as "the entry
-# has a non-English source language", which is what the original gate tested.
-#
-# Why the distinction matters, measured on the real books:
-#
-#   * the ``common`` layer (2694 entries) records no ``language`` at the file or
-#     entry level, so a language-based gate gives those entries an empty
-#     ``source_languages`` and they are *silently invisible*. For PL the gate
-#     reported 711 while 3405 entries lacked an English label; summed across the
-#     ten countries the gate reported 4654 against a real 31594, a 6.8x
-#     under-report.
-#   * most common-layer labels are already English (``Abortion``, ``Accessibility``,
-#     ``Accountability``), so an entry can be non-English *or* already-English
-#     regardless of which layer it came from. The label text is the only reliable
-#     signal.
-#
-# So the policy is label-driven and layer-independent. It is deliberately a
-# *reporting* signal, never a hard failure: EP24 research must keep running while
-# labels are being repaired, and a missing English gloss must never silently
-# substitute a country fallback string.
-
-# Words that indicate a label is in a non-English EP24 language. Used together
-# with a diacritic check; neither test alone is sufficient (``Partia Razem``
-# needs the word list, ``Željko`` needs the diacritic check).
-#
-# KNOWN LIMITATIONS, measured against the real books rather than assumed. The
-# policy is a *review signal*, so residual imprecision is acceptable and is
-# reported here instead of being hidden behind a confident-looking percentage:
-#
-#   1. A bare surname (``Orbán``, ``Sánchez``, ``Höcke``, ``Feijóo``) is a
-#      single capitalised word, so the person-name exemption does not match and
-#      it is flagged. Arguably correct anyway — a surname-only label has no
-#      English form distinct from itself, but it does need disambiguation.
-#   2. A person whose name contains a particle or hyphen plus diacritics
-#      (``Agnieszka Dziemianowicz-Bąk``) matches the person-name shape and is
-#      exempted. That is the intended behaviour (the English form is the same
-#      string), but it means the reported number is a *lower bound* on entries
-#      touching a non-English language.
-#   3. A German organisation label such as ``Fidesz party`` is flagged via the
-#      marker list even though "Fidesz" is used as-is in English. Treating it as
-#      needing a gloss is harmless (the gloss equals the label) but inflates the
-#      count slightly.
-#
-# The direction of the residual error is deliberate: over-reporting produces a
-# redundant gloss, under-reporting produces a silently missing translation.
-_NON_ENGLISH_MARKERS = re.compile(
-    r"\b(partia|partido|partei|parti|stranka|puolue|puolueen|koalicja|koalicija|"
-    r"koalicion|allianssi|alliance|frente|blok|bloque|ryhmä|liitto|zwi[aą]zek|"
-    r"porozumienie|nowoczesna|sprawiedliwo[sś][cć]|rassemblement|democracia|"
-    r"demokratie|demokratia|zieloni|zielone|verdes|gr[uü]ne|obywatelska|"
-    r"solidarna|suwerenna|niepodleg[lł]o[sś][cć]|liike|kansan|sosialidemokraatit|"
-    r"kokoomus|keskusta|perussuomalaiset|vihre[aä]t|vasemmistoliitto|"
-    r"socialdemokraterna|moderaterna|sverigedemokraterna|v[aä]nsterpartiet|"
-    r"milj[oö]partiet|liberalerna|folkpartiet|h[öo]ger|venstre|arbejderparti|"
-    r"n[eé]p|fidesz|jobbik|momentum|dk|kd|mszmp)\b",
-    re.IGNORECASE,
-)
-
-
-def _has_diacritics(text: str) -> bool:
-    """True when the text contains a combining mark (``ż``, ``é``, ``ö`` …)."""
-    return any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", text))
-
-
-def _looks_like_person_name(label: str) -> bool:
-    """Whether the label is a plain personal name (2–4 capitalised words).
-
-    Personal names are exempt from the English requirement because their English
-    form is normally the same string: ``Pedro Sánchez`` is *also* the English
-    label, and demanding a separate ``english_label`` there manufactures work and
-    inflates the gap. This was measured: of 182 flagged FR entries, 69 were
-    person names of exactly this shape.
-
-    Deliberately shape-only, so an organisation that happens to be two
-    capitalised words (``Les Républicains``) is **not** exempted by this test —
-    that is what ``_ORG_MARKERS`` below is for. A name containing a hyphenated
-    surname (``Dziemianowicz-Bąk``) or a particle (``van``, ``de``) still counts.
-    """
-    text = _clean(label)
-    if not text or any(ch.isdigit() for ch in text):
-        return False
-    words = [w for w in text.split() if w]
-    if not (2 <= len(words) <= 4):
-        return False
-    return all(w[0].isupper() for w in words if w[:1].isalpha())
-
-
-# Organisation words that mean "this is a body, not a person", so a capitalised
-# multi-word label is not treated as a personal name.
-_ORG_MARKERS = re.compile(
-    r"\b(partia|partido|partei|parti|stranka|puolue|koalicja|koalicija|frente|blok|"
-    r"front|alliance|allianssi|alliance|rassemblement|party|parties|movement|"
-    r"union|liga|liitto|ryhmä|verdes|grüne|zieloni|zielone|moderaterna|"
-    r"socialdemokraterna|sverigedemokraterna|vänsterpartiet|miljöpartiet|"
-    r"liberalerna|fianna|sinn|fine|les|républicains|republikaner|sozialdemokraten)\b",
-    re.IGNORECASE,
-)
-
-
-def label_looks_english(label: str) -> bool:
-    """Whether a canonical label is plausibly already English.
-
-    Conservative by design: anything with diacritics or a recognisable
-    non-English political vocabulary marker is treated as *not* English, because
-    the cost of a false "already English" is a silently missing translation,
-    while the cost of a false "needs English" is one redundant gloss.
-    """
-    text = _clean(label)
-    if not text:
-        return True
-    if _has_diacritics(text):
-        return False
-    if _NON_ENGLISH_MARKERS.search(text):
-        return False
-    return True
-
-
-def entry_needs_english_label(entry: CodebookEntry) -> bool:
-    """Whether this entry should carry an ``english_label``.
-
-    True when the canonical label is not already English. Layer- and
-    language-independent on purpose: the ``common`` layer carries no language
-    metadata, so a language-gated test cannot see it at all.
-
-    Exempt (no English gloss required), because an English form would be the same
-    string or a wrong translation:
-
-    * ``@handles`` and URLs — already language-neutral identifiers;
-    * plain personal names — ``Pedro Sánchez`` is the English label too;
-    * labels that already look English.
-    """
-    label = _clean(entry.label)
-    if not label:
-        return False
-    if label.startswith("@") or label.startswith("http://") or label.startswith("https://"):
-        return False
-    if _looks_like_person_name(label) and not _ORG_MARKERS.search(label):
-        return False
-    return not label_looks_english(label)
-
-
 def private_root() -> Path:
     configured = os.getenv("LACLAUGPT_EP24_PRIVATE_ROOT") or os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT")
     if configured:
@@ -497,6 +352,41 @@ def label_looks_english(label: str) -> bool:
     if any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", text)):
         return False
     return not _NON_ENGLISH_MARKERS.search(text)
+
+
+# Organisation markers used only by the translation-work metric. They prevent
+# capitalised organisation labels from being mistaken for personal names.
+_ORG_MARKERS = re.compile(
+    r"\\b(partia|partido|partei|parti|stranka|puolue|koalicja|koalicija|frente|blok|"
+    r"front|alliance|allianssi|rassemblement|party|parties|movement|union|liga|liitto|"
+    r"ryhmä|verdes|grüne|zieloni|zielone|moderaterna|socialdemokraterna|"
+    r"sverigedemokraterna|vänsterpartiet|miljöpartiet|liberalerna|fianna|sinn|fine|"
+    r"les|républicains|republikaner|sozialdemokraten)\\b",
+    re.IGNORECASE,
+)
+
+
+def english_translation_required(entry: CodebookEntry) -> bool:
+    """Whether the canonical label needs an English translation/gloss.
+
+    This metric answers a narrower question than `english_label_required`:
+    does a researcher need to supply a distinct English rendering? Personal
+    names and labels that are already English do not count as translation work.
+    Handles and URLs are language-neutral. Organisation labels are not exempted
+    merely because they resemble a capitalised personal name.
+    """
+    label = _clean(entry.label)
+    if not label or _looks_like_identifier(label):
+        return False
+    if _looks_like_person_name(label) and not _ORG_MARKERS.search(label):
+        return False
+    return not label_looks_english(label)
+
+
+# Backwards-compatible API name from #110. Kept as a delegating alias so callers
+# do not break, but the canonical name states the question it answers.
+def entry_needs_english_label(entry: CodebookEntry) -> bool:
+    return english_translation_required(entry)
 
 
 def english_label_required(entry: CodebookEntry) -> bool:
@@ -608,7 +498,7 @@ def load_profile(root: str | Path, country: str, *, language: str = "", strict_e
     missing_english = [
         entry.entry_id
         for entry in entries
-        if entry_needs_english_label(entry) and not entry.english_label
+        if english_translation_required(entry) and not entry.english_label
     ]
     if strict_english is None:
         strict_english = os.getenv("LACLAUGPT_CODEBOOK_ENGLISH_STRICT", "").strip().casefold() in {"1", "true", "yes", "on"}
@@ -935,7 +825,7 @@ def coverage_manifest() -> list[dict[str, Any]]:
     ]
 
 
-def bilingual_coverage_report(root: str | Path) -> dict[str, Any]:
+def english_translation_coverage_report(root: str | Path) -> dict[str, Any]:
     """Coverage of ``english_label`` for every EP24 country.
 
     Reports the *true* gap (entries whose label is not already English and which
@@ -968,14 +858,14 @@ def bilingual_coverage_report(root: str | Path) -> dict[str, Any]:
         round(totals["missing_english"] / totals["entries"] * 100, 1) if totals["entries"] else 0.0
     )
     return {
-        "kind": "ep24.bilingual_coverage/1",
-        "policy": "english_label required when the canonical label is not already English",
+        "kind": "ep24.english_translation_coverage/1",
+        "policy": "translation work: english_label needed only when the canonical label needs an English rendering",
         "countries": per_country,
         "totals": totals,
     }
 
 
-def assert_bilingual_coverage(
+def assert_english_translation_coverage(
     report: dict[str, Any], *, max_missing_pct: float = 100.0
 ) -> None:
     """Raise when a country's bilingual gap exceeds a threshold.
@@ -995,6 +885,18 @@ def assert_bilingual_coverage(
         )
 
 
+
+# Compatibility wrappers for the #110 CLI/API names. These delegate to the
+# translation-work metric and are intentionally not a second policy.
+def bilingual_coverage_report(root: str | Path) -> dict[str, Any]:
+    return english_translation_coverage_report(root)
+
+
+def assert_bilingual_coverage(
+    report: dict[str, Any], *, max_missing_pct: float = 100.0
+) -> None:
+    assert_english_translation_coverage(report, max_missing_pct=max_missing_pct)
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--private-root", default=str(private_root()))
@@ -1008,9 +910,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="with --bilingual-report: fail if any country exceeds this gap")
     args = parser.parse_args(argv)
     if args.bilingual_report:
-        report = bilingual_coverage_report(args.private_root)
+        report = english_translation_coverage_report(args.private_root)
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        assert_bilingual_coverage(report, max_missing_pct=args.max_missing_pct)
+        assert_english_translation_coverage(report, max_missing_pct=args.max_missing_pct)
         return 0
     if args.manifest:
         print(json.dumps(coverage_manifest(), ensure_ascii=False, indent=2))
