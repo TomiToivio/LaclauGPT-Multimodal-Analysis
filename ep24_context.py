@@ -120,6 +120,7 @@ def enrich_dataframe(storage, df: pd.DataFrame) -> pd.DataFrame:
         query = " ".join(
             str(row.get(k, ""))
             for k in (
+                "asr_translated", "asr_transcript",
                 "whisper_translated", "whisper_transcript", "whisperResult",
                 "summary_analysis", "frame_analysis_1", "video_analysis",
                 "ocr_1", "entities", "themes",
