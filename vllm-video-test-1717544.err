@@ -1,3 +1,0 @@
-ERROR: experiment script missing under detected public repo root: /users/totoivio/LaclauGPT-Multimodal-Analysis
-Submit from the LaclauGPT-Multimodal-Analysis checkout, or set
-LACLAUGPT_MULTIMODAL_PUBLIC_ROOT=/path/to/LaclauGPT-Multimodal-Analysis
