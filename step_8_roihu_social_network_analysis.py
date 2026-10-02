@@ -130,9 +130,19 @@ def _castells_interpretation(ollama, model: str, nodes, edges, metrics) -> str:
         format=CastellsResult.model_json_schema(),
         options={"temperature": 0.0, "num_ctx": 8192},
     )
-    return CastellsResult.model_validate_json(
-        response["message"]["content"]
-    ).interpretation_markdown
+    try:
+        return CastellsResult.model_validate_json(
+            response["message"]["content"]
+        ).interpretation_markdown
+    except Exception:
+        LOG.warning(
+            "Castells interpretation response did not match schema; preserving empirical graph without theory text",
+            exc_info=True,
+        )
+        return (
+            "Castellsian interpretation unavailable for this row. The empirical "
+            "node/edge graph and metrics remain valid and unchanged."
+        )
 
 
 def _write_graph_exports(output_path: Path, all_nodes: list[dict], all_edges: list[dict]) -> None:
@@ -199,6 +209,7 @@ def run_language(lang: str) -> Path | None:
     selected = df.head(limit) if limit > 0 else df
     output_columns = (
         "sna_analysis_markdown",
+        "sna_report_markdown",
         "sna_castells_interpretation_markdown",
         "sna_nodes_json",
         "sna_edges_json",
@@ -260,7 +271,9 @@ def run_language(lang: str) -> Path | None:
                 castells,
             )
 
-            df.at[index, "sna_analysis_markdown"] = report
+            # Preserve the historical Step 8 field meaning for legacy callers.
+            df.at[index, "sna_analysis_markdown"] = extracted.analysis_markdown
+            df.at[index, "sna_report_markdown"] = report
             df.at[index, "sna_castells_interpretation_markdown"] = castells
             df.at[index, "sna_nodes_json"] = json.dumps(nodes, ensure_ascii=False, sort_keys=True)
             df.at[index, "sna_edges_json"] = json.dumps(edges, ensure_ascii=False, sort_keys=True)
