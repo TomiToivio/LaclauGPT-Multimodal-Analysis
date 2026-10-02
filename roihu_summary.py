@@ -205,19 +205,21 @@ def analyze_videos(language=None):
 
         metadata = metadata_context(row)
         transcript = (
-            str(row.get('whisper_translated', '')).strip()
+            str(row.get('asr_translated', '')).strip()
+            or str(row.get('asr_transcript', '')).strip()
+            # Temporary read-only compatibility for frozen legacy artifacts.
+            or str(row.get('whisper_translated', '')).strip()
             or str(row.get('whisper_transcript', '')).strip()
             or str(row.get('whisperResult', '')).strip()
         )
 
         frame_parts = []
-        for frame_number in range(1, 7):
-            frame_text = str(row.get(f'frame_analysis_{frame_number}', '')).strip()
-            ocr_text = str(row.get(f'ocr_{frame_number}', '')).strip()
-            if frame_text:
-                frame_parts.append(frame_text)
-            if ocr_text:
-                frame_parts.append(f"### OCR frame {frame_number}\n{ocr_text}")
+        frame_text = str(row.get('frame_analysis_1', '')).strip()
+        ocr_text = str(row.get('ocr_1', '')).strip()
+        if frame_text:
+            frame_parts.append(frame_text)
+        if ocr_text:
+            frame_parts.append(f"### OCR frame at original t=1.0s\n{ocr_text}")
         video_text = str(row.get('vllm_video_analysis', '')).strip()
         if video_text:
             frame_parts.append("### Whole-video analysis\n" + video_text)
