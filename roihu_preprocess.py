@@ -27,6 +27,7 @@ import pandas as pd
 from asr_backend import describe_backend, language_hint, load_asr_model
 from ep24_pipeline import local_media_path
 from ep24_schema import value as ep24_value
+from ep24_video import is_too_short
 from ocr_backend import describe_ocr_backend, load_ocr_backend
 
 FRAME_TIMESTAMP_SECONDS = 1.0
@@ -176,6 +177,12 @@ def read_materialized_csv(path: Path) -> pd.DataFrame:
 
 
 def connect_cache() -> sqlite3.Connection:
+    # The module-level mkdir only runs for whatever CWD was current at import
+    # time, so a caller that changes directory (or an orchestrator that imports
+    # this stage from elsewhere) fails here with an opaque
+    # "unable to open database file". Create the directory next to the database
+    # we are actually about to open.
+    Path("./database").mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect("./database/preprocess_v2.db")
     conn.execute(
         """
@@ -369,7 +376,12 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                 duration = get_video_duration(local_path)
                 out.at[index, "video_duration_seconds"] = f"{duration:.6f}"
                 LOG.debug("video_duration country=%s video_id=%s seconds=%.6f", country, video_id, duration)
-                if duration < FRAME_TIMESTAMP_SECONDS:
+                # Use the shared rule instead of a local `duration <` comparison.
+                # ep24_video.is_too_short treats a clip of exactly 1.0s as too
+                # short (no analyzable media remains after the mandatory skip),
+                # while `<` classified it as work and then failed with a bogus
+                # preprocess_status "error" when the frame read came back empty.
+                if is_too_short(duration):
                     out.at[index, "preprocess_status"] = "too_short"
                     out.at[index, "preprocess_note"] = (
                         f"Video duration {duration:.3f}s is shorter than t={FRAME_TIMESTAMP_SECONDS:.1f}s."
