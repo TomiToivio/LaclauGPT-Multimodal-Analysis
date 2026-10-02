@@ -323,7 +323,7 @@ def seed_entries_from_research_notes(
 #
 # The direction of the residual error is deliberate: over-reporting produces a
 # redundant gloss, under-reporting produces a silently missing translation.
-_NON_ENGLISH_MARKERS = re.compile(
+_LABEL_POLICY_NON_ENGLISH_MARKERS = re.compile(
     r"\b(partia|partido|partei|parti|stranka|puolue|puolueen|koalicja|koalicija|"
     r"koalicion|allianssi|alliance|frente|blok|bloque|ryhmä|liitto|zwi[aą]zek|"
     r"porozumienie|nowoczesna|sprawiedliwo[sś][cć]|rassemblement|democracia|"
@@ -342,7 +342,7 @@ def _has_diacritics(text: str) -> bool:
     return any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", text))
 
 
-def _looks_like_person_name(label: str) -> bool:
+def _label_policy_person_name(label: str) -> bool:
     """Whether the label is a plain personal name (2–4 capitalised words).
 
     Personal names are exempt from the English requirement because their English
@@ -355,6 +355,12 @@ def _looks_like_person_name(label: str) -> bool:
     capitalised words (``Les Républicains``) is **not** exempted by this test —
     that is what ``_ORG_MARKERS`` below is for. A name containing a hyphenated
     surname (``Dziemianowicz-Bąk``) or a particle (``van``, ``de``) still counts.
+
+    Renamed from ``_looks_like_person_name`` (#116): the label-policy and
+    language-policy blocks each carried a definition of that name and the second
+    silently shadowed the first, so ``entry_needs_english_label`` executed this
+    design's *predicate* against the other design's *state*. Distinct names keep
+    each design's helpers reachable and its behaviour legible.
     """
     text = _clean(label)
     if not text or any(ch.isdigit() for ch in text):
@@ -377,26 +383,31 @@ _ORG_MARKERS = re.compile(
 )
 
 
-def label_looks_english(label: str) -> bool:
-    """Whether a canonical label is plausibly already English.
+def _label_policy_looks_english(label: str) -> bool:
+    """Whether a canonical label is plausibly already English — LABEL policy.
 
     Conservative by design: anything with diacritics or a recognisable
     non-English political vocabulary marker is treated as *not* English, because
     the cost of a false "already English" is a silently missing translation,
     while the cost of a false "needs English" is one redundant gloss.
+
+    This is ``#110``'s design, now named so it can be distinguished from
+    ``_language_policy_looks_english`` below. Before #116 both were called
+    ``label_looks_english`` and the second silently won, which meant
+    ``entry_needs_english_label`` consulted the *other* design's marker list.
     """
     text = _clean(label)
     if not text:
         return True
     if _has_diacritics(text):
         return False
-    if _NON_ENGLISH_MARKERS.search(text):
+    if _LABEL_POLICY_NON_ENGLISH_MARKERS.search(text):
         return False
     return True
 
 
 def entry_needs_english_label(entry: CodebookEntry) -> bool:
-    """Whether this entry should carry an ``english_label``.
+    """Whether this entry should carry an ``english_label`` — LABEL policy (#110).
 
     True when the canonical label is not already English. Layer- and
     language-independent on purpose: the ``common`` layer carries no language
@@ -408,15 +419,91 @@ def entry_needs_english_label(entry: CodebookEntry) -> bool:
     * ``@handles`` and URLs — already language-neutral identifiers;
     * plain personal names — ``Pedro Sánchez`` is the English label too;
     * labels that already look English.
+
+    .. warning:: **#116 — this function's vocabulary is not the one it documents.**
+
+       Before #116 this module defined ``label_looks_english`` and
+       ``_looks_like_person_name`` **twice**, and the second definitions silently
+       shadowed the first. This function was written against the *first* set, so
+       at runtime it executed the *second* (language-policy) set — meaning the
+       predicate below decided "is this label English" using the other design's
+       marker vocabulary.
+
+       The two vocabularies are materially different. Measured on 41 real EP24
+       label shapes, making this function use its *own* documented vocabulary
+       changes the answer for **15 of 41**, in the unsafe direction: non-English
+       party labels such as ``Koalicion``, ``Bloc``/``Bloque``, ``Venstre``,
+       ``Folkpartiet`` and ``Nowoczesna`` are currently scored as already-English
+       and so exempted from the repair list rather than flagged.
+
+       Renaming alone therefore **cannot** be behaviour-preserving. Since
+       `AGENTS.md` forbids methodology changes without explicit human permission,
+       this change preserves the exact merged behaviour and makes the wiring
+       explicit, so the vocabulary question is a visible one-line decision rather
+       than a side effect of import order:
+
+       * this function calls ``_language_policy_*`` explicitly — what it resolved
+         to before #116;
+       * ``entry_needs_english_label_via_label_vocabulary`` below is the other
+         design, reachable and tested, so switching is deliberate.
     """
+    return entry_needs_english_label_via_label_vocabulary(entry, vocabulary=LANGUAGE_POLICY_VOCABULARY)
+
+
+#: Which marker/person-name vocabulary a policy function consults. The two lists
+#: differ (see #116); naming the choice is what removes the shadowing hazard.
+LABEL_POLICY_VOCABULARY = "label"
+LANGUAGE_POLICY_VOCABULARY = "language"
+
+
+def _vocabulary_helpers(vocabulary: str) -> tuple:
+    """Resolve a vocabulary name to ``(person_name, markers, looks_english)``.
+
+    Resolved at call time, not import time: the language-policy helpers are
+    defined further down the module, and a module-level dict referencing them
+    would raise ``NameError`` at import. (The original shadowing bug was itself an
+    ordering artifact, so this is deliberately explicit about the dependency.)
+    """
+    if vocabulary == LABEL_POLICY_VOCABULARY:
+        return (_label_policy_person_name, _LABEL_POLICY_NON_ENGLISH_MARKERS, _label_policy_looks_english)
+    if vocabulary == LANGUAGE_POLICY_VOCABULARY:
+        return (
+            _language_policy_person_name,
+            _LANGUAGE_POLICY_NON_ENGLISH_MARKERS,
+            _language_policy_looks_english,
+        )
+    raise ValueError(f"unknown english-label vocabulary: {vocabulary!r}")
+
+
+def entry_needs_english_label_via_label_vocabulary(
+    entry: CodebookEntry, *, vocabulary: str = LANGUAGE_POLICY_VOCABULARY
+) -> bool:
+    """Whether this entry should carry an ``english_label``, with the vocabulary named.
+
+    ``vocabulary`` selects which marker list and person-name predicate decide
+    "is this label already English":
+
+    * ``LANGUAGE_POLICY_VOCABULARY`` (default) — what ``entry_needs_english_label``
+       actually did before #116, because the language-policy definitions shadowed
+       the label-policy ones. This default preserves the merged behaviour.
+    * ``LABEL_POLICY_VOCABULARY`` — the vocabulary ``entry_needs_english_label``'s
+       own helpers describe. Using this changes the answer for 15 of 41 measured
+       label shapes, so it is **not** the default and must be chosen deliberately.
+
+    Everything else — the identifier exemption, the organisation-marker guard, the
+    empty-label case — is shared between the two designs and is identical here.
+    """
+    if vocabulary not in (LABEL_POLICY_VOCABULARY, LANGUAGE_POLICY_VOCABULARY):
+        raise ValueError(f"unknown english-label vocabulary: {vocabulary!r}")
+    person_name, _markers, looks_english = _vocabulary_helpers(vocabulary)
     label = _clean(entry.label)
     if not label:
         return False
     if label.startswith("@") or label.startswith("http://") or label.startswith("https://"):
         return False
-    if _looks_like_person_name(label) and not _ORG_MARKERS.search(label):
+    if person_name(label) and not _ORG_MARKERS.search(label):
         return False
-    return not label_looks_english(label)
+    return not looks_english(label)
 
 
 def private_root() -> Path:
@@ -448,7 +535,7 @@ def _has_language_metadata(entry: CodebookEntry) -> bool:
     return any(lang for lang in entry.source_languages)
 
 
-_NON_ENGLISH_MARKERS = re.compile(
+_LANGUAGE_POLICY_NON_ENGLISH_MARKERS = re.compile(
     r"\b(partia|partido|partei|parti|stranka|puolue|koalicja|koalicija|frente|blok|"
     r"allianssi|rassemblement|democracia|demokratie|demokratia|zieloni|zielone|"
     r"verdes|gr[uü]ne|obywatelska|solidarna|suwerenna|moderaterna|"
@@ -459,13 +546,17 @@ _NON_ENGLISH_MARKERS = re.compile(
 )
 
 
-def _looks_like_person_name(label: str) -> bool:
-    """A plain personal name: 2–4 capitalised words.
+def _language_policy_person_name(label: str) -> bool:
+    """A plain personal name: 2–4 capitalised words — LANGUAGE policy.
 
     Exempt from the English requirement because the English form is normally the
     same string (``Pedro Sánchez``); demanding a separate label there manufactures
     work. Organisation words are excluded by the caller so that ``Les
     Républicains`` and ``Fianna Fáil`` are still required.
+
+    Named distinctly from ``_label_policy_person_name`` since #116; the bodies
+    are currently identical, but the two policies are allowed to diverge and the
+    distinct names are what make that possible without silent shadowing.
     """
     text = _clean(label)
     if not text or any(ch.isdigit() for ch in text):
@@ -482,21 +573,25 @@ def _looks_like_identifier(label: str) -> bool:
     return text.startswith(("@", "http://", "https://"))
 
 
-def label_looks_english(label: str) -> bool:
-    """Whether a canonical label is plausibly already English.
+def _language_policy_looks_english(label: str) -> bool:
+    """Whether a canonical label is plausibly already English — LANGUAGE policy.
 
     Conservative: diacritics or a recognisable non-English political word mark
     a label as *not* English. Over-reporting costs one redundant gloss;
     under-reporting costs a silently missing translation, so the bias is
     deliberate. Known limitations are documented in
     ``docs/EP24_BILINGUAL_CODEBOOK_POLICY.md``.
+
+    Uses ``_LANGUAGE_POLICY_NON_ENGLISH_MARKERS``, which is a *different list*
+    from the label policy's. That difference is deliberate and is why the two
+    functions must not share a name (#116).
     """
     text = _clean(label)
     if not text:
         return True
     if any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", text)):
         return False
-    return not _NON_ENGLISH_MARKERS.search(text)
+    return not _LANGUAGE_POLICY_NON_ENGLISH_MARKERS.search(text)
 
 
 def english_label_required(entry: CodebookEntry) -> bool:
@@ -525,10 +620,27 @@ def english_label_required(entry: CodebookEntry) -> bool:
         label = _clean(entry.label)
         if not label or _looks_like_identifier(label):
             return False
-        if _looks_like_person_name(label) and not _NON_ENGLISH_MARKERS.search(label):
+        if _language_policy_person_name(label) and not _LANGUAGE_POLICY_NON_ENGLISH_MARKERS.search(label):
             return False
-        return not label_looks_english(label)
+        return not _language_policy_looks_english(label)
     return any(lang != "en" for lang in entry.source_languages if lang)
+
+
+# --------------------------------------------------------------------------- #
+# Public compatibility surface for the label-looks-English predicate
+# --------------------------------------------------------------------------- #
+# `label_looks_english` was the public name before #116 and is used by
+# `tests/test_ep24_bilingual_coverage.py`. Before #116 the *second* definition
+# (the language-policy one) silently won, so that is what external callers have
+# been observing — the alias therefore points at the language policy to keep the
+# merged behaviour, not at the label policy that shares the old name.
+#
+# It is now documented as a policy-specific alias rather than *the* definition,
+# because "is this label English" has two live answers on `main` and the bare
+# name cannot say which. New code should call `_label_policy_looks_english` or
+# `_language_policy_looks_english` explicitly so the choice is visible at the
+# call site. Do not add a third spelling.
+label_looks_english = _language_policy_looks_english
 
 
 def english_label_coverage(entries: Iterable[CodebookEntry]) -> dict[str, Any]:
