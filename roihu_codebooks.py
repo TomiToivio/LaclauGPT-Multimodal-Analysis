@@ -460,7 +460,11 @@ def entity_type_distribution(entries: Iterable[CodebookEntry]) -> dict[str, int]
 
 
 def score_entry(query: str, entry: CodebookEntry) -> float:
-    """Lexical retrieval score: recall-oriented, so it matches substrings.
+    """Lexical retrieval score with a safe short-form boundary rule.
+
+    Forms shorter than five characters are matched as whole tokens only. This
+    is the reviewed-acronym path used by EP24 party abbreviations. Forms of five
+    characters or more keep recall-oriented substring matching for inflection.
 
     Retrieval and identity are different questions, and they need opposite
     biases:
@@ -487,9 +491,18 @@ def score_entry(query: str, entry: CodebookEntry) -> float:
         normalized = form.casefold().strip()
         if not normalized:
             continue
-        if len(normalized) >= 3 and normalized in q:
-            return 1.0
-        if len(normalized) < 3 and re.search(rf"(?<!\w){re.escape(normalized)}(?!\w)", q):
+        # Short political forms are disproportionately likely to be acronyms
+        # (S, M, V, KD, MP, SD, HDZ, PiP, Most, Vox, ...). Treat every form
+        # shorter than five characters as a whole-token match only. The old
+        # substring path made 3-4 character aliases unsafe (e.g. Most/Mostar,
+        # PiP/Pipera, HDZ/HDZx). Longer forms retain substring matching because
+        # that is what gives useful inflection recall in languages such as
+        # Finnish (ilmasto -> ilmastosta).
+        if len(normalized) < 5:
+            if boundary_matches(normalized, q):
+                return 1.0
+            continue
+        if normalized in q:
             return 1.0
     q_tokens = _tokens(query)
     entry_tokens = set()
@@ -504,7 +517,7 @@ def select_context(query: str, entries: Iterable[CodebookEntry], *, country: str
     selected = [(score, entry) for score, entry in ranked[: max(0, limit)] if score >= threshold]
     return [e for _, e in selected], {
         "country": country.upper(), "language": language.lower(), "limit": limit, "threshold": threshold,
-        "selection_method": "deterministic_lexical_v2_bilingual", "evidence_role": "background_context_not_source_evidence",
+        "selection_method": "deterministic_lexical_v3_short_boundary_bilingual", "evidence_role": "background_context_not_source_evidence",
         "selected": [{"entry_id": e.entry_id, "kind": e.kind, "label": e.label, "english_label": e.english_label, "score": round(score, 6)} for score, e in selected],
     }
 
