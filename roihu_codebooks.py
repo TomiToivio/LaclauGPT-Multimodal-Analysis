@@ -506,9 +506,11 @@ def score_entry(query: str, entry: CodebookEntry) -> float:
         normalized = form.casefold().strip()
         if not normalized:
             continue
-        if len(normalized) >= 3 and normalized in q:
-            return 1.0
-        if len(normalized) < 3 and re.search(rf"(?<!\w){re.escape(normalized)}(?!\w)", q):
+        if len(normalized) <= 4:
+            if entry.review_state == "CANONICAL" and boundary_matches(normalized, q):
+                return 1.0
+            continue
+        if normalized in q:
             return 1.0
     q_tokens = _tokens(query)
     entry_tokens = set()
