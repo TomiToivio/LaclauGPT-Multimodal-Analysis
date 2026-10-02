@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 mongo = [
   "pymongo>=4.10,<5",
+  "opencv-python-headless>=4.10,<5",
 ]
 # Coordination/cache only (MongoDB stays canonical, SQLite stays the backup).
 redis = [
