@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Step 2: deep single-keyframe analysis on CSC Roihu."""
+"""Step 2: deep single-keyframe analysis on CSC Roihu.
+
+Consumes the complete Step 1 dataframe and analyzes exactly one keyframe at
+original source t=1.0s. Every incoming column is preserved and frame-analysis
+fields are appended.
+"""
 import runpy
 import sys
 from pathlib import Path
