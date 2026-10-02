@@ -213,7 +213,8 @@ Produce a detailed structured description under the headings above, and include:
     user_prompt = f'''
 Analyze the provided frame using the social-semiotic pre-analysis categories above. Stay descriptive and modality-aware. Do not perform discourse or political analysis, and do not infer ideology, persuasion, populism, sentiment, or political alignment.\n\nCUMULATIVE EP24 CONTEXT:\n{row_context}\n'''
     model = ollama_model()
-    logger.info("model=%s model_source=%s", model, ollama_model_source())\n    logger.debug("model=%s frame_file=%s cumulative_context_chars=%d", model, frame_file, len(row_context))
+    logger.info("model=%s model_source=%s", model, ollama_model_source())
+    logger.debug("model=%s frame_file=%s cumulative_context_chars=%d", model, frame_file, len(row_context))
     logger.debug("cumulative_context=\n%s", _preview(row_context, max(LOG_PREVIEW_CHARS, 10000)))
     frame_analysis = ''
     logger.debug(f'Processing image: {frame_file}')
