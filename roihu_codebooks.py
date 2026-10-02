@@ -759,45 +759,64 @@ def _short_scope_allows(
     return True
 
 
-def _short_form_matches(form: str, query: str) -> bool:
-    """Boundary-aware match for codebook forms shorter than five characters."""
-    normalized = form.casefold().strip()
-    return bool(normalized) and len(normalized) < 5 and boundary_matches(normalized, query)
-
-
-def _matching_short_forms(query: str, entry: CodebookEntry) -> set[str]:
-    """Return reviewed short forms from an entry that match by boundaries."""
-    if entry.review_state.upper() != "CANONICAL":
-        return set()
-    return {
-        identity_key(form)
-        for form in entry.forms
-        if _short_form_matches(form, query)
-    }
+def _matching_short_forms(
+    query: str,
+    entry: CodebookEntry,
+    *,
+    language: str = "",
+    election: str = "",
+) -> set[str]:
+    """Return reviewed, in-scope short forms that match query by boundaries."""
+    out: set[str] = set()
+    for form in entry.forms:
+        normalized = form.casefold().strip()
+        if not normalized or len(normalized) >= 5:
+            continue
+        if not _reviewed_short_form(entry, normalized):
+            continue
+        if not _short_scope_allows(entry, normalized, language=language, election=election):
+            continue
+        if boundary_matches(normalized, query):
+            out.add(identity_key(normalized))
+    return out
 
 
 def score_entry(
     query: str,
     entry: CodebookEntry,
     *,
+    language: str = "",
+    election: str = "",
     blocked_short_forms: set[str] | frozenset[str] = frozenset(),
 ) -> float:
-    """Lexical retrieval score with safe reviewed short-form handling.
+    """Lexical retrieval score with safe, scoped short-form matching.
 
-    Reviewed forms shorter than five characters use whole-token matching only.
-    Unreviewed short forms are ignored. Forms of five characters or more retain
-    substring matching for inflection-friendly recall.
+    Forms shorter than five characters use whole-token matching. Declared
+    aliases are accepted as explicit codebook forms; provisional short labels
+    require review/lock metadata. Optional language/election constraints can
+    further scope aliases. Ambiguous one-letter aliases may be blocked by the
+    selector. Forms of five characters or more keep substring matching for
+    inflection-friendly recall.
     """
     q = query.casefold()
     if not q.strip():
         return 0.0
-    reviewed = entry.review_state.upper() == "CANONICAL"
     for form in entry.forms:
         normalized = form.casefold().strip()
         if not normalized:
             continue
         if len(normalized) < 5:
-            if not reviewed or identity_key(normalized) in blocked_short_forms:
+            key = identity_key(normalized)
+            if key in blocked_short_forms:
+                continue
+            if not _reviewed_short_form(entry, normalized):
+                continue
+            if not _short_scope_allows(
+                entry,
+                normalized,
+                language=language,
+                election=election,
+            ):
                 continue
             if boundary_matches(normalized, q):
                 return 1.0
@@ -806,20 +825,27 @@ def score_entry(
             return 1.0
     q_tokens = _tokens(query)
     entry_tokens = set()
-    for form in entry.forms:
-        if len(form.casefold().strip()) >= 5:
-            entry_tokens.update(_tokens(form))
-    for value in [entry.definition, entry.english_definition]:
-        entry_tokens.update(_tokens(value))
+    for value in [*entry.forms, entry.definition, entry.english_definition]:
+        if len(value.casefold().strip()) >= 5 or value in {entry.definition, entry.english_definition}:
+            entry_tokens.update(_tokens(value))
     return len(q_tokens & entry_tokens) / max(1, len(entry_tokens))
 
 
-def select_context(query: str, entries: Iterable[CodebookEntry], *, country: str, language: str = "", limit: int = 8, threshold: float = 0.15) -> tuple[list[CodebookEntry], dict[str, Any]]:
+def select_context(
+    query: str,
+    entries: Iterable[CodebookEntry],
+    *,
+    country: str,
+    language: str = "",
+    election: str = "",
+    limit: int = 8,
+    threshold: float = 0.15,
+) -> tuple[list[CodebookEntry], dict[str, Any]]:
     scoped = [entry for entry in entries if entry.country in {"", "COMMON", country.upper()}]
 
     short_matches: dict[str, set[str]] = {}
     for entry in scoped:
-        for form in _matching_short_forms(query, entry):
+        for form in _matching_short_forms(query, entry, language=language, election=election):
             short_matches.setdefault(form, set()).add(entry.entry_id)
     ambiguous_short_forms = {
         form for form, entry_ids in short_matches.items() if len(entry_ids) > 1
@@ -830,22 +856,61 @@ def select_context(query: str, entries: Iterable[CodebookEntry], *, country: str
 
     ranked = sorted(
         (
-            (score_entry(query, entry, blocked_short_forms=ambiguous_one_letter_forms), entry)
+            (
+                score_entry(
+                    query,
+                    entry,
+                    language=language,
+                    election=election,
+                    blocked_short_forms=ambiguous_one_letter_forms,
+                ),
+                entry,
+            )
             for entry in scoped
         ),
         key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()),
     )
     selected = [(score, entry) for score, entry in ranked[: max(0, limit)] if score >= threshold]
-    return [e for _, e in selected], {
-        "country": country.upper(), "language": language.lower(), "limit": limit, "threshold": threshold,
-        "selection_method": "deterministic_lexical_v4_reviewed_short_boundary_bilingual",
+    return [entry for _, entry in selected], {
+        "country": country.upper(),
+        "language": language.lower(),
+        "election": election,
+        "limit": limit,
+        "threshold": threshold,
+        "selection_method": "deterministic_lexical_v5_scoped_short_alias_ambiguity",
         "evidence_role": "background_context_not_source_evidence",
         "ambiguous_short_forms": sorted(ambiguous_short_forms),
-        "selected": [{"entry_id": e.entry_id, "kind": e.kind, "label": e.label, "english_label": e.english_label, "score": round(score, 6)} for score, e in selected],
+        "selected": [
+            {
+                "entry_id": entry.entry_id,
+                "kind": entry.kind,
+                "label": entry.label,
+                "english_label": entry.english_label,
+                "score": round(score, 6),
+            }
+            for score, entry in selected
+        ],
     }
 
-def context_block(query: str, entries: Iterable[CodebookEntry], *, country: str, language: str = "", limit: int = 8, threshold: float = 0.15) -> tuple[str, dict[str, Any]]:
-    selected, provenance = select_context(query, entries, country=country, language=language, limit=limit, threshold=threshold)
+def context_block(
+    query: str,
+    entries: Iterable[CodebookEntry],
+    *,
+    country: str,
+    language: str = "",
+    election: str = "",
+    limit: int = 8,
+    threshold: float = 0.15,
+) -> tuple[str, dict[str, Any]]:
+    selected, provenance = select_context(
+        query,
+        entries,
+        country=country,
+        language=language,
+        election=election,
+        limit=limit,
+        threshold=threshold,
+    )
     if not selected:
         return "", provenance
     lines = ["[EP24 CODEBOOK CONTEXT] Background context only, not evidence from the current item and not proof of an actor's beliefs or the author's agreement."]
