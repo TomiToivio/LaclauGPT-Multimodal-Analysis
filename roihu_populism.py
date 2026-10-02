@@ -13,7 +13,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from ep24_models import ollama_model, ollama_model_source
-from ep24_pipeline import ensure_columns, load_cumulative_csv, metadata_context, write_cumulative_csv
+from ep24_pipeline import ensure_columns, load_cumulative_csv, write_cumulative_csv
 from ep24_schema import stable_source_id
 from ep24_redis import RedisCoordinator
 
