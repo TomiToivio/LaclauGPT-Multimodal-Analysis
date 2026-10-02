@@ -17,6 +17,17 @@ Read-only. The auditor resolves each country's filename through the repo's own
 `COUNTRY_PROFILES` map, because the filename is **not** derivable from the ISO2
 code (Finland is `ep24_finland_private.json`, Poland `ep24_poland_private.json`).
 
+> **Table refreshed 2026-10-02 (Sweden second pass, #91).** The static columns
+> (entries, aliases, theme near-dups) are unchanged, but **every fragmentation
+> count moved**, and the total went 599 → 623. The table was accurate as
+> published: all ten rows reproduce exactly against the auditor as it stood in
+> #86. It then went stale because #100 wired `fold_fix` into `_fold`, which
+> changed what counts as one token — so the fragmentation column silently drifted
+> while the doc kept promising reproducibility. `scripts/ep24/check_coverage_table.py`
+> now re-runs the auditor and fails if this table no longer matches, so the next
+> change to the auditor surfaces here instead of in a country pass months later.
+
+
 The `countries/*.json` public-context seeds are excluded from this table: they are
 Git LFS pointers in a normal checkout and hold 2–3 entries each, so they are
 containers rather than codebooks. The auditor reports them as `UNREADABLE`
@@ -26,17 +37,17 @@ containers rather than codebooks. The auditor reports them as `UNREADABLE`
 
 | Country | Entries | Without aliases | % | Aliases | Alias/entry | Fragmented groups | Theme near-dups |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| PL | 711 | 649 | **91.3%** | 76 | 0.11 | 97 | 17 |
-| HU | 500 | 454 | **90.8%** | 53 | 0.11 | 74 | 18 |
-| SE | 572 | 514 | 89.9% | 83 | 0.15 | 63 | 1 |
-| FR | 650 | 582 | 89.5% | 93 | 0.14 | 96 | 8 |
-| BG | 316 | 271 | 85.8% | 91 | 0.29 | 34 | 5 |
-| PT | 356 | 303 | 85.1% | 77 | 0.22 | 58 | 1 |
-| ES | 470 | 398 | 84.7% | 104 | 0.22 | 61 | 3 |
-| FI | 325 | 272 | 83.7% | 74 | 0.23 | 31 | 2 |
-| DE | 404 | 337 | 83.4% | 83 | 0.21 | 46 | 7 |
-| HR | 350 | 280 | **80.0%** | 108 | 0.31 | 39 | 3 |
-| **Total** | **4654** | **4060** | **87%** | 842 | 0.18 | 599 | 65 |
+| PL | 711 | 649 | 91.3% | 76 | 0.11 | 98 | 17 |
+| HU | 500 | 454 | 90.8% | 53 | 0.11 | 78 | 18 |
+| SE | 572 | 514 | 89.9% | 83 | 0.15 | 64 | 1 |
+| FR | 650 | 582 | 89.5% | 93 | 0.14 | 95 | 8 |
+| BG | 316 | 271 | 85.8% | 91 | 0.29 | 37 | 5 |
+| PT | 356 | 303 | 85.1% | 77 | 0.22 | 67 | 1 |
+| ES | 470 | 398 | 84.7% | 104 | 0.22 | 64 | 3 |
+| FI | 325 | 272 | 83.7% | 74 | 0.23 | 36 | 2 |
+| DE | 404 | 337 | 83.4% | 83 | 0.21 | 47 | 7 |
+| HR | 350 | 280 | 80.0% | 108 | 0.31 | 37 | 3 |
+| **Total** | **4654** | **4060** | **87%** | 842 | 0.18 | 623 | 65 |
 
 ## What this establishes
 
@@ -54,12 +65,12 @@ an existing entry.
 
 ### 2. Entity fragmentation is proportional to entry count, not to language
 
-`frag` scales with `entries`: PL 97, FR 96, HU 74 on the large books; FI 31, BG 34
+`frag` scales with `entries`: PL 98, FR 95, HU 78 on the large books; FI 36, BG 37
 on the small ones. That is the signature of a **structural** cause — entries being
 created per observed surface form rather than a canonical entity being extended
 with forms.
 
-Poland is the extreme: **97 fragmented groups across 711 entries.**
+Poland is the extreme: **98 fragmented groups across 711 entries.**
 
 ### 3. Theme duplication is uneven, and the unevenness is a signal
 
