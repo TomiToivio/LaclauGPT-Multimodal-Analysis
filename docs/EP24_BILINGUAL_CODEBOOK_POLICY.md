@@ -98,3 +98,46 @@ appropriate. Preserve the local canonical label and aliases. Add established
 English names/translations to `english_label`; do not translate by blindly
 machine-replacing canonical labels. Keep sensitive notes and provenance in
 `LaclauGPT-Private`.
+
+## Measured effect of the policy (2026-10-02)
+
+Across the ten EP24 books, measured with the canonical predicate:
+
+| metric | value |
+|---|---:|
+| total entries | 31594 |
+| entries requiring an English label | 4914 |
+| entries missing one | 4914 |
+| English-label coverage | 0% |
+| fillable from an English alias already present | 134 |
+| needing genuine translation work | 755 |
+
+The 26 common-layer gaps are identical for every country (Orbán, Sánchez, Fidesz,
+Rassemblement National, Les Républicains, Fianna Fáil, Sinn Féin, Moderaterna,
+Vasemmistoliitto, `democracia`, `Demokratie`, ...), so repairing them benefits all
+ten books at once. That is the highest-value backfill target.
+
+## Known limitations of label-based classification
+
+`label_looks_english` is a **review signal, not a verifier**. Residual error is
+deliberately biased toward over-reporting: a redundant gloss costs one line, while
+a missing translation costs silent retrieval failure. Three measured cases:
+
+1. a **bare surname** (`Orbán`, `Sánchez`) is a single capitalised word, so the
+   person-name exemption does not match and it is flagged — arguably correct, since
+   a surname-only label still needs disambiguation;
+2. a **hyphenated name with diacritics** (`Agnieszka Dziemianowicz-Bąk`) matches the
+   person-name shape and is exempted, making the reported number a **lower bound**;
+3. a label like **`Fidesz party`** is flagged via the organisation word list even
+   though "Fidesz" is used as-is in English — harmless, since the gloss equals the
+   label.
+
+## One policy, one report
+
+There is exactly **one** policy predicate: `english_label_required()`. The coverage
+metrics, the strict gate and both CLI entry points derive from it, so they cannot
+drift. This is deliberate: issue #116 was filed because two parallel predicates over
+the same corpus reported 4914 and 889 for the same question, exposed as two tools
+giving different answers. `bilingual_coverage_report()` and
+`assert_bilingual_coverage()` remain as the aggregate report and the threshold gate,
+but they now delegate to the canonical policy.
