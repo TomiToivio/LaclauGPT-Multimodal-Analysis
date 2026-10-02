@@ -28,6 +28,63 @@ export LACLAUGPT_MAX_ROWS=100
 
 Run the full corpus later by changing/removing the limit as appropriate.
 
+
+## Small country samples from the command line
+
+Every numbered Python entry point now accepts the same two optional sampling
+arguments:
+
+```text
+--country COUNTRY   (alias: -c)
+--limit N           (alias: -n)
+```
+
+Precedence is **explicit CLI > environment variable > the step's existing
+default**. The corresponding environment variables remain
+`LACLAUGPT_COUNTRY` and `LACLAUGPT_MAX_ROWS`. A plain command with no
+arguments keeps the historical behavior of that step.
+
+The first smoke-test countries are Finland, Poland and Portugal:
+
+```bash
+# Historical/default behavior
+python step_1_roihu_preprocess.py
+
+# Deterministic first 10 records for Finland
+python step_1_roihu_preprocess.py --country finland --limit 10
+python step_2_roihu_frame.py --country finland --limit 10
+python step_3_roihu_video.py --country finland --limit 10
+
+# Equivalent samples for Poland and Portugal
+python step_1_roihu_preprocess.py -c poland -n 10
+python step_1_roihu_preprocess.py -c portugal -n 10
+```
+
+When `--country` is supplied to a direct numbered Python step and no explicit
+`LACLAUGPT_INPUT_CSV`/`LACLAUGPT_OUTPUT_CSV` is already set, the entry point
+uses the cumulative checkpoint chain automatically. For example, Finland Step 2
+reads `outputs/finland/step_01_preprocess.csv` and writes
+`outputs/finland/step_02_frame.csv`. The row order is preserved and
+`--limit 10` always means the first ten eligible records, not a random sample.
+
+The same arguments are safe for automation:
+
+```bash
+# Slurm, arguments after the script name are forwarded to the orchestrator
+sbatch scripts/roihu/step_1_roihu_preprocess.sbatch --country finland --limit 10
+
+# Recommended launcher on the Roihu login node
+bash scripts/roihu/run_step.sh 1 --country finland --limit 10
+bash scripts/roihu/run_step.sh 2 --country finland --limit 10
+
+# Cron can invoke the Python entry point exactly the same way
+python step_4_roihu_summary.py --country portugal --limit 10
+```
+
+Each startup log reports the resolved country and limit and whether each value
+came from CLI, environment, or the existing default. Unknown countries and
+negative limits fail immediately instead of silently processing another corpus.
+
 ## Submission pattern
 
 From the public checkout:
