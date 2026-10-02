@@ -437,7 +437,8 @@ def process_country(country: str | None = None) -> Path:
                     out.at[index, "laclau_generated_at"] = generated_at
                     out.at[index, "laclau_context_sha256"] = context_hash
                     out.at[index, "laclau_context_truncated"] = json.dumps(truncated)
-                    out.at[index, "laclau_codebook_fingerprint"] = _json_text(row.get("ep24_codebook_fingerprint", ""))
+                    bootstrap_fingerprint = context_handle[2].get("codebook_fingerprint", "") if context_handle else ""
+                    out.at[index, "laclau_codebook_fingerprint"] = bootstrap_fingerprint or _json_text(row.get("ep24_codebook_fingerprint", ""))
                     out.at[index, "laclau_codebook_context_json"] = _json_text(row.get("codebook_context_json", ""))
                     out.at[index, "laclau_memory_context_json"] = _json_text(row.get("memory_context_json", ""))
                     out.at[index, "laclau_rag_context_json"] = _json_text(row.get("rag_context_json", ""))
@@ -447,8 +448,10 @@ def process_country(country: str | None = None) -> Path:
                     out.at[index, "laclau_runtime_seconds"] = f"{time.monotonic() - started:.3f}"
 
                     if storage is not None:
+                        out.at[index, "laclau_persistence_status"] = "mongo_patch:pending"
                         persisted = _persist_row(storage, out.loc[index], country=normalized_country)
                         out.at[index, "laclau_persistence_status"] = f"mongo_patch:{persisted}"
+                        _persist_row(storage, out.loc[index], country=normalized_country)
                     else:
                         out.at[index, "laclau_persistence_status"] = "mongo_disabled"
                     redis.mark(record_id, "complete")
