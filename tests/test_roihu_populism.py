@@ -143,7 +143,8 @@ def test_prompt_separates_evidence_from_memory_and_rag():
     )
     prompt, truncated = build_prompt_context(row, max_chars=10000)
     assert truncated is False
-    assert "CURRENT SOURCE METADATA" in prompt\n    assert "DERIVED PRIOR-STAGE ANALYSIS" in prompt
+    assert "CURRENT SOURCE METADATA" in prompt
+    assert "DERIVED PRIOR-STAGE ANALYSIS" in prompt
     assert "RESEARCHER/CODEBOOK CONTEXT" in prompt
     assert "normalization_context_not_source_evidence" in prompt
     assert "prior_analysis_context_not_source_evidence" in prompt
