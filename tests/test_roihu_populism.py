@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pandas as pd
 import pytest
@@ -10,6 +11,8 @@ from roihu_populism import (
     FrontierConstruct,
     SignifierCandidate,
     UsConstruct,
+    _resume_from_mongo,
+    analyze_context,
     build_prompt_context,
     compatibility_columns,
 )
@@ -155,3 +158,111 @@ def test_prompt_context_budget_is_enforced():
     prompt, truncated = build_prompt_context(row, max_chars=100)
     assert truncated is True
     assert len(prompt) == 100
+
+
+def test_legacy_projection_omits_candidates_without_evidenced_affect():
+    result = _base_result(
+        us_constructs=[
+            UsConstruct(label="citizens", text_span="we citizens", confidence=0.8),
+        ],
+        frontier_constructs=[
+            FrontierConstruct(
+                label="boundary",
+                us_side="citizens",
+                them_side="commission",
+                relation="antagonistic_frontier",
+                text_span="against the commission",
+                confidence=0.8,
+            )
+        ],
+        affects=[],
+        formula_minimum_conditions_met=True,
+        formula_abstention_reason=None,
+    )
+    # RDF compatibility requires element^affect. Empty is safer than a malformed
+    # bare label and does not fabricate an emotion.
+    assert compatibility_columns(result) == ("", "")
+
+
+def test_formula_conditions_are_mechanically_guarded(monkeypatch):
+    payload = _base_result(
+        us_constructs=[
+            UsConstruct(label="citizens", text_span="we citizens", confidence=0.9),
+        ],
+        frontier_constructs=[
+            FrontierConstruct(
+                label="ordinary criticism",
+                us_side="citizens",
+                them_side="government",
+                relation="criticism",
+                text_span="the government made a bad decision",
+                confidence=0.9,
+            )
+        ],
+        formula_minimum_conditions_met=True,
+        formula_abstention_reason=None,
+    ).model_dump_json()
+
+    class FakeOllama:
+        @staticmethod
+        def chat(**kwargs):
+            return {"message": {"content": payload}}
+
+    monkeypatch.setitem(sys.modules, "ollama", FakeOllama)
+    _, result = analyze_context("synthetic current-source evidence")
+    assert result.formula_minimum_conditions_met is False
+    assert "Minimum conditions not met" in result.formula_abstention_reason
+
+
+def test_prompt_does_not_feed_previous_step6_output_back_into_rerun():
+    row = pd.Series(
+        {
+            "video_id": "1",
+            "allas_filename": "one.mp4",
+            "asr_transcript": "current evidence",
+            "laclau_structured_json": '{"old":"step6"}',
+            "laclau_raw_response": "OLD STEP 6 RESPONSE",
+            "formula_of_populism_analysis": "OLD FORMULA ANALYSIS",
+        }
+    )
+    prompt, _ = build_prompt_context(row, max_chars=10000)
+    assert "current evidence" in prompt
+    assert "OLD STEP 6 RESPONSE" not in prompt
+    assert "OLD FORMULA ANALYSIS" not in prompt
+    assert '{"old":"step6"}' not in prompt
+
+
+def test_mongo_resume_requires_exact_prompt_model_and_context(monkeypatch):
+    monkeypatch.setattr("roihu_populism.ollama_model", lambda: "model-a")
+
+    class Storage:
+        def __init__(self, doc):
+            self.doc = doc
+
+        def find(self, purpose, query, limit=0):
+            assert purpose == "dataframe"
+            return [self.doc]
+
+    base = {
+        "_storage_id": "record-1",
+        "laclau_status": "ok",
+        "laclau_prompt_version": "ep24-laclau-palonen-v2",
+        "laclau_context_sha256": "ctx-a",
+        "laclau_model_metadata_json": json.dumps({"model": "model-a"}),
+        "laclau_structured_json": "{}",
+        "formula_of_populism_analysis": "analysis",
+    }
+    resumed = _resume_from_mongo(Storage(base), "record-1", context_hash="ctx-a")
+    assert resumed is not None
+    assert resumed["formula_of_populism_analysis"] == "analysis"
+
+    assert _resume_from_mongo(
+        Storage({**base, "laclau_context_sha256": "ctx-b"}),
+        "record-1",
+        context_hash="ctx-a",
+    ) is None
+    assert _resume_from_mongo(
+        Storage({**base, "laclau_model_metadata_json": json.dumps({"model": "model-b"})}),
+        "record-1",
+        context_hash="ctx-a",
+    ) is None
