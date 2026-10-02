@@ -1,8 +1,11 @@
 # Step 6 `roihu_populism.py` — audit and refactor plan (issue #170)
 
-Status: **audit complete, implementation not started.** This document is the
-mandated first step of #170 ("First audit the current step very carefully"). Every
-finding cites the current `roihu_populism.py` (467 lines, `main`).
+Status: **audit complete; modern Step 6 implemented and hardened.** This document
+began as the mandated first step of #170 ("First audit the current step very
+carefully"). The findings below describe the legacy implementation that motivated
+the refactor. The active `roihu_populism.py` now uses evidence-linked structured
+coding, explicit abstention, shared Mongo/context infrastructure, Redis
+coordination, cumulative CSV preservation, and deterministic legacy projections.
 
 Scope of the review: correctness, hidden bugs, exception handling, retry/restart
 semantics, logging, output validation, schema compatibility, cache correctness,
@@ -188,14 +191,24 @@ remain, derived deterministically.
 
 ---
 
-## 8. Open decisions for the researcher
+## 8. Resolved design decisions
 
-1. **Abstention / `populist` boolean** — #170 §11 permits retaining a `populist`
-   boolean only if evidence-based and `false` when required components are absent.
-   Confirm whether Step 6 should emit one at all, or stay candidate-only (AI26
-   deliberately omits a binary verdict).
-2. **Legacy `element^affect` cardinality** — the current model allows many elements
-   per side with one affect each; the new `AffectObservation` separates target from
-   affect. Confirm the deterministic projection used for the legacy columns.
-3. **SQLite cache** — remove entirely, or retain as a subordinate restart cache
-   keyed by the stable ID + prompt/context hash (proposed: retain, subordinate).
+1. **No permanent/binary actor label.** Step 6 remains candidate/evidence based.
+   It exposes `formula_minimum_conditions_met` as a document-level evidentiary
+   condition, not a populism score or permanent party/actor classification. A
+   mechanical guard forces it false unless both a collective Us and an explicit
+   `antagonistic_frontier` are present in the structured result.
+2. **Legacy `element^affect` projection never fabricates affect.** A candidate
+   without an evidenced target-linked affect remains fully available in the rich
+   JSON but is omitted from the historical compatibility column. This keeps RDF
+   syntax valid without converting "not evidenced" into a fake emotion.
+3. **MongoDB is durable restart state.** Step 6 resumes a completed record only
+   when stable record ID, prompt version, model and prompt/context hash match.
+   There is no independent SQLite source of truth.
+4. **No circular rerun context.** Existing Step 6-owned `laclau_*` and
+   `formula_of_populism_*` outputs are excluded from the next Step 6 prompt, so
+   a rerun cannot reinforce its own prior interpretation and the resume hash stays
+   stable.
+5. **Sample safety.** A limited run refuses to overwrite its own input path when
+   the limit would truncate the dataframe; samples must write to a distinct
+   checkpoint/output path.
