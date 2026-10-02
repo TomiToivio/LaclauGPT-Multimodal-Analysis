@@ -32,6 +32,10 @@ from ocr_backend import describe_ocr_backend, load_ocr_backend
 
 FRAME_TIMESTAMP_SECONDS = 1.0
 REQUIRED_MEDIA_COLUMNS = ("video_id", "allas_filename")
+REQUIRED_ANNOTATION_COLUMNS = ("entities", "themes")
+FORBIDDEN_LEGACY_ANNOTATION_COLUMNS = (
+    "new_entity", "researcher_new_persons", "new_theme", "researcher_new_themes",
+)
 COUNTRY_ORDER = (
     "finland",
     "poland",
@@ -147,7 +151,8 @@ def save_single_keyframe(
 
 
 def log_schema(path: Path, df: pd.DataFrame) -> None:
-    missing = [c for c in REQUIRED_MEDIA_COLUMNS if c not in df.columns]
+    missing = [c for c in (*REQUIRED_MEDIA_COLUMNS, *REQUIRED_ANNOTATION_COLUMNS) if c not in df.columns]
+    legacy = [c for c in FORBIDDEN_LEGACY_ANNOTATION_COLUMNS if c in df.columns]
     LOG.info(
         "input_schema file=%s sha256=%s rows=%d columns=%d ordered_columns=%s missing_media=%s",
         path,
@@ -157,10 +162,17 @@ def log_schema(path: Path, df: pd.DataFrame) -> None:
         list(df.columns),
         missing,
     )
+    if legacy:
+        LOG.error("legacy_annotation_columns file=%s columns=%s", path, legacy)
     LOG.debug("input_dtypes file=%s dtypes=%s", path, {c: str(t) for c, t in df.dtypes.items()})
     if missing:
         raise ValueError(
-            f"Required media columns missing from {path}: {missing}; actual={list(df.columns)}"
+            f"Required canonical columns missing from {path}: {missing}; actual={list(df.columns)}"
+        )
+    if legacy:
+        raise ValueError(
+            f"Unmigrated legacy annotation columns in {path}: {legacy}; "
+            "run the LaclauGPT-Private issue #21 migration first"
         )
 
 
@@ -278,9 +290,14 @@ def backup_and_write(df: pd.DataFrame, output: Path) -> Path:
 
 def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) -> pd.DataFrame:
     incoming_columns = list(df.columns)
-    missing = [c for c in REQUIRED_MEDIA_COLUMNS if c not in df.columns]
+    missing = [c for c in (*REQUIRED_MEDIA_COLUMNS, *REQUIRED_ANNOTATION_COLUMNS) if c not in df.columns]
+    legacy = [c for c in FORBIDDEN_LEGACY_ANNOTATION_COLUMNS if c in df.columns]
     if missing:
-        raise ValueError(f"Missing required input columns {missing}; actual={incoming_columns}")
+        raise ValueError(f"Missing required canonical input columns {missing}; actual={incoming_columns}")
+    if legacy:
+        raise ValueError(
+            f"Legacy annotation columns must be removed before Step 1: {legacy}"
+        )
 
     out = df.copy()
     for column in PREPROCESS_COLUMNS:
