@@ -364,8 +364,15 @@ This is explicitly **before discourse analysis**. The purpose is to transform he
 14. **TikTok/Instagram metadata**
    - Video analysis or frame analysis may have recognized TikTok/Instagram metadata like the username of the video author, video publication date or video title.
    - Create a list of this metadata, username is the most important one. 
-      
-15. **Downstream-preservation block**
+
+15. **Video is problematic**
+   - Note if the previous steps have noticed problems with the video.
+   - If there is no transcript the video may be meaningless.
+   - If the frame analysis reports there is no meaningful content in the frame the video may be useless.
+   - If the video analysis reports that the video is badly cut or just garbage.
+   - Report clearly if video should be DELETED or REPROCESSED. 
+    
+16. **Downstream-preservation block**
    - Exact salient words/phrases/hashtags.
    - Named entities explicitly present in source material.
    - Recurring visual/symbolic elements.
