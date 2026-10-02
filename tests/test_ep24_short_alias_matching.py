@@ -144,6 +144,99 @@ def test_score_entry_prefers_exact_alias_over_token_overlap(tmp_path: Path) -> N
     )
 
 
+# Swedish regression fixtures for issue #95. One-letter aliases are valid only
+# when they resolve unambiguously inside the active country scope.
+def _swedish_book(tmp_path: Path, entries: list[dict]) -> Path:
+    path = tmp_path / "ep24_se_private.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "test-fixture",
+                "country_code": "SE",
+                "country": "Sweden",
+                "language": "sv",
+                "entries": entries,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+SWEDISH_PARTIES = [
+    {
+        "kind": "entity",
+        "label": "Socialdemokraterna",
+        "english_label": "Swedish Social Democratic Party",
+        "aliases": ["S"],
+        "status": "researcher-grounded",
+    },
+    {
+        "kind": "entity",
+        "label": "Moderaterna",
+        "english_label": "Moderate Party",
+        "aliases": ["M"],
+        "status": "researcher-grounded",
+    },
+    {
+        "kind": "entity",
+        "label": "Sverigedemokraterna",
+        "english_label": "Sweden Democrats",
+        "aliases": ["SD"],
+        "status": "researcher-grounded",
+    },
+]
+
+
+def test_swedish_one_letter_alias_matches_only_as_a_token(tmp_path: Path) -> None:
+    entries, _meta = load_codebook(_swedish_book(tmp_path, SWEDISH_PARTIES))
+    block, prov = context_block("S går framåt i mätningen", entries, country="SE", language="sv")
+    assert "Socialdemokraterna" in block
+    assert any(item["label"] == "Socialdemokraterna" for item in prov["selected"])
+    block_inside, _ = context_block("Stockholm växer", entries, country="SE", language="sv")
+    assert block_inside == ""
+
+
+def test_three_and_four_character_forms_do_not_match_inside_words(tmp_path: Path) -> None:
+    entries, _meta = load_codebook(_book(tmp_path, PARTIES))
+    assert _selected("voxpopuli diskuteras") == []
+    assert _selected("psoriasis nämns") == []
+
+
+def test_same_country_ambiguous_one_letter_alias_abstains(tmp_path: Path) -> None:
+    ambiguous = [
+        *SWEDISH_PARTIES,
+        {
+            "kind": "entity",
+            "label": "Synthetic S Party",
+            "aliases": ["S"],
+            "status": "researcher-grounded",
+        },
+    ]
+    entries, _meta = load_codebook(_swedish_book(tmp_path, ambiguous))
+    block, prov = context_block("S går framåt", entries, country="SE", language="sv")
+    assert block == ""
+    assert prov["ambiguous_short_forms"] == ["s"]
+
+
+def test_short_alias_collision_is_resolved_by_country_scope(tmp_path: Path) -> None:
+    se_entries, _ = load_codebook(_swedish_book(tmp_path, SWEDISH_PARTIES))
+    es_entries, _ = load_codebook(_book(tmp_path, [
+        {
+            "kind": "entity",
+            "label": "Synthetic Spanish Social Party",
+            "aliases": ["S"],
+            "status": "researcher-grounded",
+        }
+    ]))
+    combined = [*se_entries, *es_entries]
+    block, prov = context_block("S går framåt", combined, country="SE", language="sv")
+    assert "Socialdemokraterna" in block
+    assert "Synthetic Spanish Social Party" not in block
+    assert prov["ambiguous_short_forms"] == []
+
+
 if __name__ == "__main__":
     import pytest
 
