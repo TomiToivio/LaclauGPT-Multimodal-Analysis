@@ -40,7 +40,7 @@ The EP24 data covers multimodal social-media material related to the 2024 Europe
 
 ## Canonical EP24 reprocessing data
 
-Active reprocessing uses the researcher-feed 15-column schema and an additive dataframe through every stage. Scraper-era field names are compatibility-only. See [docs/EP24_CANONICAL_SCHEMA.md](docs/EP24_CANONICAL_SCHEMA.md).
+Active reprocessing uses the researcher-feed schema and an additive dataframe through every stage. The 15-column keep-schema is the contract for the identity fields; real inputs may carry extra cleaning columns (8 of the 10 EP24 countries do today) and those are preserved, never projected away. Scraper-era field names are compatibility-only. See [docs/EP24_CANONICAL_SCHEMA.md](docs/EP24_CANONICAL_SCHEMA.md) and [docs/EP24_PREPROCESS_COMPATIBILITY.md](docs/EP24_PREPROCESS_COMPATIBILITY.md).
 
 ## Restartable MongoDB orchestration
 
