@@ -527,13 +527,16 @@ def select_context(query: str, entries: Iterable[CodebookEntry], *, country: str
     ambiguous_short_forms = {
         form for form, entry_ids in short_matches.items() if len(entry_ids) > 1
     }
+    ambiguous_one_letter_forms = {
+        form for form in ambiguous_short_forms if len(form) == 1
+    }
 
     def safe_score(entry: CodebookEntry) -> float:
         matched_short = _matching_short_forms(query, entry)
-        if matched_short & ambiguous_short_forms:
+        if matched_short & ambiguous_one_letter_forms:
             kept = [
                 form for form in entry.forms
-                if identity_key(form) not in ambiguous_short_forms
+                if identity_key(form) not in ambiguous_one_letter_forms
             ]
             shadow = CodebookEntry(
                 **{
