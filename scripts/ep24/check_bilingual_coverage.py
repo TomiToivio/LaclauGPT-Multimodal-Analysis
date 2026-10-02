@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Report and gate bilingual ``english_label`` coverage for EP24 codebooks (#101).
+"""Report and gate English *translation-work* coverage for EP24 codebooks (#101/#116).
+
+This intentionally does not answer whether a non-English-sourced entry has been
+explicitly reviewed. It answers whether the canonical label still needs a
+distinct English rendering. For the explicit review-state metric, use
+english_label_coverage.py.
 
 Answers the question the country QA passes could not: *how much of each country's
 codebook is missing an English label, and is that gap allowed to stay silent?*
@@ -55,13 +60,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     cb = _load_loader()
-    report = cb.bilingual_coverage_report(args.root)
+    report = cb.english_translation_coverage_report(args.root)
 
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
         t = report["totals"]
-        print("EP24 bilingual (english_label) coverage report")
+        print("EP24 English translation-work coverage report")
         print(f"policy: {report['policy']}")
         print()
         print(f"{'ctry':5} {'entries':>8} {'needs_en':>9} {'missing':>8} {'missing%':>9}  by layer")
@@ -89,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.max_missing_pct is not None:
         try:
-            cb.assert_bilingual_coverage(report, max_missing_pct=args.max_missing_pct)
+            cb.assert_english_translation_coverage(report, max_missing_pct=args.max_missing_pct)
         except ValueError as exc:
             print(f"\nFAIL: {exc}", file=sys.stderr)
             return 1
