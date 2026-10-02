@@ -165,11 +165,18 @@ This is explicitly **before discourse analysis**. The purpose is to transform he
    - The metadata may contain a human-annotated list of political themes: always add these to your theme list. 
    - The themes should always be written in the same way: "europarliament elections" and "european elections" should always be written "ep elections".   
 
-13. **TikTok/Instagram metadata**
+13. **Political sentiments**
+   - Recognize political sentiments and the targets of sentiments in the content.
+   - The targets of sentiments may typically be entities or themes you recognized in the previous steps.
+   - Classify each sentiment as positive, negative or neutral. 
+   - List the targets of positive, negative and neutral sentiments. So you need to present three simple lists of sentiment targets: positive, negative and neutral.
+   - Use the same rules for writing names of entities and themes the same way and in lowercase. 
+
+14. **TikTok/Instagram metadata**
    - Video analysis or frame analysis may have recognized TikTok/Instagram metadata like the username of the video author, video publication date or video title.
    - Create a list of this metadata, username is the most important one. 
       
-14. **Downstream-preservation block**
+15. **Downstream-preservation block**
    - Exact salient words/phrases/hashtags.
    - Named entities explicitly present in source material.
    - Recurring visual/symbolic elements.
