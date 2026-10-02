@@ -38,20 +38,9 @@ export LACLAUGPT_ASR_ENGINE="${LACLAUGPT_ASR_ENGINE:-canary}"
 mkdir -p   "/scratch/${CSC_PROJECT}/logs"   "${LACLAUGPT_EP24_OUTPUT_ROOT}"   "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/"{logs,database,Keyframes,Allas}   "${HF_HOME}" "${TORCH_HOME}"
 
 roihu_load_ffmpeg() {
-  # Roihu's ffmpeg module requires an explicit GCC toolchain. Permit an
-  # environment override and fall back across the versions advertised by Lmod.
-  local preferred="${LACLAUGPT_ROIHU_GCC_VERSION:-14.3.0}"
-  local version
-  for version in "${preferred}" 13.4.0 14.3.0 15.2.0; do
-    if module load "gcc/${version}" ffmpeg >/dev/null 2>&1; then
-      echo "Loaded Roihu ffmpeg with gcc/${version}"
-      return 0
-    fi
-    module unload ffmpeg "gcc/${version}" >/dev/null 2>&1 || true
-  done
-  echo "Could not load ffmpeg with Roihu GCC toolchains 13.4.0, 14.3.0, or 15.2.0." >&2
-  echo "Run: module spider ffmpeg" >&2
-  return 1
+  # Verified Roihu combination for the CUDA-enabled FFmpeg build.
+  module load gcc/13.4.0
+  module load ffmpeg/7.1-cuda12.4
 }
 
 roihu_load_runtime() {
@@ -61,6 +50,7 @@ roihu_load_runtime() {
     pytorch)
       module load python-pytorch
       roihu_load_ffmpeg
+      module load allas
       unset PYTHONPATH PYTHONHOME
       [[ -x "${LACLAUGPT_MULTIMODAL_VENV}/bin/python" ]] || {
         echo "Missing Roihu ARM64 venv: ${LACLAUGPT_MULTIMODAL_VENV}" >&2
@@ -73,6 +63,7 @@ roihu_load_runtime() {
     vllm)
       module load python-vllm
       roihu_load_ffmpeg
+      module load allas
       unset PYTHONPATH PYTHONHOME
       if [[ -x "${LACLAUGPT_VLLM_TEST_VENV}/bin/python" ]]; then
         # shellcheck disable=SC1091
