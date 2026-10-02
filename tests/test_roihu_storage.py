@@ -183,6 +183,25 @@ def test_dataframe_upsert_then_export_is_idempotent():
     assert set(exported["id"]) == {"1", "2"}
 
 
+def test_fake_bulk_write_matches_production_unordered_replace_path():
+    client = FakeClient()
+    mongo = MongoStorage(config(), client=client)
+    docs = [
+        {"_storage_id": "a", "value": 1},
+        {"_storage_id": "b", "value": 2},
+    ]
+    assert mongo.upsert_documents("analysis", docs) == 2
+    collection = client.databases["laclaugpt"]["laclaugpt_ep24_fi_analysis"]
+    assert collection.bulk_write_calls[-1]["ordered"] is False
+    assert set(collection.docs) == {"a", "b"}
+
+    assert mongo.upsert_documents(
+        "analysis",
+        [{"_storage_id": "a", "value": 3}],
+    ) == 1
+    assert collection.docs["a"]["value"] == 3
+
+
 def test_disabled_mode_requires_no_mongodb(monkeypatch):
     monkeypatch.setenv("LACLAUGPT_MONGO_ENABLED", "0")
     monkeypatch.setenv("LACLAUGPT_DATASET", "ep24")
