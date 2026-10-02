@@ -784,15 +784,16 @@ def emit_raw_legacy(graph: Graph, row: dict, prov: Provenance) -> None:
 def maybe_emit_network(graph: Graph, language: str, prov: Provenance) -> dict:
     """Project DNA/SNA node and edge tables if they exist; otherwise skip.
 
-    **Provisional adapter.** The DNA and SNA stages are separate, still-unclaimed
-    work in issue #5, so no table format has been agreed. Rather than inventing a
-    schema and forcing those stages to match it, this looks for a minimal shape —
-    a nodes CSV with ``id`` and a edges CSV with ``source``/``target`` — and says
-    clearly in the log when nothing was found. When the real stages land, this
-    adapter should be replaced with one that reads their actual contract.
+    The SNA tables are now produced by ``roihu_sna.write_outputs`` (issue #194):
+    ``sna/sna_nodes_<lang>.csv`` with ``id``/``label`` and
+    ``sna/sna_edges_<lang>.csv`` with ``source``/``target``/``relation``. That is the
+    agreed contract, so the SNA side is no longer provisional. The DNA side still
+    looks for ``dna/dna_*`` tables, which the DNA stage does not write yet, so it
+    continues to skip cleanly.
 
-    Nothing is emitted when the files are absent, so the export is complete and
-    correct for the five legacy stages today.
+    Extra SNA columns (``node_type``, ``relation``, ``weight``, ``evidence``) are
+    projected when present. ``id``/``label``/``source``/``target`` remain mandatory:
+    a table missing them is skipped rather than emitting a degenerate node.
     """
     found = {"nodes": 0, "edges": 0}
     for kind in ("dna", "sna"):
@@ -808,8 +809,18 @@ def maybe_emit_network(graph: Graph, language: str, prov: Provenance) -> dict:
                 if not node_id:
                     continue
                 node = urn(kind, language, node_id)
+                node_class = str(row.get("node_type") or "").strip().upper()
+                graph.add(node, f"{RDF_NS}type",
+                          f"{LG}{node_class}" if node_class else f"{LG}{kind.upper()}Node")
                 graph.add(node, f"{RDF_NS}type", f"{LG}{kind.upper()}Node")
                 graph.literal(node, f"{LG}label", row.get("label"))
+                graph.literal(node, f"{LG}degree", row.get("degree"))
+                graph.literal(node, f"{LG}country", row.get("country"))
+                graph.literal(node, f"{LG}platform", row.get("platform"))
+                graph.literal(node, f"{LG}sourceId", row.get("source_id"))
+                if str(row.get("source_url") or "").strip():
+                    graph.add(node, f"{SCHEMA}url", str(row["source_url"]).strip())
+                graph.literal(node, f"{LG}timestamp", row.get("timestamp"))
                 emit_provenance(graph, node, prov, derivation="model_derived", stage=kind)
                 found["nodes"] += 1
 
@@ -819,12 +830,14 @@ def maybe_emit_network(graph: Graph, language: str, prov: Provenance) -> dict:
                 target = str(row.get("target") or "").strip()
                 if not source or not target:
                     continue
-                edge = urn(f"{kind}edge", language, source, target)
+                relation = str(row.get("relation") or row.get("label") or "").strip()
+                edge = urn(f"{kind}edge", language, source, relation, target)
                 graph.add(edge, f"{RDF_NS}type", f"{LG}{kind.upper()}Edge")
                 graph.add(edge, f"{LG}source", urn(kind, language, source))
                 graph.add(edge, f"{LG}target", urn(kind, language, target))
-                graph.literal(edge, f"{LG}label", row.get("label"))
+                graph.literal(edge, f"{LG}relation", relation or row.get("label"))
                 graph.literal(edge, f"{LG}weight", row.get("weight"))
+                graph.literal(edge, f"{LG}evidence", row.get("evidence"))
                 emit_provenance(graph, edge, prov, derivation="model_derived", stage=kind)
                 found["edges"] += 1
 

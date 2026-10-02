@@ -125,10 +125,15 @@ STAGE_CONTRACT: tuple[Stage, ...] = (
         "formula_of_populism_frontier", "laclau_summary_md")),
     _s(7, "discourse_network_analysis", "roihu_identity.py", (),
        notes="Statement extraction; writes through the DNA module rather than df columns."),
-    _s(8, "social_network_analysis", "roihu_enrich.py",
-       ("ep24_codebook_fingerprint", "ep24_seed_entities_json",
-        "ep24_memory_entity_ids", "ep24_memory_sentiment_target_ids_json",
-        "ep24_sentiment_targets_json")),
+    _s(8, "social_network_analysis", "step_8_roihu_social_network_analysis.py",
+       ("sna_analysis_markdown", "sna_edges_json", "sna_node_ids", "sna_edge_ids",
+        "sna_summary_json", "sna_report_markdown"),
+       notes="Basic Node-Edge-Node SNA plus a Castells-informed interpretation. "
+             "roihu_enrich.py is the codebook/memory enrichment that Step 8 also "
+             "runs; the executable stage entry point is "
+             "step_8_roihu_social_network_analysis.py, and the aggregate node/edge "
+             "tables plus the Markdown report are written under sna/ as "
+             "sna_nodes_<lang>.csv / sna_edges_<lang>.csv for Step 9 to project."),
     _s(9, "rdf", "roihu_rdf.py", (), gpu=False,
        notes="Deterministic CPU-only export; emits RDF, not dataframe columns."),
 )
