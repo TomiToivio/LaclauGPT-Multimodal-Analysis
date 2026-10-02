@@ -3,7 +3,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 ACTIVE_LIST_FILES = (
-    "roihu_preprocess.py",
     "roihu_frame.py",
     "roihu_summary.py",
     "roihu_postprocess.py",
@@ -32,3 +31,10 @@ def test_country_runtime_knows_bulgaria():
 
     enrich = (ROOT / "roihu_enrich.py").read_text(encoding="utf-8")
     assert '"BG": ("ep24_bg.csv", "bg")' in enrich
+
+
+def test_bulgarian_is_in_issue128_preprocess_backend_and_country_order():
+    preprocess = (ROOT / "roihu_preprocess.py").read_text(encoding="utf-8")
+    asr = (ROOT / "asr_backend.py").read_text(encoding="utf-8")
+    assert '"bulgaria"' in preprocess
+    assert '"bulgaria": "bg"' in asr
