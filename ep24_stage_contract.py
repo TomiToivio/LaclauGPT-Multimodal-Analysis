@@ -93,9 +93,28 @@ STAGE_CONTRACT: tuple[Stage, ...] = (
         notes="Exactly one Step 1 keyframe at original t=1.0s; all accumulated row fields are preserved and passed as cumulative prompt context.",
     ),
     _s(
-        3, "video", "ep24_video.py", (),
-        notes="Optional/reserved whole-video VLM stage; delegates to the vLLM experiment. "
-              "Appends no dataframe columns by design.",
+        3, "video", "step_3_roihu_video.py",
+        ("vllm_video_model", "vllm_video_version", "vllm_video_status", "vllm_video_analysis",
+         "vllm_video_error", "vllm_video_source_row_index", "vllm_video_source_id",
+         "vllm_video_allas_source", "vllm_video_remote_path", "vllm_video_local_path",
+         "vllm_video_analysis_path", "vllm_video_remote_path_logged", "vllm_video_bytes",
+         "vllm_video_sha256", "vllm_video_source_duration_seconds",
+         "vllm_video_analysis_duration_seconds", "vllm_video_trim_command",
+         "vllm_video_trim_exit_status", "vllm_video_prompt_version", "vllm_video_prompt_sha256",
+         "vllm_video_markdown_analysis", "vllm_video_raw_output", "vllm_video_structured_json",
+         "vllm_video_structured_output_status", "vllm_video_structured_output_error",
+         "vllm_video_runtime_seconds", "vllm_video_selected_index", "vllm_video_prompt",
+         "vllm_video_context_sha256", "vllm_video_persistence_status",
+         "SCROLL", "SCROLL_SECONDS", "needs_resplit", "video_initial_skip_seconds",
+         "vllm_video_api", "vllm_video_analyzed_duration_seconds",
+         "vllm_video_inference_seconds", "vllm_video_prompt_hash",
+         "vllm_version", "vllm_torch_version", "vllm_cuda_version", "vllm_gpu_name",
+         "vllm_hostname", "vllm_peak_gpu_memory_mb", "vllm_structured_status",
+         "vllm_structured_output"),
+        notes="Cumulative whole-video VLM stage. The entry point is "
+              "step_3_roihu_video.py, which wraps experiments/vllm_video_test.py; "
+              "ep24_video.py is the shared skip/trim rules library, not an "
+              "executable stage. Column list mirrors vllm_video_test.OUTPUT_COLUMNS.",
     ),
     _s(4, "summary", "roihu_summary.py",
        ("metadata", "summary_analysis", "summary_summary_md")),
