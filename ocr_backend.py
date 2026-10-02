@@ -31,23 +31,42 @@ EASYOCR_SCRIPT_GROUPS = {
 }
 
 
-def easyocr_language_group(languages: list[str] | None = None) -> str:
-    """Return the script group a language set belongs to.
+def easyocr_script_groups(languages: list[str] | None = None) -> list[str]:
+    """Group a language set by script, in a deterministic order.
 
-    Raises when the set spans groups, because EasyOCR cannot load that
-    combination -- better to say so here than to fail inside the library.
+    Latin first: nine of the ten EP24 languages are latin, so that reader is the
+    common case. Raises on an unknown language rather than silently dropping it --
+    a language that is not supported must not look like one that ran and found no
+    text.
     """
     wanted = [str(lang).strip().lower() for lang in (languages or EASYOCR_LANGS)]
-    groups = {name for name, members in EASYOCR_SCRIPT_GROUPS.items() if set(wanted) & set(members)}
-    unknown = set(wanted) - {l for members in EASYOCR_SCRIPT_GROUPS.values() for l in members}
+    unknown = sorted(set(wanted) - {
+        lang for members in EASYOCR_SCRIPT_GROUPS.values() for lang in members
+    })
     if unknown:
-        raise ValueError(f"unsupported EasyOCR language(s): {sorted(unknown)}")
+        raise ValueError(f"unsupported EasyOCR language(s): {unknown}")
+    present = [
+        name for name, members in EASYOCR_SCRIPT_GROUPS.items()
+        if set(wanted) & set(members)
+    ]
+    return sorted(present, key=lambda name: (name != "latin", name))
+
+
+def easyocr_language_group(languages: list[str] | None = None) -> str:
+    """Return the single script group a language set belongs to.
+
+    Raises when the set spans groups: EasyOCR loads one recognition model per
+    reader and cannot mix scripts, so such a set is unloadable and must be split
+    with `easyocr_script_groups` instead.
+    """
+    groups = easyocr_script_groups(languages)
     if len(groups) != 1:
         raise ValueError(
             "EasyOCR cannot combine scripts in one reader; requested "
-            f"{sorted(wanted)} spans {sorted(groups)}. Run one reader per group."
+            f"{sorted(set(str(x).strip().lower() for x in (languages or EASYOCR_LANGS)))} "
+            f"spans {groups}. Run one reader per group."
         )
-    return groups.pop()
+    return groups[0]
 
 
 @dataclass(frozen=True)
@@ -119,12 +138,7 @@ def load_ocr_backend() -> OCRBackend:
             if configured
             else list(EASYOCR_LANGS)
         )
-        unknown = set(languages) - {
-            l for members in EASYOCR_SCRIPT_GROUPS.values() for l in members
-        }
-        if unknown:
-            raise ValueError(f"unsupported EasyOCR language(s): {sorted(unknown)}")
-        groups = [g for g, members in EASYOCR_SCRIPT_GROUPS.items() if set(languages) & set(members)]
+        groups = easyocr_script_groups(languages)
         readers = {
             group: easyocr.Reader(
                 [l for l in languages if l in EASYOCR_SCRIPT_GROUPS[group]]
