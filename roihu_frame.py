@@ -200,6 +200,9 @@ Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Le
    - List the author username of the creator of TikTok or Instagram video.
    - Also list other visible metadata like hashtags, video title, date, other visible text.
 
+11. **Video problems**    
+   - Note if the frame has problems, for an example it seems like there is no meaningful content in the screen. It may be the video should be deleted or reprocessed. 
+
 ### Output
 Produce a detailed structured description under the headings above, and include:
 - **Visible platform/video metadata:** username/handle, date/time, title/caption, hashtags, subtitles, interface labels and other metadata-like text actually visible on screen.
