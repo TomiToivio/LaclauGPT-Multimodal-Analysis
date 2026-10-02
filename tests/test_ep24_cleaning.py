@@ -375,8 +375,10 @@ def test_seeds_merge_human_fields_and_deduplicate_after_matching(tmp_path):
     ]
     outcome = rc.clean_dataframe(_write(tmp_path / "ep24_finland_with_researcher_notes.csv", rows))
     row = outcome.rows[0]
-    assert row["seed_entities"] == "example person a; example person b; example person c"
-    assert row["seed_themes"] == "migration; welfare"
+    assert json.loads(row["seed_entities"]) == [
+        "example person a", "example person b", "example person c"
+    ]
+    assert json.loads(row["seed_themes"]) == ["welfare", "migration"]
     # raw source fields are untouched
     assert row["new_entity"] == "example person a; example person b"
     assert row["researcher_new_persons"] == "Example Person A; example person c"
@@ -470,10 +472,14 @@ def test_reprocess_export_is_keep_schema_only_with_video_id_first(tmp_path):
     assert set(header) <= set(rc.KEEP_SCHEMA_ORDER)
     # excluded rows do not reach the reprocessing input
     assert [row[0] for row in data] == ["V-1"]
+    entity_idx = header.index("entities")
+    theme_idx = header.index("themes")
+    assert json.loads(data[0][entity_idx]) == ["example person a", "example person b"]
+    assert json.loads(data[0][theme_idx]) == ["ep elections", "welfare"]
     assert files["reprocess"].name == "ep24_finland.csv"
 
 
-def test_keep_schema_is_the_single_authoritative_15_column_schema():
+def test_keep_schema_is_the_canonical_issue21_schema():
     assert rc.KEEP_SCHEMA_ORDER == (
         "country",
         "author_username",
@@ -484,13 +490,13 @@ def test_keep_schema_is_the_single_authoritative_15_column_schema():
         "sequence_number",
         "political_preference",
         "allas_filename",
-        "new_entity",
-        "new_theme",
+        "entities",
+        "themes",
         "video_duration",
-        "researcher_new_persons",
-        "researcher_new_themes",
         "researcher_note",
     )
+    for legacy in ("new_entity", "new_theme", "researcher_new_persons", "researcher_new_themes"):
+        assert legacy not in rc.KEEP_SCHEMA_ORDER
 
 
 def test_cleaned_derivative_keeps_every_source_row_and_column(tmp_path):
