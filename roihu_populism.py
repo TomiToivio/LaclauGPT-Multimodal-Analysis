@@ -241,11 +241,29 @@ def _current_source_evidence(row: pd.Series) -> str:
         value = _clean(row.get(key, ""))
         if value:
             blocks.append(f"### {key}\n{value}")
-    # Source/platform metadata excluding model-derived fields remains factual context.
-    source_meta = metadata_context(row, include_model_fields=False)
+    # Researcher annotations are deliberately removed here. They are valuable
+    # normalization/context seeds, but they are not direct evidence from the media.
+    source_row = row.drop(
+        labels=[
+            key for key in ("entities", "themes", "political_preference", "researcher_note")
+            if key in row.index
+        ]
+    )
+    source_meta = metadata_context(source_row, include_model_fields=False)
     if source_meta.strip():
-        blocks.append("### source_and_researcher_metadata\n" + source_meta)
+        blocks.append("### source_platform_metadata\n" + source_meta)
     return "\n\n".join(blocks)
+
+
+def _researcher_annotation_context(row: pd.Series) -> str:
+    lines = ["Human annotations/canonical spellings; context only, not source evidence."]
+    found = False
+    for key in ("entities", "themes", "political_preference", "researcher_note"):
+        value = _clean(row.get(key, ""))
+        if value:
+            found = True
+            lines.append(f"- {key}: {value}")
+    return "\n".join(lines) if found else "<none>"
 
 
 def _derived_prior_analysis(row: pd.Series) -> str:
@@ -326,11 +344,12 @@ def build_step6_context(
     source = _current_source_evidence(row)
     prior = _derived_prior_analysis(row)
     memory = _format_memory(memory_items or [])
+    researcher = _researcher_annotation_context(row)
     rag = _format_rag(rag_items or [])
     sections = [
         ("CURRENT SOURCE EVIDENCE — the only direct evidence for document-level coding", source or "<none>"),
         ("DERIVED PRIOR-STAGE ANALYSIS — context only, not direct source evidence", prior or "<none>"),
-        ("RESEARCHER/CODEBOOK MEMORY — normalization/background only, not source evidence", memory + "\n\n" + codebook_block),
+        ("RESEARCHER/CODEBOOK MEMORY — normalization/background only, not source evidence", researcher + "\n\n" + memory + "\n\n" + codebook_block),
         ("RETRIEVED CORPUS CONTEXT — comparison only, not source evidence", rag),
     ]
     full = "\n\n".join(f"## {title}\n{body}" for title, body in sections)
@@ -384,6 +403,20 @@ def analyze_context(context: str, *, model: str | None = None) -> tuple[str, EP2
             raw_response=raw,
             metadata=request_metadata,
         ) from exc
+    # Enforce the theory-critical abstention rule mechanically rather than
+    # trusting a fluent model to self-police it.
+    frontier_relations = {
+        "antagonistic_boundary",
+        "boundary_construction",
+        "exclusion",
+        "threat_construction",
+    }
+    minimum_supported = bool(parsed.us_constructs) and any(
+        item.relation in frontier_relations for item in parsed.frontier_constructs
+    )
+    parsed.formula_minimum_conditions_met = bool(
+        parsed.formula_minimum_conditions_met and minimum_supported
+    )
     parsed.prompt_version = PROMPT_VERSION
     parsed.model_metadata = {
         "provider": "ollama",
