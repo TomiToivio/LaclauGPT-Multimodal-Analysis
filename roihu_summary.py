@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
-import ollama
 from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import load_cumulative_csv, metadata_context, write_cumulative_csv
 from ep24_schema import stable_source_id, value as ep24_value
@@ -30,6 +29,9 @@ DEDICATED_MODAL_COLUMNS = (
     "whisperResult",
     "vllm_video_analysis",
     "vllm_video_markdown_analysis",
+    "metadata",
+    "summary_analysis",
+    "summary_summary_md",
 )
 
 
@@ -337,6 +339,8 @@ def get_llama_summary_response(system_prompt, user_prompt, *, model=None):
     )
     logger.debug("system_prompt=%s", system_prompt)
     logger.debug("user_prompt=%s", user_prompt)
+    import ollama
+
     response = ollama.chat(
         model=selected_model,
         messages=[
