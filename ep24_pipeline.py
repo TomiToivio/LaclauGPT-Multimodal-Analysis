@@ -7,8 +7,8 @@ carried forward unchanged, and only new stage columns are appended/updated.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
 
@@ -24,9 +24,9 @@ RESEARCHER_COLUMNS = (
     "researcher_note",
 )
 MODEL_PREFIXES = (
-    "whisper_", "ocr_", "frame_", "video_", "summary_", "laclau_",
+    "whisper_", "asr_", "ocr_", "frame_", "video_", "summary_", "laclau_",
     "formula_of_populism_", "dna_", "sna_", "rdf_", "codebook_", "memory_", "rag_",
-    "entity_normalization_", "theme_normalization_", "context_",
+    "entity_normalization_", "theme_normalization_", "context_", "preprocess_",
 )
 
 
