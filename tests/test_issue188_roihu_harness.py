@@ -51,17 +51,28 @@ def test_private_env_root_override_drives_derived_paths(tmp_path, monkeypatch):
         f"LACLAUGPT_EP24_PRIVATE_ROOT={relocated}\n",
         encoding="utf-8",
     )
-    for key in (
+    touched = (
         "LACLAUGPT_EP24_PRIVATE_ROOT",
         "LACLAUGPT_MULTIMODAL_PRIVATE_ROOT",
         "LACLAUGPT_EP24_INPUT_ROOT",
         "LACLAUGPT_EP24_OUTPUT_ROOT",
-    ):
+        "LACLAUGPT_MONGO_ENABLED",
+        "LACLAUGPT_DATASET",
+    )
+    previous = {key: os.environ.get(key) for key in touched}
+    for key in touched:
         monkeypatch.delenv(key, raising=False)
 
-    ep24_settings.load_private_env(env_file)
+    try:
+        ep24_settings.load_private_env(env_file)
 
-    assert os.environ["LACLAUGPT_EP24_PRIVATE_ROOT"] == str(relocated)
-    assert os.environ["LACLAUGPT_MULTIMODAL_PRIVATE_ROOT"] == str(relocated)
-    assert os.environ["LACLAUGPT_EP24_INPUT_ROOT"] == str(relocated / "data" / "to_reprocess")
-    assert os.environ["LACLAUGPT_EP24_OUTPUT_ROOT"] == str(relocated / "outputs")
+        assert os.environ["LACLAUGPT_EP24_PRIVATE_ROOT"] == str(relocated)
+        assert os.environ["LACLAUGPT_MULTIMODAL_PRIVATE_ROOT"] == str(relocated)
+        assert os.environ["LACLAUGPT_EP24_INPUT_ROOT"] == str(relocated / "data" / "to_reprocess")
+        assert os.environ["LACLAUGPT_EP24_OUTPUT_ROOT"] == str(relocated / "outputs")
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
