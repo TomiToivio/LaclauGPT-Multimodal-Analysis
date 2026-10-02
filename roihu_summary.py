@@ -650,7 +650,7 @@ def analyze_videos(language=None):
                     stats["processed"] += 1
 
                     # CSV remains the cumulative interchange/checkpoint artifact.
-                    write_cumulative_csv(before, df, output)
+                    write_cumulative_csv(before, df, output, mutable_columns=QUALITY_COLUMNS)
                     logger.info(
                         "local_checkpoint source_id=%s output=%s fields=%s",
                         source_id,
@@ -703,7 +703,7 @@ def analyze_videos(language=None):
                 )
 
         # Ensure even an all-failure/empty run materializes the stage-owned columns.
-        write_cumulative_csv(before, df, output)
+        write_cumulative_csv(before, df, output, mutable_columns=QUALITY_COLUMNS)
     finally:
         connection.close()
         logger.debug("sqlite_closed path=%s", DB_PATH)
