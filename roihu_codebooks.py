@@ -360,7 +360,15 @@ def seed_entries_from_research_notes(
                 cell = _clean(raw_value)
                 if not cell:
                     continue
-                for candidate in _SEED_SPLIT_RE.split(cell):
+                try:
+                    decoded = json.loads(cell)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    decoded = None
+                if isinstance(decoded, list):
+                    candidates = [str(item).strip() for item in decoded if str(item).strip()]
+                else:
+                    candidates = _SEED_SPLIT_RE.split(cell)
+                for candidate in candidates:
                     label = _clean(candidate)
                     if not label:
                         continue
