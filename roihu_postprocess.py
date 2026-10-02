@@ -152,12 +152,8 @@ def analyze_responses(language=None):
             unique_items = list(dict.fromkeys(str(item) for item in items if str(item)))
             df.at[index, column] = ', '.join(unique_items)
         df.at[index, 'postprocess_summary_md'] = (
-            '**Entities:** ' + df.at[index, 'entities'] + '
-
-'
-            + '**Themes/topics:** ' + df.at[index, 'topics'] + '
-
-'
+            '**Entities:** ' + df.at[index, 'entities'] + '\n\n'
+            + '**Themes/topics:** ' + df.at[index, 'topics'] + '\n\n'
             + '**Sentiment targets:** positive=' + df.at[index, 'positive']
             + '; neutral=' + df.at[index, 'neutral']
             + '; negative=' + df.at[index, 'negative']
