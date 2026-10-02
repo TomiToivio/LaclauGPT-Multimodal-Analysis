@@ -433,22 +433,25 @@ def test_resolve_dataframe_is_additive_and_preserves_mentions():
     frame = pd.DataFrame({
         "video_id": ["v1", "v2", "v3"],
         "country": ["Finland"] * 3,
-        "new_entity": ["Pääministeri Orpo", "Orpo", "[]"],
-        "researcher_new_persons": ["", "Petteri Orpo", "Orpon"],
+        "entities": [
+            '["Pääministeri Orpo"]',
+            '["Orpo", "Petteri Orpo"]',
+            '["Orpon"]',
+        ],
+        "themes": ['["democracy"]'] * 3,
         "researcher_note": ["", "note", ""],
     })
     before_columns = list(frame.columns)
-    before_cells = list(frame["new_entity"])
+    before_cells = list(frame["entities"])
 
     summary = E.resolve_dataframe(frame, reg, country="FI", language="fi")
 
     assert summary["columns_preserved"] is True
     assert list(frame.columns)[: len(before_columns)] == before_columns
     assert set(summary["columns_added"]) == set(E.entity_resolution_columns())
-    # The original wording is untouched -- the issue's central requirement.
-    assert list(frame["new_entity"]) == before_cells
-    assert list(frame["researcher_new_persons"])[2] == "Orpon"
-    # ...and the canonical entity is added beside it.
+    # Canonical human annotations are never overwritten.
+    assert list(frame["entities"]) == before_cells
+    # ...and resolved ids/names are added beside them.
     assert "FI-ORPO" in frame.at[0, "ep24_entity_ids"]
     assert "Petteri Orpo" in frame.at[2, "ep24_entity_canonical_names"]
 
@@ -456,7 +459,7 @@ def test_resolve_dataframe_is_additive_and_preserves_mentions():
 def test_resolve_dataframe_reports_unresolved_rows_separately():
     pd = pytest.importorskip("pandas")
     reg = fi_registry()
-    frame = pd.DataFrame({"new_entity": ["Nobody At All", "Petteri Orpo"]})
+    frame = pd.DataFrame({"entities": ['["Nobody At All"]', '["Petteri Orpo"]']})
     summary = E.resolve_dataframe(frame, reg, country="FI", language="fi")
     assert summary["resolved"] == 1
     assert summary["decisions"].get("UNRESOLVED") == 1
@@ -466,7 +469,7 @@ def test_resolve_dataframe_reports_unresolved_rows_separately():
 
 def test_resolve_dataframe_rejects_non_dataframe():
     with pytest.raises(TypeError):
-        E.resolve_dataframe([{"new_entity": "x"}], fi_registry())
+        E.resolve_dataframe([{"entities": '["x"]'}], fi_registry())
 
 
 def test_split_mentions_ignores_empty_container_noise():
@@ -474,7 +477,10 @@ def test_split_mentions_ignores_empty_container_noise():
     assert E._split_mentions("[]") == []
     assert E._split_mentions("{}") == []
     assert E._split_mentions("") == []
-    assert E._split_mentions("Petteri Orpo") == ["Petteri Orpo"]
+    assert E._split_mentions('["Petteri Orpo"]') == ["Petteri Orpo"]
+    assert E._split_mentions('["Example Coalition, National Wing", "Orpo"]') == [
+        "Example Coalition, National Wing", "Orpo"
+    ]
     assert E._split_mentions("Orpo; Kokoomus") == ["Orpo", "Kokoomus"]
     assert E._split_mentions("A\nB") == ["A", "B"]
     assert E._split_mentions("Orpo; Orpo") == ["Orpo"], "duplicates collapse"
