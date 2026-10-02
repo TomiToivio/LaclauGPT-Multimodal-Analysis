@@ -30,8 +30,8 @@ logging.basicConfig(
 
 OUTPUT_COLUMNS = (
     "video_filename",
-    "entities",
-    "themes",
+    "postprocess_entities",
+    "postprocess_themes",
     "positive",
     "neutral",
     "negative",
@@ -363,21 +363,25 @@ def analyze_responses(language=None):
             stats["parse_failures"] += 1
             continue
 
-        values = {
-            "entities": response.entities,
-            "themes": response.themes,
+        # Issue #21: entities/themes are authoritative human annotations.
+        # Machine extraction is additive and must never overwrite or extend them.
+        machine_values = {
+            "postprocess_entities": response.entities,
+            "postprocess_themes": response.themes,
             "positive": response.positive,
             "neutral": response.neutral,
             "negative": response.negative,
         }
-        for column, items in values.items():
+        for column, items in machine_values.items():
             existing = _existing_list(row.get(column, ""))
             combined = [*existing, *(str(item).strip() for item in items if str(item).strip())]
-            df.at[index, column] = ", ".join(dict.fromkeys(combined))
+            df.at[index, column] = json.dumps(list(dict.fromkeys(combined)), ensure_ascii=False)
 
         df.at[index, "postprocess_summary_md"] = (
-            "**Entities:** " + str(df.at[index, "entities"]) + "\n\n"
-            + "**Themes:** " + str(df.at[index, "themes"]) + "\n\n"
+            "**Machine entities:** " + str(df.at[index, "postprocess_entities"]) + "\n\n"
+            + "**Machine themes:** " + str(df.at[index, "postprocess_themes"]) + "\n\n"
+            + "**Human entities:** " + str(df.at[index, "entities"]) + "\n\n"
+            + "**Human themes:** " + str(df.at[index, "themes"]) + "\n\n"
             + "**Sentiment targets:** positive=" + str(df.at[index, "positive"])
             + "; neutral=" + str(df.at[index, "neutral"])
             + "; negative=" + str(df.at[index, "negative"])
