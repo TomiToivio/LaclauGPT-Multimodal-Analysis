@@ -101,8 +101,20 @@ def test_cross_country_collision_is_scoped_before_scoring() -> None:
     }
 
 
-def test_unreviewed_short_alias_is_not_promoted_into_retrieval() -> None:
-    provisional = _party("Synthetic provisional party", "S", reviewed=False)
+def test_unreviewed_short_label_is_not_promoted_into_retrieval() -> None:
+    provisional = CodebookEntry(
+        entry_id="SE:synthetic-short-label",
+        kind="entity",
+        label="S",
+        aliases=[],
+        country="SE",
+        source_languages=["sv"],
+        entity_type="party",
+        review_state="PROVISIONAL",
+        origin="public_context",
+        locked=False,
+        metadata={},
+    )
     assert score_entry("S presenterar sin EU-politik", provisional, language="sv") == 0.0
     provisional.metadata["reviewed_short_aliases"] = ["S"]
     assert score_entry("S presenterar sin EU-politik", provisional, language="sv") == 1.0
