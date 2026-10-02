@@ -11,7 +11,6 @@ ENV_FILE="${LACLAUGPT_EP24_ENV_FILE:-${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/.env}"
 VENV="${LACLAUGPT_MULTIMODAL_VENV:-${PUBLIC_ROOT}/.venv-roihu-gpu}"
 
 [[ -f "${PUBLIC_ROOT}/step_1_roihu_preprocess.py" ]] || { echo "Run this from the LaclauGPT-Multimodal-Analysis checkout." >&2; exit 2; }
-[[ -d "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}" ]] || { echo "Missing private EP24 root: ${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}" >&2; exit 2; }
 
 if [[ -f "${ENV_FILE}" ]]; then
   set -a
@@ -19,6 +18,14 @@ if [[ -f "${ENV_FILE}" ]]; then
   source "${ENV_FILE}"
   set +a
 fi
+
+if [[ -n "${LACLAUGPT_EP24_PRIVATE_ROOT:-}" ]]; then
+  export LACLAUGPT_MULTIMODAL_PRIVATE_ROOT="${LACLAUGPT_EP24_PRIVATE_ROOT}"
+else
+  export LACLAUGPT_EP24_PRIVATE_ROOT="${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
+fi
+
+[[ -d "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}" ]] || { echo "Missing private EP24 root: ${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}" >&2; exit 2; }
 
 if [[ "$(uname -m)" != "aarch64" && "${LACLAUGPT_ALLOW_NON_ROIHU_INSTALL:-0}" != "1" ]]; then
   echo "Expected Roihu-GPU ARM64 login node (roihu-gpu.csc.fi); got $(uname -m)." >&2
@@ -46,6 +53,7 @@ if [[ ! -x "${OLLAMA_INSTALL_ROOT}/bin/ollama" ]]; then
   echo "Installing Ollama ARM64 locally under ${OLLAMA_INSTALL_ROOT}"
   tmp="$(mktemp -d)"
   trap 'rm -rf "${tmp}"' EXIT
+  mkdir -p "${OLLAMA_INSTALL_ROOT}"
   curl -fsSL https://ollama.com/download/ollama-linux-arm64.tgz -o "${tmp}/ollama.tgz"
   tar -xzf "${tmp}/ollama.tgz" -C "${OLLAMA_INSTALL_ROOT}"
 fi
