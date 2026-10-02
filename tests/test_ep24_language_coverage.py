@@ -19,10 +19,10 @@ def test_bulgarian_is_in_active_roihu_language_defaults():
         assert "bg" in text, f"Bulgarian missing from {relative}"
 
 
-def test_bulgarian_is_enabled_for_easyocr():
-    text = (ROOT / "roihu_preprocess.py").read_text(encoding="utf-8")
+def test_bulgarian_is_enabled_for_easyocr_fallback():
+    text = (ROOT / "ocr_backend.py").read_text(encoding="utf-8")
     assert "easyocr.Reader" in text
-    assert "'bg'" in text
+    assert '"bg"' in text
 
 
 def test_country_runtime_knows_bulgaria():
