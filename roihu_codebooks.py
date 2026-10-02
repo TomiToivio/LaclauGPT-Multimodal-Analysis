@@ -759,20 +759,44 @@ def _short_scope_allows(
     return True
 
 
+def _matching_short_forms(
+    query: str,
+    entry: CodebookEntry,
+    *,
+    language: str = "",
+    election: str = "",
+) -> set[str]:
+    """Return reviewed, in-scope short forms that match query by boundaries."""
+    out: set[str] = set()
+    for form in entry.forms:
+        normalized = form.casefold().strip()
+        if not normalized or len(normalized) >= 5:
+            continue
+        if not _reviewed_short_form(entry, normalized):
+            continue
+        if not _short_scope_allows(entry, normalized, language=language, election=election):
+            continue
+        if boundary_matches(normalized, query):
+            out.add(identity_key(normalized))
+    return out
+
+
 def score_entry(
     query: str,
     entry: CodebookEntry,
     *,
     language: str = "",
     election: str = "",
+    blocked_short_forms: set[str] | frozenset[str] = frozenset(),
 ) -> float:
     """Lexical retrieval score with safe, scoped short-form matching.
 
     Forms shorter than five characters use whole-token matching. Declared
     aliases are accepted as explicit codebook forms; provisional short labels
     require review/lock metadata. Optional language/election constraints can
-    further scope aliases. Forms of five characters or more keep substring
-    matching for inflection-friendly recall.
+    further scope aliases. Ambiguous one-letter aliases may be blocked by the
+    selector. Forms of five characters or more keep substring matching for
+    inflection-friendly recall.
     """
     q = query.casefold()
     if not q.strip():
@@ -782,6 +806,9 @@ def score_entry(
         if not normalized:
             continue
         if len(normalized) < 5:
+            key = identity_key(normalized)
+            if key in blocked_short_forms:
+                continue
             if not _reviewed_short_form(entry, normalized):
                 continue
             if not _short_scope_allows(
@@ -815,9 +842,30 @@ def select_context(
     threshold: float = 0.15,
 ) -> tuple[list[CodebookEntry], dict[str, Any]]:
     scoped = [entry for entry in entries if entry.country in {"", "COMMON", country.upper()}]
+
+    short_matches: dict[str, set[str]] = {}
+    for entry in scoped:
+        for form in _matching_short_forms(query, entry, language=language, election=election):
+            short_matches.setdefault(form, set()).add(entry.entry_id)
+    ambiguous_short_forms = {
+        form for form, entry_ids in short_matches.items() if len(entry_ids) > 1
+    }
+    ambiguous_one_letter_forms = {
+        form for form in ambiguous_short_forms if len(form) == 1
+    }
+
     ranked = sorted(
         (
-            (score_entry(query, entry, language=language, election=election), entry)
+            (
+                score_entry(
+                    query,
+                    entry,
+                    language=language,
+                    election=election,
+                    blocked_short_forms=ambiguous_one_letter_forms,
+                ),
+                entry,
+            )
             for entry in scoped
         ),
         key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()),
@@ -829,8 +877,9 @@ def select_context(
         "election": election,
         "limit": limit,
         "threshold": threshold,
-        "selection_method": "deterministic_lexical_v4_scoped_short_aliases",
+        "selection_method": "deterministic_lexical_v5_scoped_short_alias_ambiguity",
         "evidence_role": "background_context_not_source_evidence",
+        "ambiguous_short_forms": sorted(ambiguous_short_forms),
         "selected": [
             {
                 "entry_id": entry.entry_id,
@@ -842,7 +891,6 @@ def select_context(
             for score, entry in selected
         ],
     }
-
 
 def context_block(
     query: str,
