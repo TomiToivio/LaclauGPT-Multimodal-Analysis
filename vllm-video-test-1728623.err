@@ -1,0 +1,1499 @@
+---------------------------------------------------------------------------------- 
+vLLM version 0.29.0, a fast and easy-to-use library for LLM inference and
+serving.
+
+For more help see: https://docs.csc.fi/apps/vllm/ 
+---------------------------------------------------------------------------------- 
+
+Allas tools loaded. To refresh or create an new connection to Allas or Lumi-O,
+execute command: 
+   allas-conf         # Add new S3 connection to Allas. 
+   allas-conf --swift # Open swift connection to Allas. 
+   allas-conf --lumi  # Open S3 connection to Lumi-O. 
+   s5cmd-conf         # Set environment variables for s5cmd command
+
+Currently available connections
+/appl/soft/manual/general/common/allas/allas-cli-utils/a_env_conf: line 14: csc-workspaces: command not found
+
+Currently Loaded Modules:
+  1) python-vllm/0.29.0   2) allas/0.0.1   3) gcc/14.3.0   4) ffmpeg/7.1
+
+ 
+
+2026-10-01T21:41:15 INFO     === environment ===
+2026-10-01T21:41:15 INFO     utc_now            : 2026-10-01T18:41:15.521078+00:00
+2026-10-01T21:41:15 INFO     local_now          : 2026-10-01T21:41:15.521207
+2026-10-01T21:41:15 INFO     hostname           : rg2142
+2026-10-01T21:41:15 INFO     slurm_job_id       : 1728623
+2026-10-01T21:41:15 INFO     slurm_job_name     : ep24-vllm-10video
+2026-10-01T21:41:15 INFO     slurm_submit_dir   : /scratch/project_2009497/LaclauGPT-Multimodal-Analysis
+2026-10-01T21:41:15 INFO     slurm_job_partition: gpumedium
+2026-10-01T21:41:15 INFO     python_version     : 3.12.14
+2026-10-01T21:41:15 INFO     platform           : Linux-5.14.0-687.41.1.1.el9_8.aarch64+64k-aarch64-with-glibc2.34
+2026-10-01T21:41:15 INFO     machine            : aarch64
+2026-10-01T21:41:15 INFO     cwd                : /scratch/project_2009497/LaclauGPT-Multimodal-Analysis
+2026-10-01T21:41:15 INFO     git_commit_sha     : b2df0a7407036959d83bcb58c05a6bf6d26059a3
+2026-10-01T21:41:15 INFO     gpu_query          : NVIDIA GH200 120GB, 97871 MiB, 1 MiB, 595.91.07
+2026-10-01T21:41:15 INFO     gpu_details        : Thu Oct  1 21:41:15 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.91.07              Driver Version: 595.91.07      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GH200 120GB             On  |   00000019:01:00.0 Off |                    0 |
+| N/A   40C    P0             97W /  680W |       1MiB /  97871MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+2026-10-01T21:41:15 INFO     === end environment ===
+2026-10-01T21:41:20 INFO     video_api auto-resolved to mm_processor_kwargs for vLLM 0.29
+2026-10-01T21:41:20 INFO     === configuration ===
+2026-10-01T21:41:20 INFO       allas_bucket             HEPP24
+2026-10-01T21:41:20 INFO       allas_local_root         ./Allas
+2026-10-01T21:41:20 INFO       allas_path_template      Scraper/TikTok/Videos/{country}/{author}/{video_id}.mp4
+2026-10-01T21:41:20 INFO       download_dir             /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads
+2026-10-01T21:41:20 INFO       download_timeout         900
+2026-10-01T21:41:20 INFO       fetch_backend            rclone
+2026-10-01T21:41:20 INFO       gpu_memory_utilization   0.85
+2026-10-01T21:41:20 INFO       input_csv                /scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/experiments/vllm_video_test_input.csv
+2026-10-01T21:41:20 INFO       keep_downloads           True
+2026-10-01T21:41:20 INFO       log_path                 /scratch/project_2009497/laclaugpt-multimodal/logs/vllm_video_test_1728623.log
+2026-10-01T21:41:20 INFO       max_model_len            32768
+2026-10-01T21:41:20 INFO       max_tokens               2048
+2026-10-01T21:41:20 INFO       model                    Qwen/Qwen3-VL-8B-Instruct
+2026-10-01T21:41:20 INFO       model_backend            vllm
+2026-10-01T21:41:20 INFO       output_csv               /scratch/project_2009497/laclaugpt-multimodal/csv/ep24_vllm_video_test_1728623.csv
+2026-10-01T21:41:20 INFO       rclone_remote            s3allas
+2026-10-01T21:41:20 INFO       sample_size              10
+2026-10-01T21:41:20 INFO       seed                     20261001
+2026-10-01T21:41:20 INFO       structured_output        False
+2026-10-01T21:41:20 INFO       temperature              0.1
+2026-10-01T21:41:20 INFO       top_p                    0.9
+2026-10-01T21:41:20 INFO       video_api                mm_processor_kwargs
+2026-10-01T21:41:20 INFO       video_max_pixels         262144
+2026-10-01T21:41:20 INFO       video_min_pixels         4096
+2026-10-01T21:41:20 INFO       video_total_pixels       20971520
+2026-10-01T21:41:20 INFO     input_csv  : /scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/experiments/vllm_video_test_input.csv
+2026-10-01T21:41:20 INFO     output_csv : /scratch/project_2009497/laclaugpt-multimodal/csv/ep24_vllm_video_test_1728623.csv
+2026-10-01T21:41:20 INFO     log_path   : /scratch/project_2009497/laclaugpt-multimodal/logs/vllm_video_test_1728623.log
+2026-10-01T21:41:20 INFO     prompt_version : ep24-vllm-video-description-v1
+2026-10-01T21:41:20 INFO     prompt_sha256  : 0e82135bd7f22734bdace18ef5717e29ab9873c1b3b484064f7ea00f3e456558
+2026-10-01T21:41:20 INFO     prompt_text    : You are performing a descriptive multimodal pre-analysis of one short social-media video from the EP2024 collection.
+
+This is an upstream observational stage. Do NOT perform political, ideological, partisan, populism, sentiment, discourse or Laclauian analysis. Do not classify signifiers, nodal points, chains of equivalence, antagonisms, hegemony or political camps. Do not guess the identity of any person. Those tasks belong to later stages.
+
+Describe only what is observable in the video, and mark uncertainty explicitly rather than filling gaps with plausible invention.
+
+EP24 COLLECTION RULE: the original split clip always begins with a known feed-scroll artifact. The application removes the first 1.0 second before you see the video. Do not count that known initial transition as an additional scroll. Inspect the remaining content for later TikTok/Instagram feed scrolls that indicate the original splitter failed.
+
+Watch this video from beginning to end and produce an in-depth description of its whole temporal narrative. Cover, wherever observable:
+1. Major scenes and scene changes, in the order they occur.
+2. Actions and events over time.
+3. People and participants (describe them without guessing unknown identities).
+4. Spoken words and visible text, when you can perceive them.
+5. Gestures, facial expressions and interactions.
+6. Camera work and editing changes (cuts, zooms, transitions).
+7. Graphics, captions, memes, screenshots and platform interface elements.
+8. Important visual signs, symbols and logos.
+9. Temporal relationships between events (what happens before, during and after what).
+10. A concise beginning -> middle -> end narrative summary.
+
+Finish with a short 'Uncertainty' note listing what you could not determine or are unsure about. Then append exactly one JSON object on its own line with keys SCROLL and SCROLL_SECONDS. SCROLL must be true only when an additional feed-scroll transition separates distinct TikTok/Instagram items after the known initial artifact. Distinguish a feed scroll from normal camera motion, cuts, pans, zooms, in-post scrolling, or animation. SCROLL_SECONDS must list approximate timestamps in seconds on the ORIGINAL source timeline. Because the visible analysis clip begins at original t=1.0s, add 1.0 second to visible timestamps. If no additional feed scroll exists, output {"SCROLL": false, "SCROLL_SECONDS": []}. Write in English. Do not identify unknown individuals.
+2026-10-01T21:41:20 INFO     === end configuration ===
+2026-10-01T21:41:20 INFO     read input CSV /scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/experiments/vllm_video_test_input.csv: 10 rows x 18 columns
+2026-10-01T21:41:20 INFO     usable rows for selection: 10 of 10
+2026-10-01T21:41:20 INFO     selected row indices (seed=20261001): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+2026-10-01T21:41:20 INFO     === runtime versions (for Roihu/Laskin comparison) ===
+2026-10-01T21:41:20 INFO       cuda_version   13.0
+2026-10-01T21:41:20 INFO       gpu_name       NVIDIA GH200 120GB
+2026-10-01T21:41:20 INFO       hostname       rg2142
+2026-10-01T21:41:20 INFO       torch_version  2.13.0+cu130
+2026-10-01T21:41:20 INFO       vllm_version   0.29.0
+2026-10-01T21:41:20 INFO       prompt_hash    ca31038dd22d
+2026-10-01T21:41:20 INFO     === end runtime versions ===
+2026-10-01T21:41:28 INFO     loading processor for Qwen/Qwen3-VL-8B-Instruct
+2026-10-01T21:41:33 INFO     vllm_version      : 0.29.0
+2026-10-01T21:41:33 INFO     torch_version     : 2.13.0+cu130
+2026-10-01T21:41:33 INFO     cuda_available    : True
+2026-10-01T21:41:33 INFO     cuda_version      : 13.0
+2026-10-01T21:41:33 INFO     loading model Qwen/Qwen3-VL-8B-Instruct (this can take minutes)
+[transformers] The `use_fast` parameter is deprecated and will be removed in a future version. Use `backend="torchvision"` instead of `use_fast=True`, or `backend="pil"` instead of `use_fast=False`.
+(EngineCore pid=148636) Loading safetensors checkpoint shards:   0% Completed | 0/4 [00:00<?, ?it/s]
+(EngineCore pid=148636) Loading safetensors checkpoint shards:  25% Completed | 1/4 [00:01<00:05,  1.86s/it]
+(EngineCore pid=148636) Loading safetensors checkpoint shards:  50% Completed | 2/4 [00:08<00:09,  4.95s/it]
+(EngineCore pid=148636) Loading safetensors checkpoint shards:  75% Completed | 3/4 [00:16<00:06,  6.14s/it]
+(EngineCore pid=148636) Loading safetensors checkpoint shards: 100% Completed | 4/4 [00:16<00:00,  3.85s/it]
+(EngineCore pid=148636) Loading safetensors checkpoint shards: 100% Completed | 4/4 [00:16<00:00,  4.21s/it]
+(EngineCore pid=148636) 
+(EngineCore pid=148636) Capturing CUDA graphs (PIECEWISE):   0%|          | 0/51 [00:00<?, ?it/s]Capturing CUDA graphs (PIECEWISE):   2%|▏         | 1/51 [00:00<00:06,  8.07it/s]Capturing CUDA graphs (PIECEWISE):   6%|▌         | 3/51 [00:00<00:04, 10.60it/s]Capturing CUDA graphs (PIECEWISE):  10%|▉         | 5/51 [00:00<00:04, 11.47it/s]Capturing CUDA graphs (PIECEWISE):  14%|█▎        | 7/51 [00:00<00:03, 11.81it/s]Capturing CUDA graphs (PIECEWISE):  18%|█▊        | 9/51 [00:00<00:03, 12.09it/s]Capturing CUDA graphs (PIECEWISE):  22%|██▏       | 11/51 [00:00<00:03, 12.55it/s]Capturing CUDA graphs (PIECEWISE):  25%|██▌       | 13/51 [00:01<00:02, 12.67it/s]Capturing CUDA graphs (PIECEWISE):  29%|██▉       | 15/51 [00:01<00:02, 13.03it/s]Capturing CUDA graphs (PIECEWISE):  33%|███▎      | 17/51 [00:01<00:02, 13.28it/s]Capturing CUDA graphs (PIECEWISE):  37%|███▋      | 19/51 [00:01<00:02, 13.69it/s]Capturing CUDA graphs (PIECEWISE):  41%|████      | 21/51 [00:01<00:02, 13.66it/s]Capturing CUDA graphs (PIECEWISE):  45%|████▌     | 23/51 [00:01<00:02, 13.95it/s]Capturing CUDA graphs (PIECEWISE):  49%|████▉     | 25/51 [00:01<00:01, 14.06it/s]Capturing CUDA graphs (PIECEWISE):  53%|█████▎    | 27/51 [00:02<00:01, 14.19it/s]Capturing CUDA graphs (PIECEWISE):  57%|█████▋    | 29/51 [00:02<00:01, 14.30it/s]Capturing CUDA graphs (PIECEWISE):  61%|██████    | 31/51 [00:02<00:01, 14.41it/s]Capturing CUDA graphs (PIECEWISE):  65%|██████▍   | 33/51 [00:02<00:01, 14.50it/s]Capturing CUDA graphs (PIECEWISE):  69%|██████▊   | 35/51 [00:02<00:01, 14.60it/s]Capturing CUDA graphs (PIECEWISE):  73%|███████▎  | 37/51 [00:02<00:00, 14.63it/s]Capturing CUDA graphs (PIECEWISE):  76%|███████▋  | 39/51 [00:02<00:00, 14.69it/s]Capturing CUDA graphs (PIECEWISE):  80%|████████  | 41/51 [00:03<00:00, 14.82it/s]Capturing CUDA graphs (PIECEWISE):  84%|████████▍ | 43/51 [00:03<00:00, 14.91it/s]Capturing CUDA graphs (PIECEWISE):  88%|████████▊ | 45/51 [00:03<00:00, 15.32it/s]Capturing CUDA graphs (PIECEWISE):  92%|█████████▏| 47/51 [00:03<00:00, 15.97it/s]Capturing CUDA graphs (PIECEWISE):  96%|█████████▌| 49/51 [00:03<00:00, 16.76it/s]Capturing CUDA graphs (PIECEWISE): 100%|██████████| 51/51 [00:03<00:00, 17.56it/s]Capturing CUDA graphs (PIECEWISE): 100%|██████████| 51/51 [00:03<00:00, 14.23it/s]
+(EngineCore pid=148636) Capturing CUDA graphs (FULL):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (FULL): 100%|██████████| 2/2 [00:00<00:00, 27.54it/s]
+(EngineCore pid=148636) 2026-10-01 21:42:13,777 - INFO - autotuner.py:2789 - flashinfer.jit: [Autotuner]: Loaded 0 configs from /users/totoivio/.cache/aarch64/vllm/flashinfer_autotune_cache/0.6.18/90a/42cc8ff09cb7041d849398bc874cc15b744b4c44ed25dc0f02acf8ef2b3960bc/autotune_configs.json
+(EngineCore pid=148636) 2026-10-01 21:42:13,780 - INFO - autotuner.py:972 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore pid=148636) 2026-10-01 21:42:13,814 - INFO - autotuner.py:995 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore pid=148636) 2026-10-01 21:42:13,820 - INFO - autotuner.py:2652 - flashinfer.jit: [Autotuner]: Saved 0 configs to /users/totoivio/.cache/aarch64/vllm/flashinfer_autotune_cache/0.6.18/90a/42cc8ff09cb7041d849398bc874cc15b744b4c44ed25dc0f02acf8ef2b3960bc/autotune_configs.json (0 new, 0 from previous config)
+(EngineCore pid=148636) Capturing CUDA graphs (PIECEWISE):   0%|          | 0/51 [00:00<?, ?it/s]Capturing CUDA graphs (PIECEWISE):   4%|▍         | 2/51 [00:00<00:04, 10.85it/s]Capturing CUDA graphs (PIECEWISE):   8%|▊         | 4/51 [00:00<00:04, 11.65it/s]Capturing CUDA graphs (PIECEWISE):  12%|█▏        | 6/51 [00:00<00:03, 12.16it/s]Capturing CUDA graphs (PIECEWISE):  16%|█▌        | 8/51 [00:00<00:03, 12.50it/s]Capturing CUDA graphs (PIECEWISE):  20%|█▉        | 10/51 [00:00<00:03, 12.78it/s]Capturing CUDA graphs (PIECEWISE):  24%|██▎       | 12/51 [00:00<00:02, 13.04it/s]Capturing CUDA graphs (PIECEWISE):  27%|██▋       | 14/51 [00:01<00:02, 13.27it/s]Capturing CUDA graphs (PIECEWISE):  31%|███▏      | 16/51 [00:01<00:02, 13.53it/s]Capturing CUDA graphs (PIECEWISE):  35%|███▌      | 18/51 [00:01<00:02, 13.79it/s]Capturing CUDA graphs (PIECEWISE):  39%|███▉      | 20/51 [00:01<00:02, 14.02it/s]Capturing CUDA graphs (PIECEWISE):  43%|████▎     | 22/51 [00:01<00:02, 14.17it/s]Capturing CUDA graphs (PIECEWISE):  47%|████▋     | 24/51 [00:01<00:01, 14.35it/s]Capturing CUDA graphs (PIECEWISE):  51%|█████     | 26/51 [00:01<00:01, 14.49it/s]Capturing CUDA graphs (PIECEWISE):  55%|█████▍    | 28/51 [00:02<00:01, 14.67it/s]Capturing CUDA graphs (PIECEWISE):  59%|█████▉    | 30/51 [00:02<00:01, 14.92it/s]Capturing CUDA graphs (PIECEWISE):  63%|██████▎   | 32/51 [00:02<00:01, 15.16it/s]Capturing CUDA graphs (PIECEWISE):  67%|██████▋   | 34/51 [00:02<00:01, 15.37it/s]Capturing CUDA graphs (PIECEWISE):  71%|███████   | 36/51 [00:02<00:00, 15.56it/s]Capturing CUDA graphs (PIECEWISE):  75%|███████▍  | 38/51 [00:02<00:00, 15.76it/s]Capturing CUDA graphs (PIECEWISE):  78%|███████▊  | 40/51 [00:02<00:00, 15.96it/s]Capturing CUDA graphs (PIECEWISE):  82%|████████▏ | 42/51 [00:02<00:00, 16.18it/s]Capturing CUDA graphs (PIECEWISE):  86%|████████▋ | 44/51 [00:03<00:00, 16.35it/s]Capturing CUDA graphs (PIECEWISE):  92%|█████████▏| 47/51 [00:03<00:00, 17.60it/s]Capturing CUDA graphs (PIECEWISE):  96%|█████████▌| 49/51 [00:03<00:00, 18.17it/s]Capturing CUDA graphs (PIECEWISE): 100%|██████████| 51/51 [00:03<00:00, 18.55it/s]Capturing CUDA graphs (PIECEWISE): 100%|██████████| 51/51 [00:03<00:00, 15.00it/s]
+(EngineCore pid=148636) Capturing CUDA graphs (FULL):   0%|          | 0/51 [00:00<?, ?it/s]Capturing CUDA graphs (FULL):   6%|▌         | 3/51 [00:00<00:01, 27.35it/s]Capturing CUDA graphs (FULL):  12%|█▏        | 6/51 [00:00<00:01, 27.79it/s]Capturing CUDA graphs (FULL):  18%|█▊        | 9/51 [00:00<00:01, 28.07it/s]Capturing CUDA graphs (FULL):  24%|██▎       | 12/51 [00:00<00:01, 28.50it/s]Capturing CUDA graphs (FULL):  29%|██▉       | 15/51 [00:00<00:01, 28.72it/s]Capturing CUDA graphs (FULL):  35%|███▌      | 18/51 [00:00<00:01, 28.95it/s]Capturing CUDA graphs (FULL):  43%|████▎     | 22/51 [00:00<00:00, 29.50it/s]Capturing CUDA graphs (FULL):  49%|████▉     | 25/51 [00:00<00:00, 29.64it/s]Capturing CUDA graphs (FULL):  55%|█████▍    | 28/51 [00:00<00:00, 29.59it/s]Capturing CUDA graphs (FULL):  63%|██████▎   | 32/51 [00:01<00:00, 29.73it/s]Capturing CUDA graphs (FULL):  69%|██████▊   | 35/51 [00:01<00:00, 29.68it/s]Capturing CUDA graphs (FULL):  75%|███████▍  | 38/51 [00:01<00:00, 29.74it/s]Capturing CUDA graphs (FULL):  80%|████████  | 41/51 [00:01<00:00, 29.71it/s]Capturing CUDA graphs (FULL):  88%|████████▊ | 45/51 [00:01<00:00, 29.96it/s]Capturing CUDA graphs (FULL):  96%|█████████▌| 49/51 [00:01<00:00, 30.03it/s]Capturing CUDA graphs (FULL): 100%|██████████| 51/51 [00:01<00:00, 29.48it/s]
+[transformers] Qwen3VL video processing does not apply the per-frame pixel cap the reference implementation (qwen-vl-utils) applies, so some videos cost far more tokens than they would there. In v5.22 the capped behavior will become the default and `cap_pixels_per_frame` will be removed. Pass `cap_pixels_per_frame=True` to adopt the reference behavior now, or `False` to keep the current behavior and silence this warning.
+2026-10-01T21:42:31 INFO     model loaded: Qwen/Qwen3-VL-8B-Instruct
+2026-10-01T21:42:31 INFO     --- video 1/10:  /  ---
+2026-10-01T21:42:31 INFO       source_row_index  : 0
+2026-10-01T21:42:31 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/ES/FR/IG/20240521/HEPP24-ES-FR-IG-20240521-1060000.mp4
+2026-10-01T21:42:31 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/ES/FR/IG/20240521/HEPP24-ES-FR-IG-20240521-1060000.mp4
+2026-10-01T21:42:31 INFO       country           : 
+2026-10-01T21:42:31 INFO       language          : 
+2026-10-01T21:42:31 INFO       description       : 
+2026-10-01T21:42:31 INFO     download_backend=rclone command=/appl/soft/manual/general/aarch64/allas-tools/bin/rclone copyurl https://a3s.fi/swift/v1/HEPP24/ES/FR/IG/20240521/HEPP24-ES-FR-IG-20240521-1060000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-ES-FR-IG-20240521-1060000.mp4
+2026-10-01T21:42:31 INFO     download_exit_status=0 stdout= stderr=
+2026-10-01T21:42:31 INFO       local_path        : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-ES-FR-IG-20240521-1060000.mp4
+2026-10-01T21:42:31 INFO       bytes             : 6624789
+2026-10-01T21:42:31 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-ES-FR-IG-20240521-1060000.mp4
+2026-10-01T21:42:31 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1080,
+            "height": 2400,
+            "r_frame_rate": "60000/1001",
+            "duration": "16.900217"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "16.898005"
+        }
+    ],
+    "format": {
+        "duration": "16.901000"
+    }
+} stderr=
+2026-10-01T21:42:31 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-ES-FR-IG-20240521-1060000.mp4 metadata={"duration_seconds": 16.901, "format": {"duration": "16.901000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "16.900217", "height": 2400, "r_frame_rate": "60000/1001", "width": 1080}, {"codec_name": "aac", "codec_type": "audio", "duration": "16.898005", "r_frame_rate": "0/0"}]}
+2026-10-01T21:42:31 INFO     trim_command=ffmpeg -hide_banner -loglevel error -y -ss 1 -i /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-ES-FR-IG-20240521-1060000.mp4 -map 0:v:0 -map '0:a?' -c:v libx264 -preset veryfast -crf 18 -c:a aac -movflags +faststart /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-ES-FR-IG-20240521-1060000.analysis-from-1s.mp4
+2026-10-01T21:42:51 INFO     trim_exit_status=0 stdout= stderr=
+2026-10-01T21:42:51 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-ES-FR-IG-20240521-1060000.analysis-from-1s.mp4
+2026-10-01T21:42:51 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1080,
+            "height": 2400,
+            "r_frame_rate": "60000/1001",
+            "duration": "15.899217"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "15.903991"
+        }
+    ],
+    "format": {
+        "duration": "15.905000"
+    }
+} stderr=
+2026-10-01T21:42:51 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-ES-FR-IG-20240521-1060000.analysis-from-1s.mp4 metadata={"duration_seconds": 15.905, "format": {"duration": "15.905000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "15.899217", "height": 2400, "r_frame_rate": "60000/1001", "width": 1080}, {"codec_name": "aac", "codec_type": "audio", "duration": "15.903991", "r_frame_rate": "0/0"}]}
+2026-10-01T21:42:51 INFO       source_duration   : 16.901
+2026-10-01T21:42:51 INFO       analysis_duration : 15.905
+2026-10-01T21:42:51 INFO       analysis_path     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-ES-FR-IG-20240521-1060000.analysis-from-1s.mp4
+2026-10-01T21:42:51 INFO       initial_skip_s    : 1.0
+qwen-vl-utils using torchcodec to read video.
+2026-10-01T21:42:54 DEBUG    prepared request: video_api=mm_processor_kwargs video_parts=1 mm_processor_kwargs_keys=['do_sample_frames', 'video_metadata']
+2026-10-01T21:42:54 INFO     inference_start_utc=2026-10-01T18:42:54.265095+00:00
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]2026-10-01T21:42:54 ERROR      FAILED: ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+2026-10-01T21:42:54 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1128, in main
+    raw_output, structured_status, inference_seconds = analyze_one_video(
+                                                       ^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 882, in analyze_one_video
+    outputs = llm.generate([request], sampling_params=sampling_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/llm.py", line 472, in generate
+    return self._run_completion(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 341, in _run_completion
+    self._add_completion_requests(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 309, in _add_completion_requests
+    return self._render_and_add_requests(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 549, in _render_and_add_requests
+    raise e
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 535, in _render_and_add_requests
+    for i, prompt in enumerate(prompts):
+                     ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 311, in <genexpr>
+    self._preprocess_cmpl_one(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 152, in _preprocess_cmpl_one
+    (engine_input,) = self._preprocess_cmpl(
+                      ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 140, in _preprocess_cmpl
+    return renderer.render_cmpl(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 998, in render_cmpl
+    self.process_for_engine(prompt, arrival_time, skip_mm_cache=skip_mm_cache)
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 950, in process_for_engine
+    engine_input = self._process_singleton(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 871, in _process_singleton
+    return self._process_tokens(prompt, skip_mm_cache=skip_mm_cache)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/hf.py", line 1201, in _process_tokens
+    engine_input = super()._process_tokens(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 778, in _process_tokens
+    engine_input = self._process_multimodal(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 743, in _process_multimodal
+    mm_data_items = mm_processor.info.parse_mm_data(mm_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/processing/context.py", line 521, in parse_mm_data
+    mm_items = self.data_parser.parse_mm_data(mm_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 809, in parse_mm_data
+    if (parsed_data := subparsers[k](v)) is not None:
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/model_executor/models/qwen2_vl.py", line 839, in _parse_video_data
+    return super()._parse_video_data(data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 765, in _parse_video_data
+    raise ValueError(
+ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]
+2026-10-01T21:42:54 INFO       runtime_seconds   : 23.0
+2026-10-01T21:42:54 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:42:54 INFO     --- video 2/10:  /  ---
+2026-10-01T21:42:54 INFO       source_row_index  : 1
+2026-10-01T21:42:54 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/BG/RG/TT/20240605/HEPP24-BG-RG-TT-20240605-1017000.mp4
+2026-10-01T21:42:54 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/BG/RG/TT/20240605/HEPP24-BG-RG-TT-20240605-1017000.mp4
+2026-10-01T21:42:54 INFO       country           : 
+2026-10-01T21:42:54 INFO       language          : 
+2026-10-01T21:42:54 INFO       description       : 
+2026-10-01T21:42:54 INFO     download_backend=rclone command=/appl/soft/manual/general/aarch64/allas-tools/bin/rclone copyurl https://a3s.fi/swift/v1/HEPP24/BG/RG/TT/20240605/HEPP24-BG-RG-TT-20240605-1017000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-BG-RG-TT-20240605-1017000.mp4
+2026-10-01T21:42:54 INFO     download_exit_status=0 stdout= stderr=
+2026-10-01T21:42:54 INFO       local_path        : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-BG-RG-TT-20240605-1017000.mp4
+2026-10-01T21:42:54 INFO       bytes             : 16670127
+2026-10-01T21:42:54 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-BG-RG-TT-20240605-1017000.mp4
+2026-10-01T21:42:54 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "60/1",
+            "duration": "97.666667"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "97.663991"
+        }
+    ],
+    "format": {
+        "duration": "97.667000"
+    }
+} stderr=
+2026-10-01T21:42:54 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-BG-RG-TT-20240605-1017000.mp4 metadata={"duration_seconds": 97.667, "format": {"duration": "97.667000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "97.666667", "height": 1600, "r_frame_rate": "60/1", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "97.663991", "r_frame_rate": "0/0"}]}
+2026-10-01T21:42:54 INFO     trim_command=ffmpeg -hide_banner -loglevel error -y -ss 1 -i /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-BG-RG-TT-20240605-1017000.mp4 -map 0:v:0 -map '0:a?' -c:v libx264 -preset veryfast -crf 18 -c:a aac -movflags +faststart /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-BG-RG-TT-20240605-1017000.analysis-from-1s.mp4
+2026-10-01T21:43:42 INFO     trim_exit_status=0 stdout= stderr=
+2026-10-01T21:43:42 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-BG-RG-TT-20240605-1017000.analysis-from-1s.mp4
+2026-10-01T21:43:42 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "60/1",
+            "duration": "96.666667"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "96.686009"
+        }
+    ],
+    "format": {
+        "duration": "96.687000"
+    }
+} stderr=
+2026-10-01T21:43:42 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-BG-RG-TT-20240605-1017000.analysis-from-1s.mp4 metadata={"duration_seconds": 96.687, "format": {"duration": "96.687000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "96.666667", "height": 1600, "r_frame_rate": "60/1", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "96.686009", "r_frame_rate": "0/0"}]}
+2026-10-01T21:43:42 INFO       source_duration   : 97.667
+2026-10-01T21:43:42 INFO       analysis_duration : 96.687
+2026-10-01T21:43:42 INFO       analysis_path     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-BG-RG-TT-20240605-1017000.analysis-from-1s.mp4
+2026-10-01T21:43:42 INFO       initial_skip_s    : 1.0
+The given max_pixels[262144] exceeds limit[218453.33333333334].
+2026-10-01T21:43:51 DEBUG    prepared request: video_api=mm_processor_kwargs video_parts=1 mm_processor_kwargs_keys=['do_sample_frames', 'video_metadata']
+2026-10-01T21:43:51 INFO     inference_start_utc=2026-10-01T18:43:51.412961+00:00
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]2026-10-01T21:43:51 ERROR      FAILED: ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+2026-10-01T21:43:51 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1128, in main
+    raw_output, structured_status, inference_seconds = analyze_one_video(
+                                                       ^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 882, in analyze_one_video
+    outputs = llm.generate([request], sampling_params=sampling_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/llm.py", line 472, in generate
+    return self._run_completion(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 341, in _run_completion
+    self._add_completion_requests(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 309, in _add_completion_requests
+    return self._render_and_add_requests(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 549, in _render_and_add_requests
+    raise e
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 535, in _render_and_add_requests
+    for i, prompt in enumerate(prompts):
+                     ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 311, in <genexpr>
+    self._preprocess_cmpl_one(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 152, in _preprocess_cmpl_one
+    (engine_input,) = self._preprocess_cmpl(
+                      ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 140, in _preprocess_cmpl
+    return renderer.render_cmpl(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 998, in render_cmpl
+    self.process_for_engine(prompt, arrival_time, skip_mm_cache=skip_mm_cache)
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 950, in process_for_engine
+    engine_input = self._process_singleton(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 871, in _process_singleton
+    return self._process_tokens(prompt, skip_mm_cache=skip_mm_cache)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/hf.py", line 1201, in _process_tokens
+    engine_input = super()._process_tokens(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 778, in _process_tokens
+    engine_input = self._process_multimodal(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 743, in _process_multimodal
+    mm_data_items = mm_processor.info.parse_mm_data(mm_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/processing/context.py", line 521, in parse_mm_data
+    mm_items = self.data_parser.parse_mm_data(mm_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 809, in parse_mm_data
+    if (parsed_data := subparsers[k](v)) is not None:
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/model_executor/models/qwen2_vl.py", line 839, in _parse_video_data
+    return super()._parse_video_data(data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 765, in _parse_video_data
+    raise ValueError(
+ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]
+2026-10-01T21:43:51 INFO       runtime_seconds   : 57.1
+2026-10-01T21:43:51 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:43:51 INFO     --- video 3/10:  /  ---
+2026-10-01T21:43:51 INFO       source_row_index  : 2
+2026-10-01T21:43:51 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/HU/CR/IG/20240527/HEPP24-HU-CR-IG-20240527-1011000.mp4
+2026-10-01T21:43:51 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/HU/CR/IG/20240527/HEPP24-HU-CR-IG-20240527-1011000.mp4
+2026-10-01T21:43:51 INFO       country           : 
+2026-10-01T21:43:51 INFO       language          : 
+2026-10-01T21:43:51 INFO       description       : 
+2026-10-01T21:43:51 INFO     download_backend=rclone command=/appl/soft/manual/general/aarch64/allas-tools/bin/rclone copyurl https://a3s.fi/swift/v1/HEPP24/HU/CR/IG/20240527/HEPP24-HU-CR-IG-20240527-1011000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-HU-CR-IG-20240527-1011000.mp4
+2026-10-01T21:43:51 INFO     download_exit_status=0 stdout= stderr=
+2026-10-01T21:43:51 INFO       local_path        : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-HU-CR-IG-20240527-1011000.mp4
+2026-10-01T21:43:51 INFO       bytes             : 7427285
+2026-10-01T21:43:51 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-HU-CR-IG-20240527-1011000.mp4
+2026-10-01T21:43:51 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "60/1",
+            "duration": "41.516667"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "41.501995"
+        }
+    ],
+    "format": {
+        "duration": "41.517000"
+    }
+} stderr=
+2026-10-01T21:43:51 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-HU-CR-IG-20240527-1011000.mp4 metadata={"duration_seconds": 41.517, "format": {"duration": "41.517000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "41.516667", "height": 1600, "r_frame_rate": "60/1", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "41.501995", "r_frame_rate": "0/0"}]}
+2026-10-01T21:43:51 INFO     trim_command=ffmpeg -hide_banner -loglevel error -y -ss 1 -i /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-HU-CR-IG-20240527-1011000.mp4 -map 0:v:0 -map '0:a?' -c:v libx264 -preset veryfast -crf 18 -c:a aac -movflags +faststart /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-HU-CR-IG-20240527-1011000.analysis-from-1s.mp4
+2026-10-01T21:44:13 INFO     trim_exit_status=0 stdout= stderr=
+2026-10-01T21:44:13 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-HU-CR-IG-20240527-1011000.analysis-from-1s.mp4
+2026-10-01T21:44:13 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "60/1",
+            "duration": "40.516667"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "40.515011"
+        }
+    ],
+    "format": {
+        "duration": "40.517000"
+    }
+} stderr=
+2026-10-01T21:44:13 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-HU-CR-IG-20240527-1011000.analysis-from-1s.mp4 metadata={"duration_seconds": 40.517, "format": {"duration": "40.517000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "40.516667", "height": 1600, "r_frame_rate": "60/1", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "40.515011", "r_frame_rate": "0/0"}]}
+2026-10-01T21:44:13 INFO       source_duration   : 41.517
+2026-10-01T21:44:13 INFO       analysis_duration : 40.517
+2026-10-01T21:44:13 INFO       analysis_path     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-HU-CR-IG-20240527-1011000.analysis-from-1s.mp4
+2026-10-01T21:44:13 INFO       initial_skip_s    : 1.0
+2026-10-01T21:44:17 DEBUG    prepared request: video_api=mm_processor_kwargs video_parts=1 mm_processor_kwargs_keys=['do_sample_frames', 'video_metadata']
+2026-10-01T21:44:17 INFO     inference_start_utc=2026-10-01T18:44:17.787087+00:00
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]2026-10-01T21:44:17 ERROR      FAILED: ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+2026-10-01T21:44:17 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1128, in main
+    raw_output, structured_status, inference_seconds = analyze_one_video(
+                                                       ^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 882, in analyze_one_video
+    outputs = llm.generate([request], sampling_params=sampling_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/llm.py", line 472, in generate
+    return self._run_completion(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 341, in _run_completion
+    self._add_completion_requests(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 309, in _add_completion_requests
+    return self._render_and_add_requests(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 549, in _render_and_add_requests
+    raise e
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 535, in _render_and_add_requests
+    for i, prompt in enumerate(prompts):
+                     ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 311, in <genexpr>
+    self._preprocess_cmpl_one(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 152, in _preprocess_cmpl_one
+    (engine_input,) = self._preprocess_cmpl(
+                      ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 140, in _preprocess_cmpl
+    return renderer.render_cmpl(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 998, in render_cmpl
+    self.process_for_engine(prompt, arrival_time, skip_mm_cache=skip_mm_cache)
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 950, in process_for_engine
+    engine_input = self._process_singleton(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 871, in _process_singleton
+    return self._process_tokens(prompt, skip_mm_cache=skip_mm_cache)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/hf.py", line 1201, in _process_tokens
+    engine_input = super()._process_tokens(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 778, in _process_tokens
+    engine_input = self._process_multimodal(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 743, in _process_multimodal
+    mm_data_items = mm_processor.info.parse_mm_data(mm_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/processing/context.py", line 521, in parse_mm_data
+    mm_items = self.data_parser.parse_mm_data(mm_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 809, in parse_mm_data
+    if (parsed_data := subparsers[k](v)) is not None:
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/model_executor/models/qwen2_vl.py", line 839, in _parse_video_data
+    return super()._parse_video_data(data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 765, in _parse_video_data
+    raise ValueError(
+ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]
+2026-10-01T21:44:17 INFO       runtime_seconds   : 26.4
+2026-10-01T21:44:17 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:44:17 INFO     --- video 4/10:  /  ---
+2026-10-01T21:44:17 INFO       source_row_index  : 3
+2026-10-01T21:44:17 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/PL/CR/TT/20240616/HEPP24-PL-CR-TT-20240616-1023000.mp4
+2026-10-01T21:44:17 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/PL/CR/TT/20240616/HEPP24-PL-CR-TT-20240616-1023000.mp4
+2026-10-01T21:44:17 INFO       country           : 
+2026-10-01T21:44:17 INFO       language          : 
+2026-10-01T21:44:17 INFO       description       : 
+2026-10-01T21:44:17 INFO     download_backend=rclone command=/appl/soft/manual/general/aarch64/allas-tools/bin/rclone copyurl https://a3s.fi/swift/v1/HEPP24/PL/CR/TT/20240616/HEPP24-PL-CR-TT-20240616-1023000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-CR-TT-20240616-1023000.mp4
+2026-10-01T21:44:18 INFO     download_exit_status=0 stdout= stderr=
+2026-10-01T21:44:18 INFO       local_path        : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-CR-TT-20240616-1023000.mp4
+2026-10-01T21:44:18 INFO       bytes             : 27236185
+2026-10-01T21:44:18 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-CR-TT-20240616-1023000.mp4
+2026-10-01T21:44:18 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 640,
+            "height": 1422,
+            "r_frame_rate": "60/1",
+            "duration": "159.566667"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "159.539002"
+        }
+    ],
+    "format": {
+        "duration": "159.567000"
+    }
+} stderr=
+2026-10-01T21:44:18 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-CR-TT-20240616-1023000.mp4 metadata={"duration_seconds": 159.567, "format": {"duration": "159.567000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "159.566667", "height": 1422, "r_frame_rate": "60/1", "width": 640}, {"codec_name": "aac", "codec_type": "audio", "duration": "159.539002", "r_frame_rate": "0/0"}]}
+2026-10-01T21:44:18 INFO     trim_command=ffmpeg -hide_banner -loglevel error -y -ss 1 -i /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-CR-TT-20240616-1023000.mp4 -map 0:v:0 -map '0:a?' -c:v libx264 -preset veryfast -crf 18 -c:a aac -movflags +faststart /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-CR-TT-20240616-1023000.analysis-from-1s.mp4
+2026-10-01T21:45:26 INFO     trim_exit_status=0 stdout= stderr=
+2026-10-01T21:45:26 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-CR-TT-20240616-1023000.analysis-from-1s.mp4
+2026-10-01T21:45:27 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 640,
+            "height": 1422,
+            "r_frame_rate": "60/1",
+            "duration": "158.566667"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "158.543991"
+        }
+    ],
+    "format": {
+        "duration": "158.567000"
+    }
+} stderr=
+2026-10-01T21:45:27 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-CR-TT-20240616-1023000.analysis-from-1s.mp4 metadata={"duration_seconds": 158.567, "format": {"duration": "158.567000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "158.566667", "height": 1422, "r_frame_rate": "60/1", "width": 640}, {"codec_name": "aac", "codec_type": "audio", "duration": "158.543991", "r_frame_rate": "0/0"}]}
+2026-10-01T21:45:27 INFO       source_duration   : 159.567
+2026-10-01T21:45:27 INFO       analysis_duration : 158.567
+2026-10-01T21:45:27 INFO       analysis_path     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-CR-TT-20240616-1023000.analysis-from-1s.mp4
+2026-10-01T21:45:27 INFO       initial_skip_s    : 1.0
+The given max_pixels[262144] exceeds limit[132731.13924050634].
+2026-10-01T21:45:39 DEBUG    prepared request: video_api=mm_processor_kwargs video_parts=1 mm_processor_kwargs_keys=['do_sample_frames', 'video_metadata']
+2026-10-01T21:45:39 INFO     inference_start_utc=2026-10-01T18:45:39.093256+00:00
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]2026-10-01T21:45:39 ERROR      FAILED: ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+2026-10-01T21:45:39 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1128, in main
+    raw_output, structured_status, inference_seconds = analyze_one_video(
+                                                       ^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 882, in analyze_one_video
+    outputs = llm.generate([request], sampling_params=sampling_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/llm.py", line 472, in generate
+    return self._run_completion(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 341, in _run_completion
+    self._add_completion_requests(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 309, in _add_completion_requests
+    return self._render_and_add_requests(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 549, in _render_and_add_requests
+    raise e
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 535, in _render_and_add_requests
+    for i, prompt in enumerate(prompts):
+                     ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 311, in <genexpr>
+    self._preprocess_cmpl_one(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 152, in _preprocess_cmpl_one
+    (engine_input,) = self._preprocess_cmpl(
+                      ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 140, in _preprocess_cmpl
+    return renderer.render_cmpl(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 998, in render_cmpl
+    self.process_for_engine(prompt, arrival_time, skip_mm_cache=skip_mm_cache)
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 950, in process_for_engine
+    engine_input = self._process_singleton(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 871, in _process_singleton
+    return self._process_tokens(prompt, skip_mm_cache=skip_mm_cache)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/hf.py", line 1201, in _process_tokens
+    engine_input = super()._process_tokens(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 778, in _process_tokens
+    engine_input = self._process_multimodal(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 743, in _process_multimodal
+    mm_data_items = mm_processor.info.parse_mm_data(mm_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/processing/context.py", line 521, in parse_mm_data
+    mm_items = self.data_parser.parse_mm_data(mm_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 809, in parse_mm_data
+    if (parsed_data := subparsers[k](v)) is not None:
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/model_executor/models/qwen2_vl.py", line 839, in _parse_video_data
+    return super()._parse_video_data(data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 765, in _parse_video_data
+    raise ValueError(
+ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]
+2026-10-01T21:45:39 INFO       runtime_seconds   : 81.3
+2026-10-01T21:45:39 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:45:39 INFO     --- video 5/10:  /  ---
+2026-10-01T21:45:39 INFO       source_row_index  : 4
+2026-10-01T21:45:39 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/PL/RG/TT/20240601/HEPP24-PL-RG-TT-20240601-1033000.mp4
+2026-10-01T21:45:39 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/PL/RG/TT/20240601/HEPP24-PL-RG-TT-20240601-1033000.mp4
+2026-10-01T21:45:39 INFO       country           : 
+2026-10-01T21:45:39 INFO       language          : 
+2026-10-01T21:45:39 INFO       description       : 
+2026-10-01T21:45:39 INFO     download_backend=rclone command=/appl/soft/manual/general/aarch64/allas-tools/bin/rclone copyurl https://a3s.fi/swift/v1/HEPP24/PL/RG/TT/20240601/HEPP24-PL-RG-TT-20240601-1033000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-TT-20240601-1033000.mp4
+2026-10-01T21:45:39 INFO     download_exit_status=0 stdout= stderr=
+2026-10-01T21:45:39 INFO       local_path        : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-TT-20240601-1033000.mp4
+2026-10-01T21:45:39 INFO       bytes             : 2532157
+2026-10-01T21:45:39 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-TT-20240601-1033000.mp4
+2026-10-01T21:45:39 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "60/1",
+            "duration": "19.650000"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "19.618005"
+        }
+    ],
+    "format": {
+        "duration": "19.650000"
+    }
+} stderr=
+2026-10-01T21:45:39 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-TT-20240601-1033000.mp4 metadata={"duration_seconds": 19.65, "format": {"duration": "19.650000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "19.650000", "height": 1600, "r_frame_rate": "60/1", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "19.618005", "r_frame_rate": "0/0"}]}
+2026-10-01T21:45:39 INFO     trim_command=ffmpeg -hide_banner -loglevel error -y -ss 1 -i /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-TT-20240601-1033000.mp4 -map 0:v:0 -map '0:a?' -c:v libx264 -preset veryfast -crf 18 -c:a aac -movflags +faststart /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-RG-TT-20240601-1033000.analysis-from-1s.mp4
+2026-10-01T21:45:47 INFO     trim_exit_status=0 stdout= stderr=
+2026-10-01T21:45:47 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-RG-TT-20240601-1033000.analysis-from-1s.mp4
+2026-10-01T21:45:47 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "60/1",
+            "duration": "18.650000"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "18.620000"
+        }
+    ],
+    "format": {
+        "duration": "18.650000"
+    }
+} stderr=
+2026-10-01T21:45:47 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-RG-TT-20240601-1033000.analysis-from-1s.mp4 metadata={"duration_seconds": 18.65, "format": {"duration": "18.650000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "18.650000", "height": 1600, "r_frame_rate": "60/1", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "18.620000", "r_frame_rate": "0/0"}]}
+2026-10-01T21:45:47 INFO       source_duration   : 19.650
+2026-10-01T21:45:47 INFO       analysis_duration : 18.650
+2026-10-01T21:45:47 INFO       analysis_path     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-RG-TT-20240601-1033000.analysis-from-1s.mp4
+2026-10-01T21:45:47 INFO       initial_skip_s    : 1.0
+2026-10-01T21:45:48 DEBUG    prepared request: video_api=mm_processor_kwargs video_parts=1 mm_processor_kwargs_keys=['do_sample_frames', 'video_metadata']
+2026-10-01T21:45:48 INFO     inference_start_utc=2026-10-01T18:45:48.696341+00:00
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]2026-10-01T21:45:48 ERROR      FAILED: ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+2026-10-01T21:45:48 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1128, in main
+    raw_output, structured_status, inference_seconds = analyze_one_video(
+                                                       ^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 882, in analyze_one_video
+    outputs = llm.generate([request], sampling_params=sampling_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/llm.py", line 472, in generate
+    return self._run_completion(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 341, in _run_completion
+    self._add_completion_requests(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 309, in _add_completion_requests
+    return self._render_and_add_requests(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 549, in _render_and_add_requests
+    raise e
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 535, in _render_and_add_requests
+    for i, prompt in enumerate(prompts):
+                     ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 311, in <genexpr>
+    self._preprocess_cmpl_one(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 152, in _preprocess_cmpl_one
+    (engine_input,) = self._preprocess_cmpl(
+                      ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 140, in _preprocess_cmpl
+    return renderer.render_cmpl(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 998, in render_cmpl
+    self.process_for_engine(prompt, arrival_time, skip_mm_cache=skip_mm_cache)
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 950, in process_for_engine
+    engine_input = self._process_singleton(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 871, in _process_singleton
+    return self._process_tokens(prompt, skip_mm_cache=skip_mm_cache)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/hf.py", line 1201, in _process_tokens
+    engine_input = super()._process_tokens(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 778, in _process_tokens
+    engine_input = self._process_multimodal(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 743, in _process_multimodal
+    mm_data_items = mm_processor.info.parse_mm_data(mm_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/processing/context.py", line 521, in parse_mm_data
+    mm_items = self.data_parser.parse_mm_data(mm_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 809, in parse_mm_data
+    if (parsed_data := subparsers[k](v)) is not None:
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/model_executor/models/qwen2_vl.py", line 839, in _parse_video_data
+    return super()._parse_video_data(data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 765, in _parse_video_data
+    raise ValueError(
+ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]
+2026-10-01T21:45:48 INFO       runtime_seconds   : 9.6
+2026-10-01T21:45:48 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:45:48 INFO     --- video 6/10:  /  ---
+2026-10-01T21:45:48 INFO       source_row_index  : 5
+2026-10-01T21:45:48 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/FI/CR/IG/20240602/HEPP24-FI-CR-IG-20240602-1013000.mp4
+2026-10-01T21:45:48 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/FI/CR/IG/20240602/HEPP24-FI-CR-IG-20240602-1013000.mp4
+2026-10-01T21:45:48 INFO       country           : 
+2026-10-01T21:45:48 INFO       language          : 
+2026-10-01T21:45:48 INFO       description       : 
+2026-10-01T21:45:48 INFO     download_backend=rclone command=/appl/soft/manual/general/aarch64/allas-tools/bin/rclone copyurl https://a3s.fi/swift/v1/HEPP24/FI/CR/IG/20240602/HEPP24-FI-CR-IG-20240602-1013000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FI-CR-IG-20240602-1013000.mp4
+2026-10-01T21:45:48 INFO     download_exit_status=0 stdout= stderr=
+2026-10-01T21:45:48 INFO       local_path        : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FI-CR-IG-20240602-1013000.mp4
+2026-10-01T21:45:48 INFO       bytes             : 3401104
+2026-10-01T21:45:48 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FI-CR-IG-20240602-1013000.mp4
+2026-10-01T21:45:48 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "60/1",
+            "duration": "10.083333"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "10.060000"
+        }
+    ],
+    "format": {
+        "duration": "10.084000"
+    }
+} stderr=
+2026-10-01T21:45:48 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FI-CR-IG-20240602-1013000.mp4 metadata={"duration_seconds": 10.084, "format": {"duration": "10.084000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "10.083333", "height": 1600, "r_frame_rate": "60/1", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "10.060000", "r_frame_rate": "0/0"}]}
+2026-10-01T21:45:48 INFO     trim_command=ffmpeg -hide_banner -loglevel error -y -ss 1 -i /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FI-CR-IG-20240602-1013000.mp4 -map 0:v:0 -map '0:a?' -c:v libx264 -preset veryfast -crf 18 -c:a aac -movflags +faststart /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-FI-CR-IG-20240602-1013000.analysis-from-1s.mp4
+2026-10-01T21:45:54 INFO     trim_exit_status=0 stdout= stderr=
+2026-10-01T21:45:54 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-FI-CR-IG-20240602-1013000.analysis-from-1s.mp4
+2026-10-01T21:45:54 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "60/1",
+            "duration": "9.083333"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "9.077007"
+        }
+    ],
+    "format": {
+        "duration": "9.084000"
+    }
+} stderr=
+2026-10-01T21:45:54 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-FI-CR-IG-20240602-1013000.analysis-from-1s.mp4 metadata={"duration_seconds": 9.084, "format": {"duration": "9.084000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "9.083333", "height": 1600, "r_frame_rate": "60/1", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "9.077007", "r_frame_rate": "0/0"}]}
+2026-10-01T21:45:54 INFO       source_duration   : 10.084
+2026-10-01T21:45:54 INFO       analysis_duration : 9.084
+2026-10-01T21:45:54 INFO       analysis_path     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-FI-CR-IG-20240602-1013000.analysis-from-1s.mp4
+2026-10-01T21:45:54 INFO       initial_skip_s    : 1.0
+2026-10-01T21:45:56 DEBUG    prepared request: video_api=mm_processor_kwargs video_parts=1 mm_processor_kwargs_keys=['do_sample_frames', 'video_metadata']
+2026-10-01T21:45:56 INFO     inference_start_utc=2026-10-01T18:45:56.098722+00:00
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]2026-10-01T21:45:56 ERROR      FAILED: ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+2026-10-01T21:45:56 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1128, in main
+    raw_output, structured_status, inference_seconds = analyze_one_video(
+                                                       ^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 882, in analyze_one_video
+    outputs = llm.generate([request], sampling_params=sampling_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/llm.py", line 472, in generate
+    return self._run_completion(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 341, in _run_completion
+    self._add_completion_requests(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 309, in _add_completion_requests
+    return self._render_and_add_requests(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 549, in _render_and_add_requests
+    raise e
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 535, in _render_and_add_requests
+    for i, prompt in enumerate(prompts):
+                     ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 311, in <genexpr>
+    self._preprocess_cmpl_one(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 152, in _preprocess_cmpl_one
+    (engine_input,) = self._preprocess_cmpl(
+                      ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 140, in _preprocess_cmpl
+    return renderer.render_cmpl(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 998, in render_cmpl
+    self.process_for_engine(prompt, arrival_time, skip_mm_cache=skip_mm_cache)
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 950, in process_for_engine
+    engine_input = self._process_singleton(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 871, in _process_singleton
+    return self._process_tokens(prompt, skip_mm_cache=skip_mm_cache)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/hf.py", line 1201, in _process_tokens
+    engine_input = super()._process_tokens(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 778, in _process_tokens
+    engine_input = self._process_multimodal(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 743, in _process_multimodal
+    mm_data_items = mm_processor.info.parse_mm_data(mm_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/processing/context.py", line 521, in parse_mm_data
+    mm_items = self.data_parser.parse_mm_data(mm_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 809, in parse_mm_data
+    if (parsed_data := subparsers[k](v)) is not None:
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/model_executor/models/qwen2_vl.py", line 839, in _parse_video_data
+    return super()._parse_video_data(data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 765, in _parse_video_data
+    raise ValueError(
+ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]
+2026-10-01T21:45:56 INFO       runtime_seconds   : 7.4
+2026-10-01T21:45:56 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:45:56 INFO     --- video 7/10:  /  ---
+2026-10-01T21:45:56 INFO       source_row_index  : 6
+2026-10-01T21:45:56 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/DE/FR/TT/20240603/HEPP24-DE-FR-TT-20240603-1028000.mp4
+2026-10-01T21:45:56 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/DE/FR/TT/20240603/HEPP24-DE-FR-TT-20240603-1028000.mp4
+2026-10-01T21:45:56 INFO       country           : 
+2026-10-01T21:45:56 INFO       language          : 
+2026-10-01T21:45:56 INFO       description       : 
+2026-10-01T21:45:56 INFO     download_backend=rclone command=/appl/soft/manual/general/aarch64/allas-tools/bin/rclone copyurl https://a3s.fi/swift/v1/HEPP24/DE/FR/TT/20240603/HEPP24-DE-FR-TT-20240603-1028000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-DE-FR-TT-20240603-1028000.mp4
+2026-10-01T21:45:56 INFO     download_exit_status=0 stdout= stderr=
+2026-10-01T21:45:56 INFO       local_path        : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-DE-FR-TT-20240603-1028000.mp4
+2026-10-01T21:45:56 INFO       bytes             : 24729011
+2026-10-01T21:45:56 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-DE-FR-TT-20240603-1028000.mp4
+2026-10-01T21:45:56 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "60000/1001",
+            "duration": "71.955217"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "71.940998"
+        }
+    ],
+    "format": {
+        "duration": "71.956000"
+    }
+} stderr=
+2026-10-01T21:45:56 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-DE-FR-TT-20240603-1028000.mp4 metadata={"duration_seconds": 71.956, "format": {"duration": "71.956000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "71.955217", "height": 1600, "r_frame_rate": "60000/1001", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "71.940998", "r_frame_rate": "0/0"}]}
+2026-10-01T21:45:56 INFO     trim_command=ffmpeg -hide_banner -loglevel error -y -ss 1 -i /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-DE-FR-TT-20240603-1028000.mp4 -map 0:v:0 -map '0:a?' -c:v libx264 -preset veryfast -crf 18 -c:a aac -movflags +faststart /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-DE-FR-TT-20240603-1028000.analysis-from-1s.mp4
+2026-10-01T21:46:43 INFO     trim_exit_status=0 stdout= stderr=
+2026-10-01T21:46:43 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-DE-FR-TT-20240603-1028000.analysis-from-1s.mp4
+2026-10-01T21:46:43 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "60000/1001",
+            "duration": "70.954217"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "70.955011"
+        }
+    ],
+    "format": {
+        "duration": "70.956000"
+    }
+} stderr=
+2026-10-01T21:46:43 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-DE-FR-TT-20240603-1028000.analysis-from-1s.mp4 metadata={"duration_seconds": 70.956, "format": {"duration": "70.956000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "70.954217", "height": 1600, "r_frame_rate": "60000/1001", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "70.955011", "r_frame_rate": "0/0"}]}
+2026-10-01T21:46:43 INFO       source_duration   : 71.956
+2026-10-01T21:46:43 INFO       analysis_duration : 70.956
+2026-10-01T21:46:43 INFO       analysis_path     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-DE-FR-TT-20240603-1028000.analysis-from-1s.mp4
+2026-10-01T21:46:43 INFO       initial_skip_s    : 1.0
+2026-10-01T21:46:52 DEBUG    prepared request: video_api=mm_processor_kwargs video_parts=1 mm_processor_kwargs_keys=['do_sample_frames', 'video_metadata']
+2026-10-01T21:46:52 INFO     inference_start_utc=2026-10-01T18:46:52.471523+00:00
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]2026-10-01T21:46:52 ERROR      FAILED: ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+2026-10-01T21:46:52 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1128, in main
+    raw_output, structured_status, inference_seconds = analyze_one_video(
+                                                       ^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 882, in analyze_one_video
+    outputs = llm.generate([request], sampling_params=sampling_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/llm.py", line 472, in generate
+    return self._run_completion(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 341, in _run_completion
+    self._add_completion_requests(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 309, in _add_completion_requests
+    return self._render_and_add_requests(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 549, in _render_and_add_requests
+    raise e
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 535, in _render_and_add_requests
+    for i, prompt in enumerate(prompts):
+                     ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 311, in <genexpr>
+    self._preprocess_cmpl_one(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 152, in _preprocess_cmpl_one
+    (engine_input,) = self._preprocess_cmpl(
+                      ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 140, in _preprocess_cmpl
+    return renderer.render_cmpl(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 998, in render_cmpl
+    self.process_for_engine(prompt, arrival_time, skip_mm_cache=skip_mm_cache)
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 950, in process_for_engine
+    engine_input = self._process_singleton(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 871, in _process_singleton
+    return self._process_tokens(prompt, skip_mm_cache=skip_mm_cache)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/hf.py", line 1201, in _process_tokens
+    engine_input = super()._process_tokens(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 778, in _process_tokens
+    engine_input = self._process_multimodal(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 743, in _process_multimodal
+    mm_data_items = mm_processor.info.parse_mm_data(mm_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/processing/context.py", line 521, in parse_mm_data
+    mm_items = self.data_parser.parse_mm_data(mm_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 809, in parse_mm_data
+    if (parsed_data := subparsers[k](v)) is not None:
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/model_executor/models/qwen2_vl.py", line 839, in _parse_video_data
+    return super()._parse_video_data(data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 765, in _parse_video_data
+    raise ValueError(
+ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]
+2026-10-01T21:46:52 INFO       runtime_seconds   : 56.4
+2026-10-01T21:46:52 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:46:52 INFO     --- video 8/10:  /  ---
+2026-10-01T21:46:52 INFO       source_row_index  : 7
+2026-10-01T21:46:52 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/PT/FR/IG/20240604/HEPP24-PT-FR-IG-20240604-1010000.mp4
+2026-10-01T21:46:52 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/PT/FR/IG/20240604/HEPP24-PT-FR-IG-20240604-1010000.mp4
+2026-10-01T21:46:52 INFO       country           : 
+2026-10-01T21:46:52 INFO       language          : 
+2026-10-01T21:46:52 INFO       description       : 
+2026-10-01T21:46:52 INFO     download_backend=rclone command=/appl/soft/manual/general/aarch64/allas-tools/bin/rclone copyurl https://a3s.fi/swift/v1/HEPP24/PT/FR/IG/20240604/HEPP24-PT-FR-IG-20240604-1010000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PT-FR-IG-20240604-1010000.mp4
+2026-10-01T21:46:52 INFO     download_exit_status=0 stdout= stderr=
+2026-10-01T21:46:52 INFO       local_path        : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PT-FR-IG-20240604-1010000.mp4
+2026-10-01T21:46:52 INFO       bytes             : 3956731
+2026-10-01T21:46:52 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PT-FR-IG-20240604-1010000.mp4
+2026-10-01T21:46:52 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "1909493612/32088621",
+            "duration": "32.618079"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "32.595011"
+        }
+    ],
+    "format": {
+        "duration": "32.619000"
+    }
+} stderr=
+2026-10-01T21:46:52 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PT-FR-IG-20240604-1010000.mp4 metadata={"duration_seconds": 32.619, "format": {"duration": "32.619000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "32.618079", "height": 1600, "r_frame_rate": "1909493612/32088621", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "32.595011", "r_frame_rate": "0/0"}]}
+2026-10-01T21:46:52 INFO     trim_command=ffmpeg -hide_banner -loglevel error -y -ss 1 -i /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PT-FR-IG-20240604-1010000.mp4 -map 0:v:0 -map '0:a?' -c:v libx264 -preset veryfast -crf 18 -c:a aac -movflags +faststart /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PT-FR-IG-20240604-1010000.analysis-from-1s.mp4
+2026-10-01T21:47:06 INFO     trim_exit_status=0 stdout= stderr=
+2026-10-01T21:47:06 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PT-FR-IG-20240604-1010000.analysis-from-1s.mp4
+2026-10-01T21:47:06 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "1909493612/32088621",
+            "duration": "31.609792"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "31.599002"
+        }
+    ],
+    "format": {
+        "duration": "31.610000"
+    }
+} stderr=
+2026-10-01T21:47:06 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PT-FR-IG-20240604-1010000.analysis-from-1s.mp4 metadata={"duration_seconds": 31.61, "format": {"duration": "31.610000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "31.609792", "height": 1600, "r_frame_rate": "1909493612/32088621", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "31.599002", "r_frame_rate": "0/0"}]}
+2026-10-01T21:47:06 INFO       source_duration   : 32.619
+2026-10-01T21:47:06 INFO       analysis_duration : 31.610
+2026-10-01T21:47:06 INFO       analysis_path     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PT-FR-IG-20240604-1010000.analysis-from-1s.mp4
+2026-10-01T21:47:06 INFO       initial_skip_s    : 1.0
+2026-10-01T21:47:08 DEBUG    prepared request: video_api=mm_processor_kwargs video_parts=1 mm_processor_kwargs_keys=['do_sample_frames', 'video_metadata']
+2026-10-01T21:47:08 INFO     inference_start_utc=2026-10-01T18:47:08.500760+00:00
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]2026-10-01T21:47:08 ERROR      FAILED: ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+2026-10-01T21:47:08 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1128, in main
+    raw_output, structured_status, inference_seconds = analyze_one_video(
+                                                       ^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 882, in analyze_one_video
+    outputs = llm.generate([request], sampling_params=sampling_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/llm.py", line 472, in generate
+    return self._run_completion(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 341, in _run_completion
+    self._add_completion_requests(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 309, in _add_completion_requests
+    return self._render_and_add_requests(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 549, in _render_and_add_requests
+    raise e
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 535, in _render_and_add_requests
+    for i, prompt in enumerate(prompts):
+                     ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 311, in <genexpr>
+    self._preprocess_cmpl_one(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 152, in _preprocess_cmpl_one
+    (engine_input,) = self._preprocess_cmpl(
+                      ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 140, in _preprocess_cmpl
+    return renderer.render_cmpl(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 998, in render_cmpl
+    self.process_for_engine(prompt, arrival_time, skip_mm_cache=skip_mm_cache)
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 950, in process_for_engine
+    engine_input = self._process_singleton(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 871, in _process_singleton
+    return self._process_tokens(prompt, skip_mm_cache=skip_mm_cache)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/hf.py", line 1201, in _process_tokens
+    engine_input = super()._process_tokens(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 778, in _process_tokens
+    engine_input = self._process_multimodal(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 743, in _process_multimodal
+    mm_data_items = mm_processor.info.parse_mm_data(mm_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/processing/context.py", line 521, in parse_mm_data
+    mm_items = self.data_parser.parse_mm_data(mm_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 809, in parse_mm_data
+    if (parsed_data := subparsers[k](v)) is not None:
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/model_executor/models/qwen2_vl.py", line 839, in _parse_video_data
+    return super()._parse_video_data(data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 765, in _parse_video_data
+    raise ValueError(
+ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]
+2026-10-01T21:47:08 INFO       runtime_seconds   : 16.0
+2026-10-01T21:47:08 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:47:08 INFO     --- video 9/10:  /  ---
+2026-10-01T21:47:08 INFO       source_row_index  : 8
+2026-10-01T21:47:08 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/FR/FR/TT/20240530/HEPP24-FR-FR-TT-20240530-1030000.mp4
+2026-10-01T21:47:08 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/FR/FR/TT/20240530/HEPP24-FR-FR-TT-20240530-1030000.mp4
+2026-10-01T21:47:08 INFO       country           : 
+2026-10-01T21:47:08 INFO       language          : 
+2026-10-01T21:47:08 INFO       description       : 
+2026-10-01T21:47:08 INFO     download_backend=rclone command=/appl/soft/manual/general/aarch64/allas-tools/bin/rclone copyurl https://a3s.fi/swift/v1/HEPP24/FR/FR/TT/20240530/HEPP24-FR-FR-TT-20240530-1030000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FR-FR-TT-20240530-1030000.mp4
+2026-10-01T21:47:08 INFO     download_exit_status=0 stdout= stderr=
+2026-10-01T21:47:08 INFO       local_path        : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FR-FR-TT-20240530-1030000.mp4
+2026-10-01T21:47:08 INFO       bytes             : 16275093
+2026-10-01T21:47:08 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FR-FR-TT-20240530-1030000.mp4
+2026-10-01T21:47:08 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "442885/14451",
+            "duration": "109.536351"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "109.466009"
+        }
+    ],
+    "format": {
+        "duration": "109.537000"
+    }
+} stderr=
+2026-10-01T21:47:08 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FR-FR-TT-20240530-1030000.mp4 metadata={"duration_seconds": 109.537, "format": {"duration": "109.537000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "109.536351", "height": 1600, "r_frame_rate": "442885/14451", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "109.466009", "r_frame_rate": "0/0"}]}
+2026-10-01T21:47:08 INFO     trim_command=ffmpeg -hide_banner -loglevel error -y -ss 1 -i /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FR-FR-TT-20240530-1030000.mp4 -map 0:v:0 -map '0:a?' -c:v libx264 -preset veryfast -crf 18 -c:a aac -movflags +faststart /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-FR-FR-TT-20240530-1030000.analysis-from-1s.mp4
+2026-10-01T21:47:47 INFO     trim_exit_status=0 stdout= stderr=
+2026-10-01T21:47:47 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-FR-FR-TT-20240530-1030000.analysis-from-1s.mp4
+2026-10-01T21:47:47 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "442885/14451",
+            "duration": "108.524845"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "108.481995"
+        }
+    ],
+    "format": {
+        "duration": "108.525000"
+    }
+} stderr=
+2026-10-01T21:47:47 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-FR-FR-TT-20240530-1030000.analysis-from-1s.mp4 metadata={"duration_seconds": 108.525, "format": {"duration": "108.525000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "108.524845", "height": 1600, "r_frame_rate": "442885/14451", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "108.481995", "r_frame_rate": "0/0"}]}
+2026-10-01T21:47:47 INFO       source_duration   : 109.537
+2026-10-01T21:47:47 INFO       analysis_duration : 108.525
+2026-10-01T21:47:47 INFO       analysis_path     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-FR-FR-TT-20240530-1030000.analysis-from-1s.mp4
+2026-10-01T21:47:47 INFO       initial_skip_s    : 1.0
+The given max_pixels[262144] exceeds limit[194180.74074074073].
+2026-10-01T21:47:54 DEBUG    prepared request: video_api=mm_processor_kwargs video_parts=1 mm_processor_kwargs_keys=['do_sample_frames', 'video_metadata']
+2026-10-01T21:47:54 INFO     inference_start_utc=2026-10-01T18:47:54.184726+00:00
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]2026-10-01T21:47:54 ERROR      FAILED: ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+2026-10-01T21:47:54 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1128, in main
+    raw_output, structured_status, inference_seconds = analyze_one_video(
+                                                       ^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 882, in analyze_one_video
+    outputs = llm.generate([request], sampling_params=sampling_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/llm.py", line 472, in generate
+    return self._run_completion(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 341, in _run_completion
+    self._add_completion_requests(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 309, in _add_completion_requests
+    return self._render_and_add_requests(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 549, in _render_and_add_requests
+    raise e
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 535, in _render_and_add_requests
+    for i, prompt in enumerate(prompts):
+                     ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 311, in <genexpr>
+    self._preprocess_cmpl_one(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 152, in _preprocess_cmpl_one
+    (engine_input,) = self._preprocess_cmpl(
+                      ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 140, in _preprocess_cmpl
+    return renderer.render_cmpl(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 998, in render_cmpl
+    self.process_for_engine(prompt, arrival_time, skip_mm_cache=skip_mm_cache)
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 950, in process_for_engine
+    engine_input = self._process_singleton(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 871, in _process_singleton
+    return self._process_tokens(prompt, skip_mm_cache=skip_mm_cache)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/hf.py", line 1201, in _process_tokens
+    engine_input = super()._process_tokens(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 778, in _process_tokens
+    engine_input = self._process_multimodal(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 743, in _process_multimodal
+    mm_data_items = mm_processor.info.parse_mm_data(mm_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/processing/context.py", line 521, in parse_mm_data
+    mm_items = self.data_parser.parse_mm_data(mm_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 809, in parse_mm_data
+    if (parsed_data := subparsers[k](v)) is not None:
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/model_executor/models/qwen2_vl.py", line 839, in _parse_video_data
+    return super()._parse_video_data(data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 765, in _parse_video_data
+    raise ValueError(
+ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]
+2026-10-01T21:47:54 INFO       runtime_seconds   : 45.7
+2026-10-01T21:47:54 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:47:54 INFO     --- video 10/10:  /  ---
+2026-10-01T21:47:54 INFO       source_row_index  : 9
+2026-10-01T21:47:54 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/PL/RG/IG/20240613/HEPP24-PL-RG-IG-20240613-1010000.mp4
+2026-10-01T21:47:54 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/PL/RG/IG/20240613/HEPP24-PL-RG-IG-20240613-1010000.mp4
+2026-10-01T21:47:54 INFO       country           : 
+2026-10-01T21:47:54 INFO       language          : 
+2026-10-01T21:47:54 INFO       description       : 
+2026-10-01T21:47:54 INFO     download_backend=rclone command=/appl/soft/manual/general/aarch64/allas-tools/bin/rclone copyurl https://a3s.fi/swift/v1/HEPP24/PL/RG/IG/20240613/HEPP24-PL-RG-IG-20240613-1010000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-IG-20240613-1010000.mp4
+2026-10-01T21:47:54 INFO     download_exit_status=0 stdout= stderr=
+2026-10-01T21:47:54 INFO       local_path        : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-IG-20240613-1010000.mp4
+2026-10-01T21:47:54 INFO       bytes             : 3253185
+2026-10-01T21:47:54 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-IG-20240613-1010000.mp4
+2026-10-01T21:47:54 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "1614299309/30112892",
+            "duration": "27.346539"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "27.296009"
+        }
+    ],
+    "format": {
+        "duration": "27.347000"
+    }
+} stderr=
+2026-10-01T21:47:54 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-IG-20240613-1010000.mp4 metadata={"duration_seconds": 27.347, "format": {"duration": "27.347000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "27.346539", "height": 1600, "r_frame_rate": "1614299309/30112892", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "27.296009", "r_frame_rate": "0/0"}]}
+2026-10-01T21:47:54 INFO     trim_command=ffmpeg -hide_banner -loglevel error -y -ss 1 -i /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-IG-20240613-1010000.mp4 -map 0:v:0 -map '0:a?' -c:v libx264 -preset veryfast -crf 18 -c:a aac -movflags +faststart /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-RG-IG-20240613-1010000.analysis-from-1s.mp4
+2026-10-01T21:48:04 INFO     trim_exit_status=0 stdout= stderr=
+2026-10-01T21:48:04 INFO     ffprobe_command=ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,duration -of json /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-RG-IG-20240613-1010000.analysis-from-1s.mp4
+2026-10-01T21:48:04 INFO     ffprobe_exit_status=0 stdout={
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 720,
+            "height": 1600,
+            "r_frame_rate": "1614299309/30112892",
+            "duration": "26.339232"
+        },
+        {
+            "codec_name": "aac",
+            "codec_type": "audio",
+            "r_frame_rate": "0/0",
+            "duration": "26.305011"
+        }
+    ],
+    "format": {
+        "duration": "26.340000"
+    }
+} stderr=
+2026-10-01T21:48:04 INFO     ffprobe_metadata path=/scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-RG-IG-20240613-1010000.analysis-from-1s.mp4 metadata={"duration_seconds": 26.34, "format": {"duration": "26.340000"}, "programs": [], "streams": [{"codec_name": "h264", "codec_type": "video", "duration": "26.339232", "height": 1600, "r_frame_rate": "1614299309/30112892", "width": 720}, {"codec_name": "aac", "codec_type": "audio", "duration": "26.305011", "r_frame_rate": "0/0"}]}
+2026-10-01T21:48:04 INFO       source_duration   : 27.347
+2026-10-01T21:48:04 INFO       analysis_duration : 26.340
+2026-10-01T21:48:04 INFO       analysis_path     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/analysis-clips/HEPP24-PL-RG-IG-20240613-1010000.analysis-from-1s.mp4
+2026-10-01T21:48:04 INFO       initial_skip_s    : 1.0
+2026-10-01T21:48:06 DEBUG    prepared request: video_api=mm_processor_kwargs video_parts=1 mm_processor_kwargs_keys=['do_sample_frames', 'video_metadata']
+2026-10-01T21:48:06 INFO     inference_start_utc=2026-10-01T18:48:06.601356+00:00
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]2026-10-01T21:48:06 ERROR      FAILED: ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+2026-10-01T21:48:06 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1128, in main
+    raw_output, structured_status, inference_seconds = analyze_one_video(
+                                                       ^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 882, in analyze_one_video
+    outputs = llm.generate([request], sampling_params=sampling_params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/llm.py", line 472, in generate
+    return self._run_completion(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 341, in _run_completion
+    self._add_completion_requests(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 309, in _add_completion_requests
+    return self._render_and_add_requests(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 549, in _render_and_add_requests
+    raise e
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 535, in _render_and_add_requests
+    for i, prompt in enumerate(prompts):
+                     ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 311, in <genexpr>
+    self._preprocess_cmpl_one(
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 152, in _preprocess_cmpl_one
+    (engine_input,) = self._preprocess_cmpl(
+                      ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/entrypoints/offline_utils.py", line 140, in _preprocess_cmpl
+    return renderer.render_cmpl(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 998, in render_cmpl
+    self.process_for_engine(prompt, arrival_time, skip_mm_cache=skip_mm_cache)
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 950, in process_for_engine
+    engine_input = self._process_singleton(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 871, in _process_singleton
+    return self._process_tokens(prompt, skip_mm_cache=skip_mm_cache)  # type: ignore[arg-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/hf.py", line 1201, in _process_tokens
+    engine_input = super()._process_tokens(prompt, skip_mm_cache=skip_mm_cache)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 778, in _process_tokens
+    engine_input = self._process_multimodal(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/renderers/base.py", line 743, in _process_multimodal
+    mm_data_items = mm_processor.info.parse_mm_data(mm_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/processing/context.py", line 521, in parse_mm_data
+    mm_items = self.data_parser.parse_mm_data(mm_data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 809, in parse_mm_data
+    if (parsed_data := subparsers[k](v)) is not None:
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/model_executor/models/qwen2_vl.py", line 839, in _parse_video_data
+    return super()._parse_video_data(data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib64/python3.12/site-packages/vllm/multimodal/parse.py", line 765, in _parse_video_data
+    raise ValueError(
+ValueError: Video metadata is required but not found in mm input. Please check your video input in `multi_modal_data`
+
+Rendering prompts:   0%|          | 0/1 [00:00<?, ?it/s]
+2026-10-01T21:48:06 INFO       runtime_seconds   : 12.4
+2026-10-01T21:48:06 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:48:06 INFO     === summary ===
+2026-10-01T21:48:06 INFO       selected          : 10
+2026-10-01T21:48:06 INFO       succeeded         : 0
+2026-10-01T21:48:06 INFO       failed            : 10
+2026-10-01T21:48:06 INFO       output_csv        : /scratch/project_2009497/laclaugpt-multimodal/csv/ep24_vllm_video_test_1728623.csv
+2026-10-01T21:48:06 INFO       source_csv_untouched: /scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/experiments/vllm_video_test_input.csv
+2026-10-01T21:48:06 INFO     === end summary ===
+srun: error: rg2142: task 0: Exited with exit code 1
+srun: Terminating StepId=1728623.0

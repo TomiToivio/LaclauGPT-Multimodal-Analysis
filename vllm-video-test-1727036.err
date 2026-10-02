@@ -1,0 +1,435 @@
+---------------------------------------------------------------------------------- 
+vLLM version 0.29.0, a fast and easy-to-use library for LLM inference and
+serving.
+
+For more help see: https://docs.csc.fi/apps/vllm/ 
+---------------------------------------------------------------------------------- 
+
+Allas tools loaded. To refresh or create an new connection to Allas or Lumi-O,
+execute command: 
+   allas-conf         # Add new S3 connection to Allas. 
+   allas-conf --swift # Open swift connection to Allas. 
+   allas-conf --lumi  # Open S3 connection to Lumi-O. 
+   s5cmd-conf         # Set environment variables for s5cmd command
+
+Currently available connections
+/appl/soft/manual/general/common/allas/allas-cli-utils/a_env_conf: line 14: csc-workspaces: command not found
+
+Currently Loaded Modules:
+  1) python-vllm/0.29.0   2) allas/0.0.1   3) gcc/14.3.0   4) ffmpeg/7.1
+
+ 
+
+2026-10-01T21:32:53 INFO     === environment ===
+2026-10-01T21:32:53 INFO     utc_now            : 2026-10-01T18:32:53.494891+00:00
+2026-10-01T21:32:53 INFO     local_now          : 2026-10-01T21:32:53.495002
+2026-10-01T21:32:53 INFO     hostname           : rg2107
+2026-10-01T21:32:53 INFO     slurm_job_id       : 1727036
+2026-10-01T21:32:53 INFO     slurm_job_name     : ep24-vllm-10video
+2026-10-01T21:32:53 INFO     slurm_submit_dir   : /scratch/project_2009497/LaclauGPT-Multimodal-Analysis
+2026-10-01T21:32:53 INFO     slurm_job_partition: gpumedium
+2026-10-01T21:32:53 INFO     python_version     : 3.12.14
+2026-10-01T21:32:53 INFO     platform           : Linux-5.14.0-687.41.1.1.el9_8.aarch64+64k-aarch64-with-glibc2.34
+2026-10-01T21:32:53 INFO     machine            : aarch64
+2026-10-01T21:32:53 INFO     cwd                : /scratch/project_2009497/LaclauGPT-Multimodal-Analysis
+2026-10-01T21:32:53 INFO     git_commit_sha     : 6ead94a5ac78a5d8749a24eb241af039404bbddc
+2026-10-01T21:32:53 INFO     gpu_query          : NVIDIA GH200 120GB, 97871 MiB, 1 MiB, 595.91.07
+2026-10-01T21:32:53 INFO     gpu_details        : Thu Oct  1 21:32:53 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.91.07              Driver Version: 595.91.07      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GH200 120GB             On  |   00000029:01:00.0 Off |                    0 |
+| N/A   40C    P0            106W /  680W |       1MiB /  97871MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+2026-10-01T21:32:53 INFO     === end environment ===
+2026-10-01T21:32:58 INFO     video_api auto-resolved to mm_processor_kwargs for vLLM 0.29
+2026-10-01T21:32:58 INFO     === configuration ===
+2026-10-01T21:32:58 INFO       allas_bucket             HEPP24
+2026-10-01T21:32:58 INFO       allas_local_root         ./Allas
+2026-10-01T21:32:58 INFO       allas_path_template      Scraper/TikTok/Videos/{country}/{author}/{video_id}.mp4
+2026-10-01T21:32:58 INFO       download_dir             /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads
+2026-10-01T21:32:58 INFO       download_timeout         900
+2026-10-01T21:32:58 INFO       fetch_backend            rclone
+2026-10-01T21:32:58 INFO       gpu_memory_utilization   0.85
+2026-10-01T21:32:58 INFO       input_csv                /scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/experiments/vllm_video_test_input.csv
+2026-10-01T21:32:58 INFO       keep_downloads           True
+2026-10-01T21:32:58 INFO       log_path                 /scratch/project_2009497/laclaugpt-multimodal/logs/vllm_video_test_1727036.log
+2026-10-01T21:32:58 INFO       max_model_len            32768
+2026-10-01T21:32:58 INFO       max_tokens               2048
+2026-10-01T21:32:58 INFO       model                    Qwen/Qwen3-VL-8B-Instruct
+2026-10-01T21:32:58 INFO       model_backend            vllm
+2026-10-01T21:32:58 INFO       output_csv               /scratch/project_2009497/laclaugpt-multimodal/csv/ep24_vllm_video_test_1727036.csv
+2026-10-01T21:32:58 INFO       rclone_remote            s3allas
+2026-10-01T21:32:58 INFO       sample_size              10
+2026-10-01T21:32:58 INFO       seed                     20261001
+2026-10-01T21:32:58 INFO       structured_output        False
+2026-10-01T21:32:58 INFO       temperature              0.1
+2026-10-01T21:32:58 INFO       top_p                    0.9
+2026-10-01T21:32:58 INFO       video_api                mm_processor_kwargs
+2026-10-01T21:32:58 INFO       video_max_pixels         262144
+2026-10-01T21:32:58 INFO       video_min_pixels         4096
+2026-10-01T21:32:58 INFO       video_total_pixels       20971520
+2026-10-01T21:32:58 INFO     input_csv  : /scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/experiments/vllm_video_test_input.csv
+2026-10-01T21:32:58 INFO     output_csv : /scratch/project_2009497/laclaugpt-multimodal/csv/ep24_vllm_video_test_1727036.csv
+2026-10-01T21:32:58 INFO     log_path   : /scratch/project_2009497/laclaugpt-multimodal/logs/vllm_video_test_1727036.log
+2026-10-01T21:32:58 INFO     prompt_version : ep24-vllm-video-description-v1
+2026-10-01T21:32:58 INFO     prompt_sha256  : 0e82135bd7f22734bdace18ef5717e29ab9873c1b3b484064f7ea00f3e456558
+2026-10-01T21:32:58 INFO     prompt_text    : You are performing a descriptive multimodal pre-analysis of one short social-media video from the EP2024 collection.
+
+This is an upstream observational stage. Do NOT perform political, ideological, partisan, populism, sentiment, discourse or Laclauian analysis. Do not classify signifiers, nodal points, chains of equivalence, antagonisms, hegemony or political camps. Do not guess the identity of any person. Those tasks belong to later stages.
+
+Describe only what is observable in the video, and mark uncertainty explicitly rather than filling gaps with plausible invention.
+
+EP24 COLLECTION RULE: the original split clip always begins with a known feed-scroll artifact. The application removes the first 1.0 second before you see the video. Do not count that known initial transition as an additional scroll. Inspect the remaining content for later TikTok/Instagram feed scrolls that indicate the original splitter failed.
+
+Watch this video from beginning to end and produce an in-depth description of its whole temporal narrative. Cover, wherever observable:
+1. Major scenes and scene changes, in the order they occur.
+2. Actions and events over time.
+3. People and participants (describe them without guessing unknown identities).
+4. Spoken words and visible text, when you can perceive them.
+5. Gestures, facial expressions and interactions.
+6. Camera work and editing changes (cuts, zooms, transitions).
+7. Graphics, captions, memes, screenshots and platform interface elements.
+8. Important visual signs, symbols and logos.
+9. Temporal relationships between events (what happens before, during and after what).
+10. A concise beginning -> middle -> end narrative summary.
+
+Finish with a short 'Uncertainty' note listing what you could not determine or are unsure about. Then append exactly one JSON object on its own line with keys SCROLL and SCROLL_SECONDS. SCROLL must be true only when an additional feed-scroll transition separates distinct TikTok/Instagram items after the known initial artifact. Distinguish a feed scroll from normal camera motion, cuts, pans, zooms, in-post scrolling, or animation. SCROLL_SECONDS must list approximate timestamps in seconds on the ORIGINAL source timeline. Because the visible analysis clip begins at original t=1.0s, add 1.0 second to visible timestamps. If no additional feed scroll exists, output {"SCROLL": false, "SCROLL_SECONDS": []}. Write in English. Do not identify unknown individuals.
+2026-10-01T21:32:58 INFO     === end configuration ===
+2026-10-01T21:32:58 INFO     read input CSV /scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/experiments/vllm_video_test_input.csv: 10 rows x 18 columns
+2026-10-01T21:32:58 INFO     usable rows for selection: 10 of 10
+2026-10-01T21:32:58 INFO     selected row indices (seed=20261001): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+2026-10-01T21:32:58 INFO     === runtime versions (for Roihu/Laskin comparison) ===
+2026-10-01T21:32:58 INFO       cuda_version   13.0
+2026-10-01T21:32:58 INFO       gpu_name       NVIDIA GH200 120GB
+2026-10-01T21:32:58 INFO       hostname       rg2107
+2026-10-01T21:32:58 INFO       torch_version  2.13.0+cu130
+2026-10-01T21:32:58 INFO       vllm_version   0.29.0
+2026-10-01T21:32:58 INFO       prompt_hash    ca31038dd22d
+2026-10-01T21:32:58 INFO     === end runtime versions ===
+2026-10-01T21:33:05 INFO     loading processor for Qwen/Qwen3-VL-8B-Instruct
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-10-01T21:33:12 INFO     vllm_version      : 0.29.0
+2026-10-01T21:33:12 INFO     torch_version     : 2.13.0+cu130
+2026-10-01T21:33:12 INFO     cuda_available    : True
+2026-10-01T21:33:12 INFO     cuda_version      : 13.0
+2026-10-01T21:33:12 INFO     loading model Qwen/Qwen3-VL-8B-Instruct (this can take minutes)
+[transformers] The `use_fast` parameter is deprecated and will be removed in a future version. Use `backend="torchvision"` instead of `use_fast=True`, or `backend="pil"` instead of `use_fast=False`.
+(EngineCore pid=1917143) Loading safetensors checkpoint shards:   0% Completed | 0/4 [00:00<?, ?it/s]
+(EngineCore pid=1917143) Loading safetensors checkpoint shards:  25% Completed | 1/4 [00:01<00:04,  1.61s/it]
+(EngineCore pid=1917143) Loading safetensors checkpoint shards:  50% Completed | 2/4 [00:02<00:01,  1.06it/s]
+(EngineCore pid=1917143) Loading safetensors checkpoint shards:  75% Completed | 3/4 [00:02<00:00,  1.37it/s]
+(EngineCore pid=1917143) Loading safetensors checkpoint shards: 100% Completed | 4/4 [00:02<00:00,  1.77it/s]
+(EngineCore pid=1917143) Loading safetensors checkpoint shards: 100% Completed | 4/4 [00:02<00:00,  1.39it/s]
+(EngineCore pid=1917143) 
+(EngineCore pid=1917143) Capturing CUDA graphs (PIECEWISE):   0%|          | 0/51 [00:00<?, ?it/s]Capturing CUDA graphs (PIECEWISE):   2%|▏         | 1/51 [00:00<00:05,  8.44it/s]Capturing CUDA graphs (PIECEWISE):   6%|▌         | 3/51 [00:00<00:04, 10.62it/s]Capturing CUDA graphs (PIECEWISE):  10%|▉         | 5/51 [00:00<00:04, 11.39it/s]Capturing CUDA graphs (PIECEWISE):  14%|█▎        | 7/51 [00:00<00:03, 11.62it/s]Capturing CUDA graphs (PIECEWISE):  18%|█▊        | 9/51 [00:00<00:03, 11.86it/s]Capturing CUDA graphs (PIECEWISE):  22%|██▏       | 11/51 [00:00<00:03, 12.26it/s]Capturing CUDA graphs (PIECEWISE):  25%|██▌       | 13/51 [00:01<00:03, 12.38it/s]Capturing CUDA graphs (PIECEWISE):  29%|██▉       | 15/51 [00:01<00:02, 12.71it/s]Capturing CUDA graphs (PIECEWISE):  33%|███▎      | 17/51 [00:01<00:02, 12.92it/s]Capturing CUDA graphs (PIECEWISE):  37%|███▋      | 19/51 [00:01<00:02, 13.35it/s]Capturing CUDA graphs (PIECEWISE):  41%|████      | 21/51 [00:01<00:02, 13.31it/s]Capturing CUDA graphs (PIECEWISE):  45%|████▌     | 23/51 [00:01<00:02, 13.60it/s]Capturing CUDA graphs (PIECEWISE):  49%|████▉     | 25/51 [00:01<00:01, 13.75it/s]Capturing CUDA graphs (PIECEWISE):  53%|█████▎    | 27/51 [00:02<00:01, 13.91it/s]Capturing CUDA graphs (PIECEWISE):  57%|█████▋    | 29/51 [00:02<00:01, 14.02it/s]Capturing CUDA graphs (PIECEWISE):  61%|██████    | 31/51 [00:02<00:01, 14.13it/s]Capturing CUDA graphs (PIECEWISE):  65%|██████▍   | 33/51 [00:02<00:01, 14.23it/s]Capturing CUDA graphs (PIECEWISE):  69%|██████▊   | 35/51 [00:02<00:01, 14.33it/s]Capturing CUDA graphs (PIECEWISE):  73%|███████▎  | 37/51 [00:02<00:00, 14.37it/s]Capturing CUDA graphs (PIECEWISE):  76%|███████▋  | 39/51 [00:02<00:00, 14.46it/s]Capturing CUDA graphs (PIECEWISE):  80%|████████  | 41/51 [00:03<00:00, 14.56it/s]Capturing CUDA graphs (PIECEWISE):  84%|████████▍ | 43/51 [00:03<00:00, 14.63it/s]Capturing CUDA graphs (PIECEWISE):  88%|████████▊ | 45/51 [00:03<00:00, 15.02it/s]Capturing CUDA graphs (PIECEWISE):  92%|█████████▏| 47/51 [00:03<00:00, 15.70it/s]Capturing CUDA graphs (PIECEWISE):  96%|█████████▌| 49/51 [00:03<00:00, 16.49it/s]Capturing CUDA graphs (PIECEWISE): 100%|██████████| 51/51 [00:03<00:00, 17.26it/s]Capturing CUDA graphs (PIECEWISE): 100%|██████████| 51/51 [00:03<00:00, 13.96it/s]
+(EngineCore pid=1917143) Capturing CUDA graphs (FULL):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (FULL): 100%|██████████| 2/2 [00:00<00:00, 27.46it/s]
+(EngineCore pid=1917143) 2026-10-01 21:34:55,853 - INFO - autotuner.py:972 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore pid=1917143) 2026-10-01 21:34:55,890 - INFO - autotuner.py:995 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore pid=1917143) 2026-10-01 21:34:55,919 - INFO - autotuner.py:2652 - flashinfer.jit: [Autotuner]: Saved 0 configs to /users/totoivio/.cache/aarch64/vllm/flashinfer_autotune_cache/0.6.18/90a/42cc8ff09cb7041d849398bc874cc15b744b4c44ed25dc0f02acf8ef2b3960bc/autotune_configs.json (0 new, 0 from previous config)
+(EngineCore pid=1917143) Capturing CUDA graphs (PIECEWISE):   0%|          | 0/51 [00:00<?, ?it/s]Capturing CUDA graphs (PIECEWISE):   4%|▍         | 2/51 [00:00<00:04, 10.81it/s]Capturing CUDA graphs (PIECEWISE):   8%|▊         | 4/51 [00:00<00:04, 11.60it/s]Capturing CUDA graphs (PIECEWISE):  12%|█▏        | 6/51 [00:00<00:03, 12.06it/s]Capturing CUDA graphs (PIECEWISE):  16%|█▌        | 8/51 [00:00<00:03, 12.39it/s]Capturing CUDA graphs (PIECEWISE):  20%|█▉        | 10/51 [00:00<00:03, 12.70it/s]Capturing CUDA graphs (PIECEWISE):  24%|██▎       | 12/51 [00:00<00:03, 12.99it/s]Capturing CUDA graphs (PIECEWISE):  27%|██▋       | 14/51 [00:01<00:02, 13.23it/s]Capturing CUDA graphs (PIECEWISE):  31%|███▏      | 16/51 [00:01<00:02, 13.48it/s]Capturing CUDA graphs (PIECEWISE):  35%|███▌      | 18/51 [00:01<00:02, 13.75it/s]Capturing CUDA graphs (PIECEWISE):  39%|███▉      | 20/51 [00:01<00:02, 13.99it/s]Capturing CUDA graphs (PIECEWISE):  43%|████▎     | 22/51 [00:01<00:02, 14.16it/s]Capturing CUDA graphs (PIECEWISE):  47%|████▋     | 24/51 [00:01<00:01, 14.39it/s]Capturing CUDA graphs (PIECEWISE):  51%|█████     | 26/51 [00:01<00:01, 14.58it/s]Capturing CUDA graphs (PIECEWISE):  55%|█████▍    | 28/51 [00:02<00:01, 14.81it/s]Capturing CUDA graphs (PIECEWISE):  59%|█████▉    | 30/51 [00:02<00:01, 15.06it/s]Capturing CUDA graphs (PIECEWISE):  63%|██████▎   | 32/51 [00:02<00:01, 15.27it/s]Capturing CUDA graphs (PIECEWISE):  67%|██████▋   | 34/51 [00:02<00:01, 15.47it/s]Capturing CUDA graphs (PIECEWISE):  71%|███████   | 36/51 [00:02<00:00, 15.60it/s]Capturing CUDA graphs (PIECEWISE):  75%|███████▍  | 38/51 [00:02<00:00, 15.76it/s]Capturing CUDA graphs (PIECEWISE):  78%|███████▊  | 40/51 [00:02<00:00, 15.94it/s]Capturing CUDA graphs (PIECEWISE):  82%|████████▏ | 42/51 [00:02<00:00, 16.11it/s]Capturing CUDA graphs (PIECEWISE):  86%|████████▋ | 44/51 [00:03<00:00, 16.19it/s]Capturing CUDA graphs (PIECEWISE):  90%|█████████ | 46/51 [00:03<00:00, 17.11it/s]Capturing CUDA graphs (PIECEWISE):  94%|█████████▍| 48/51 [00:03<00:00, 17.78it/s]Capturing CUDA graphs (PIECEWISE):  98%|█████████▊| 50/51 [00:03<00:00, 18.25it/s]Capturing CUDA graphs (PIECEWISE): 100%|██████████| 51/51 [00:03<00:00, 14.96it/s]
+(EngineCore pid=1917143) Capturing CUDA graphs (FULL):   0%|          | 0/51 [00:00<?, ?it/s]Capturing CUDA graphs (FULL):   6%|▌         | 3/51 [00:00<00:01, 27.92it/s]Capturing CUDA graphs (FULL):  12%|█▏        | 6/51 [00:00<00:01, 28.16it/s]Capturing CUDA graphs (FULL):  18%|█▊        | 9/51 [00:00<00:01, 28.33it/s]Capturing CUDA graphs (FULL):  24%|██▎       | 12/51 [00:00<00:01, 28.69it/s]Capturing CUDA graphs (FULL):  29%|██▉       | 15/51 [00:00<00:01, 28.84it/s]Capturing CUDA graphs (FULL):  35%|███▌      | 18/51 [00:00<00:01, 29.04it/s]Capturing CUDA graphs (FULL):  43%|████▎     | 22/51 [00:00<00:00, 29.52it/s]Capturing CUDA graphs (FULL):  51%|█████     | 26/51 [00:00<00:00, 29.79it/s]Capturing CUDA graphs (FULL):  57%|█████▋    | 29/51 [00:00<00:00, 29.82it/s]Capturing CUDA graphs (FULL):  65%|██████▍   | 33/51 [00:01<00:00, 29.93it/s]Capturing CUDA graphs (FULL):  71%|███████   | 36/51 [00:01<00:00, 29.90it/s]Capturing CUDA graphs (FULL):  76%|███████▋  | 39/51 [00:01<00:00, 29.91it/s]Capturing CUDA graphs (FULL):  82%|████████▏ | 42/51 [00:01<00:00, 29.93it/s]Capturing CUDA graphs (FULL):  90%|█████████ | 46/51 [00:01<00:00, 30.33it/s]Capturing CUDA graphs (FULL):  98%|█████████▊| 50/51 [00:01<00:00, 30.38it/s]Capturing CUDA graphs (FULL): 100%|██████████| 51/51 [00:01<00:00, 29.71it/s]
+[transformers] Qwen3VL video processing does not apply the per-frame pixel cap the reference implementation (qwen-vl-utils) applies, so some videos cost far more tokens than they would there. In v5.22 the capped behavior will become the default and `cap_pixels_per_frame` will be removed. Pass `cap_pixels_per_frame=True` to adopt the reference behavior now, or `False` to keep the current behavior and silence this warning.
+2026-10-01T21:36:37 INFO     model loaded: Qwen/Qwen3-VL-8B-Instruct
+2026-10-01T21:36:37 INFO     --- video 1/10:  /  ---
+2026-10-01T21:36:37 INFO       source_row_index  : 0
+2026-10-01T21:36:37 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/ES/FR/IG/20240521/HEPP24-ES-FR-IG-20240521-1060000.mp4
+2026-10-01T21:36:37 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/ES/FR/IG/20240521/HEPP24-ES-FR-IG-20240521-1060000.mp4
+2026-10-01T21:36:37 INFO       country           : 
+2026-10-01T21:36:37 INFO       language          : 
+2026-10-01T21:36:37 INFO       description       : 
+2026-10-01T21:36:37 INFO     download_backend=rclone command=rclone copyurl https://a3s.fi/swift/v1/HEPP24/ES/FR/IG/20240521/HEPP24-ES-FR-IG-20240521-1060000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-ES-FR-IG-20240521-1060000.mp4
+2026-10-01T21:36:37 ERROR      FAILED: FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+2026-10-01T21:36:37 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1063, in main
+    local_path = fetch_video(object_path, download_dir, args, logger)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 513, in fetch_video
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib64/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+
+2026-10-01T21:36:37 INFO       runtime_seconds   : 0.0
+2026-10-01T21:36:37 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:36:37 INFO     --- video 2/10:  /  ---
+2026-10-01T21:36:37 INFO       source_row_index  : 1
+2026-10-01T21:36:37 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/BG/RG/TT/20240605/HEPP24-BG-RG-TT-20240605-1017000.mp4
+2026-10-01T21:36:37 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/BG/RG/TT/20240605/HEPP24-BG-RG-TT-20240605-1017000.mp4
+2026-10-01T21:36:37 INFO       country           : 
+2026-10-01T21:36:37 INFO       language          : 
+2026-10-01T21:36:37 INFO       description       : 
+2026-10-01T21:36:37 INFO     download_backend=rclone command=rclone copyurl https://a3s.fi/swift/v1/HEPP24/BG/RG/TT/20240605/HEPP24-BG-RG-TT-20240605-1017000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-BG-RG-TT-20240605-1017000.mp4
+2026-10-01T21:36:37 ERROR      FAILED: FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+2026-10-01T21:36:37 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1063, in main
+    local_path = fetch_video(object_path, download_dir, args, logger)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 513, in fetch_video
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib64/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+
+2026-10-01T21:36:37 INFO       runtime_seconds   : 0.0
+2026-10-01T21:36:37 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:36:37 INFO     --- video 3/10:  /  ---
+2026-10-01T21:36:37 INFO       source_row_index  : 2
+2026-10-01T21:36:37 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/HU/CR/IG/20240527/HEPP24-HU-CR-IG-20240527-1011000.mp4
+2026-10-01T21:36:37 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/HU/CR/IG/20240527/HEPP24-HU-CR-IG-20240527-1011000.mp4
+2026-10-01T21:36:37 INFO       country           : 
+2026-10-01T21:36:37 INFO       language          : 
+2026-10-01T21:36:37 INFO       description       : 
+2026-10-01T21:36:37 INFO     download_backend=rclone command=rclone copyurl https://a3s.fi/swift/v1/HEPP24/HU/CR/IG/20240527/HEPP24-HU-CR-IG-20240527-1011000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-HU-CR-IG-20240527-1011000.mp4
+2026-10-01T21:36:37 ERROR      FAILED: FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+2026-10-01T21:36:37 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1063, in main
+    local_path = fetch_video(object_path, download_dir, args, logger)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 513, in fetch_video
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib64/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+
+2026-10-01T21:36:37 INFO       runtime_seconds   : 0.0
+2026-10-01T21:36:37 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:36:37 INFO     --- video 4/10:  /  ---
+2026-10-01T21:36:37 INFO       source_row_index  : 3
+2026-10-01T21:36:37 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/PL/CR/TT/20240616/HEPP24-PL-CR-TT-20240616-1023000.mp4
+2026-10-01T21:36:37 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/PL/CR/TT/20240616/HEPP24-PL-CR-TT-20240616-1023000.mp4
+2026-10-01T21:36:37 INFO       country           : 
+2026-10-01T21:36:37 INFO       language          : 
+2026-10-01T21:36:37 INFO       description       : 
+2026-10-01T21:36:37 INFO     download_backend=rclone command=rclone copyurl https://a3s.fi/swift/v1/HEPP24/PL/CR/TT/20240616/HEPP24-PL-CR-TT-20240616-1023000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-CR-TT-20240616-1023000.mp4
+2026-10-01T21:36:37 ERROR      FAILED: FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+2026-10-01T21:36:37 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1063, in main
+    local_path = fetch_video(object_path, download_dir, args, logger)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 513, in fetch_video
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib64/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+
+2026-10-01T21:36:37 INFO       runtime_seconds   : 0.0
+2026-10-01T21:36:37 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:36:37 INFO     --- video 5/10:  /  ---
+2026-10-01T21:36:37 INFO       source_row_index  : 4
+2026-10-01T21:36:37 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/PL/RG/TT/20240601/HEPP24-PL-RG-TT-20240601-1033000.mp4
+2026-10-01T21:36:37 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/PL/RG/TT/20240601/HEPP24-PL-RG-TT-20240601-1033000.mp4
+2026-10-01T21:36:37 INFO       country           : 
+2026-10-01T21:36:37 INFO       language          : 
+2026-10-01T21:36:37 INFO       description       : 
+2026-10-01T21:36:37 INFO     download_backend=rclone command=rclone copyurl https://a3s.fi/swift/v1/HEPP24/PL/RG/TT/20240601/HEPP24-PL-RG-TT-20240601-1033000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-TT-20240601-1033000.mp4
+2026-10-01T21:36:37 ERROR      FAILED: FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+2026-10-01T21:36:37 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1063, in main
+    local_path = fetch_video(object_path, download_dir, args, logger)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 513, in fetch_video
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib64/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+
+2026-10-01T21:36:37 INFO       runtime_seconds   : 0.0
+2026-10-01T21:36:37 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:36:37 INFO     --- video 6/10:  /  ---
+2026-10-01T21:36:37 INFO       source_row_index  : 5
+2026-10-01T21:36:37 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/FI/CR/IG/20240602/HEPP24-FI-CR-IG-20240602-1013000.mp4
+2026-10-01T21:36:37 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/FI/CR/IG/20240602/HEPP24-FI-CR-IG-20240602-1013000.mp4
+2026-10-01T21:36:37 INFO       country           : 
+2026-10-01T21:36:37 INFO       language          : 
+2026-10-01T21:36:37 INFO       description       : 
+2026-10-01T21:36:37 INFO     download_backend=rclone command=rclone copyurl https://a3s.fi/swift/v1/HEPP24/FI/CR/IG/20240602/HEPP24-FI-CR-IG-20240602-1013000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FI-CR-IG-20240602-1013000.mp4
+2026-10-01T21:36:37 ERROR      FAILED: FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+2026-10-01T21:36:37 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1063, in main
+    local_path = fetch_video(object_path, download_dir, args, logger)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 513, in fetch_video
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib64/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+
+2026-10-01T21:36:37 INFO       runtime_seconds   : 0.0
+2026-10-01T21:36:37 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:36:37 INFO     --- video 7/10:  /  ---
+2026-10-01T21:36:37 INFO       source_row_index  : 6
+2026-10-01T21:36:37 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/DE/FR/TT/20240603/HEPP24-DE-FR-TT-20240603-1028000.mp4
+2026-10-01T21:36:37 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/DE/FR/TT/20240603/HEPP24-DE-FR-TT-20240603-1028000.mp4
+2026-10-01T21:36:37 INFO       country           : 
+2026-10-01T21:36:37 INFO       language          : 
+2026-10-01T21:36:37 INFO       description       : 
+2026-10-01T21:36:37 INFO     download_backend=rclone command=rclone copyurl https://a3s.fi/swift/v1/HEPP24/DE/FR/TT/20240603/HEPP24-DE-FR-TT-20240603-1028000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-DE-FR-TT-20240603-1028000.mp4
+2026-10-01T21:36:37 ERROR      FAILED: FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+2026-10-01T21:36:37 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1063, in main
+    local_path = fetch_video(object_path, download_dir, args, logger)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 513, in fetch_video
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib64/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+
+2026-10-01T21:36:37 INFO       runtime_seconds   : 0.0
+2026-10-01T21:36:37 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:36:37 INFO     --- video 8/10:  /  ---
+2026-10-01T21:36:37 INFO       source_row_index  : 7
+2026-10-01T21:36:37 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/PT/FR/IG/20240604/HEPP24-PT-FR-IG-20240604-1010000.mp4
+2026-10-01T21:36:37 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/PT/FR/IG/20240604/HEPP24-PT-FR-IG-20240604-1010000.mp4
+2026-10-01T21:36:37 INFO       country           : 
+2026-10-01T21:36:37 INFO       language          : 
+2026-10-01T21:36:37 INFO       description       : 
+2026-10-01T21:36:37 INFO     download_backend=rclone command=rclone copyurl https://a3s.fi/swift/v1/HEPP24/PT/FR/IG/20240604/HEPP24-PT-FR-IG-20240604-1010000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PT-FR-IG-20240604-1010000.mp4
+2026-10-01T21:36:37 ERROR      FAILED: FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+2026-10-01T21:36:37 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1063, in main
+    local_path = fetch_video(object_path, download_dir, args, logger)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 513, in fetch_video
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib64/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+
+2026-10-01T21:36:37 INFO       runtime_seconds   : 0.0
+2026-10-01T21:36:37 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:36:37 INFO     --- video 9/10:  /  ---
+2026-10-01T21:36:37 INFO       source_row_index  : 8
+2026-10-01T21:36:37 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/FR/FR/TT/20240530/HEPP24-FR-FR-TT-20240530-1030000.mp4
+2026-10-01T21:36:37 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/FR/FR/TT/20240530/HEPP24-FR-FR-TT-20240530-1030000.mp4
+2026-10-01T21:36:37 INFO       country           : 
+2026-10-01T21:36:37 INFO       language          : 
+2026-10-01T21:36:37 INFO       description       : 
+2026-10-01T21:36:37 INFO     download_backend=rclone command=rclone copyurl https://a3s.fi/swift/v1/HEPP24/FR/FR/TT/20240530/HEPP24-FR-FR-TT-20240530-1030000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-FR-FR-TT-20240530-1030000.mp4
+2026-10-01T21:36:37 ERROR      FAILED: FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+2026-10-01T21:36:37 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1063, in main
+    local_path = fetch_video(object_path, download_dir, args, logger)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 513, in fetch_video
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib64/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+
+2026-10-01T21:36:37 INFO       runtime_seconds   : 0.0
+2026-10-01T21:36:37 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:36:37 INFO     --- video 10/10:  /  ---
+2026-10-01T21:36:37 INFO       source_row_index  : 9
+2026-10-01T21:36:37 INFO       source_id         : https://a3s.fi/swift/v1/HEPP24/PL/RG/IG/20240613/HEPP24-PL-RG-IG-20240613-1010000.mp4
+2026-10-01T21:36:37 INFO       remote_object     : https://a3s.fi/swift/v1/HEPP24/PL/RG/IG/20240613/HEPP24-PL-RG-IG-20240613-1010000.mp4
+2026-10-01T21:36:37 INFO       country           : 
+2026-10-01T21:36:37 INFO       language          : 
+2026-10-01T21:36:37 INFO       description       : 
+2026-10-01T21:36:37 INFO     download_backend=rclone command=rclone copyurl https://a3s.fi/swift/v1/HEPP24/PL/RG/IG/20240613/HEPP24-PL-RG-IG-20240613-1010000.mp4 /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads/HEPP24-PL-RG-IG-20240613-1010000.mp4
+2026-10-01T21:36:37 ERROR      FAILED: FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+2026-10-01T21:36:37 ERROR      traceback:
+Traceback (most recent call last):
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 1063, in main
+    local_path = fetch_video(object_path, download_dir, args, logger)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/project_2009497/LaclauGPT-Multimodal-Analysis/experiments/vllm_video_test.py", line 513, in fetch_video
+    result = subprocess.run(
+             ^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib64/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'rclone'
+
+2026-10-01T21:36:37 INFO       runtime_seconds   : 0.0
+2026-10-01T21:36:37 INFO     cleanup retained source and analysis files (--keep-downloads)
+2026-10-01T21:36:37 INFO     === summary ===
+2026-10-01T21:36:37 INFO       selected          : 10
+2026-10-01T21:36:37 INFO       succeeded         : 0
+2026-10-01T21:36:37 INFO       failed            : 10
+2026-10-01T21:36:37 INFO       output_csv        : /scratch/project_2009497/laclaugpt-multimodal/csv/ep24_vllm_video_test_1727036.csv
+2026-10-01T21:36:37 INFO       source_csv_untouched: /scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/experiments/vllm_video_test_input.csv
+2026-10-01T21:36:37 INFO     === end summary ===
+srun: error: rg2107: task 0: Exited with exit code 1
+srun: Terminating StepId=1727036.0

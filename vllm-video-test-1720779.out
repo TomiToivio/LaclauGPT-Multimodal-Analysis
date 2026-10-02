@@ -1,0 +1,43 @@
+---------------------------------------------------
+RCLONE
+Currently defined rclone remotes:
+allas:                   swift    not active
+s3allas:                 s3       active
+s3allas-project_2009497: s3       active
+
+s3allas: uses Allas project project_2009497.
+---------------------------------------------------
+ 
+S3CMD
+   Default project for s3cmd: allas-project_2009497  active
+---------------------------------------------------
+
+AWS S3
+   Default project for aws s3: project_2009497  active
+---------------------------------------------------
+
+A-COMMANDS
+   a-commands use by default Allas project project_2009497 with S3 protocol.
+---------------------------------------------------
+ffmpeg path: /appl/soft/spack/core/v2026_03/aarch64/g14cu129_eg/install_dir/neoverse_v2/gcc-14.3.0/ffmpeg-7.1-axl5zt/bin/ffmpeg
+ffprobe path: /appl/soft/spack/core/v2026_03/aarch64/g14cu129_eg/install_dir/neoverse_v2/gcc-14.3.0/ffmpeg-7.1-axl5zt/bin/ffprobe
+============================================================
+EP24 vLLM 10-video experiment
+job id       : 1720779
+host         : rg1132
+public repo  : /scratch/project_2009497/LaclauGPT-Multimodal-Analysis
+input CSV    : /scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/experiments/vllm_video_test_input.csv
+output CSV   : /scratch/project_2009497/laclaugpt-multimodal/csv/ep24_vllm_video_test_1720779.csv
+python log   : /scratch/project_2009497/laclaugpt-multimodal/logs/vllm_video_test_1720779.log
+work dir     : /scratch/project_2009497/laclaugpt-multimodal/vllm_video_downloads
+model        : Qwen/Qwen3-VL-8B-Instruct
+Allas remote : s3allas:<configured bucket>
+initial skip : 1.0 s (mandatory)
+============================================================
+vllm           0.29.0
+torch          2.13.0+cu130
+transformers   4.57.6
+qwen_vl_utils  <unknown>
+pandas         2.3.3
+av             16.1.0
+prepared sample rows: 10

@@ -1,0 +1,21 @@
+---------------------------------------------------
+RCLONE
+Currently defined rclone remotes:
+allas:                   swift    not active
+s3allas:                 s3       active
+s3allas-project_2009497: s3       active
+
+s3allas: uses Allas project project_2009497.
+---------------------------------------------------
+ 
+S3CMD
+   Default project for s3cmd: allas-project_2009497  active
+---------------------------------------------------
+
+AWS S3
+   Default project for aws s3: project_2009497  active
+---------------------------------------------------
+
+A-COMMANDS
+   a-commands use by default Allas project project_2009497 with S3 protocol.
+---------------------------------------------------
