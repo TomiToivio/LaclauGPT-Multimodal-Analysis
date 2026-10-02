@@ -1,7 +1,22 @@
-# EP24 bilingual label policy (`english_label`)
+# EP24 bilingual label policy (`english_label`) — the *translation-work* metric
 
 Issue: #101. Origin: the France QA pass (#91, PR #100), where FR reported
 `missing_english_count = 650` — 100% of its entries.
+
+> **This document describes ONE of two bilingual metrics.** There are two, they
+> answer different questions, and they legitimately disagree by ~8x on the same
+> corpus. Read both before quoting either number:
+>
+> | question | function | report | this doc? |
+> |---|---|---|---|
+> | Does the label need an English **translation**? (label is not already English) | `english_translation_required` | `scripts/ep24/check_bilingual_coverage.py` | **yes** |
+> | Has every non-English-sourced entry had its **review state** recorded, even when the English form is identical? | `english_label_required` | `scripts/ep24/english_label_coverage.py` | no — see `docs/EP24_BILINGUAL_CODEBOOK_POLICY.md` |
+>
+> The 8x gap between them is not a defect and not a contradiction: it is the
+> difference between "needs translation" and "needs an explicit review
+> declaration". #116 tracked the earlier state, where the two were presented as
+> rival answers to one question and their helper functions silently shadowed each
+> other by name.
 
 ## The rule
 
@@ -138,9 +153,16 @@ labels:
 
 | file | role |
 |---|---|
-| `roihu_codebooks.py` | `label_looks_english`, `entry_needs_english_label`, `bilingual_coverage_report`, `assert_bilingual_coverage`; `missing_english_count` now uses the policy |
+| `roihu_codebooks.py` | `english_translation_required` (the policy), `entry_needs_english_label` (the #110-era delegating alias, kept so existing callers do not break), `_looks_like_person_name`, `label_looks_english`, `english_translation_coverage_report`, `assert_english_translation_coverage` |
 | `scripts/ep24/check_bilingual_coverage.py` | human/JSON report + optional threshold gate |
 | `tests/test_ep24_bilingual_coverage.py` | 17 tests, synthetic fixtures only |
+| `tests/test_ep24_bilingual_metric_semantics.py` | pins that the two metrics answer different questions and stay separately named (#116/#120) |
+
+> **Naming note (#116/#120).** `entry_needs_english_label` was this metric's
+> original name. It is now a delegating alias to `english_translation_required`,
+> because the old name did not say *which* of the two questions it answered —
+> which is how it came to be confused with `english_label_required`. New code
+> should call `english_translation_required` directly.
 
 `load_profile` still returns `missing_english_count` and now additionally
 `missing_english_entry_ids`, so a caller can act on the specific gaps rather than
