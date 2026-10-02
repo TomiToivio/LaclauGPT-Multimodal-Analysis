@@ -702,6 +702,63 @@ def entity_type_distribution(entries: Iterable[CodebookEntry]) -> dict[str, int]
     return dict(sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
 
 
+def _reviewed_short_form(entry: CodebookEntry, form: str) -> bool:
+    """Whether a short form is explicit/reviewed enough for retrieval.
+
+    Aliases stored in a codebook are explicit declarations and are safe to use
+    with the short-form boundary rule. A short canonical label that is merely
+    provisional is not promoted into retrieval unless the entry is reviewed,
+    locked, or the form is named in ``metadata.reviewed_short_aliases``.
+    """
+    wanted = identity_key(form)
+    if any(identity_key(alias) == wanted for alias in entry.aliases):
+        return True
+    if entry.locked or entry.review_state.upper() == "CANONICAL":
+        return True
+    explicit = entry.metadata.get("reviewed_short_aliases") or []
+    if isinstance(explicit, str):
+        explicit = [explicit]
+    return any(identity_key(value) == wanted for value in explicit)
+
+
+def _short_scope_allows(
+    entry: CodebookEntry,
+    form: str,
+    *,
+    language: str = "",
+    election: str = "",
+) -> bool:
+    """Apply optional alias-level language/election constraints.
+
+    Country scope is applied before scoring and entity kind remains part of the
+    entry identity. Codebooks that need tighter context may additionally define
+    ``metadata.short_alias_languages`` and/or
+    ``metadata.short_alias_elections`` as maps keyed by alias.
+    """
+    wanted = identity_key(form)
+    for key, current in (
+        ("short_alias_languages", language.lower()),
+        ("short_alias_elections", election.casefold()),
+    ):
+        if not current:
+            continue
+        mapping = entry.metadata.get(key) or {}
+        if not isinstance(mapping, dict):
+            continue
+        allowed = None
+        for alias, values in mapping.items():
+            if identity_key(alias) == wanted:
+                allowed = values
+                break
+        if allowed is None:
+            continue
+        if isinstance(allowed, str):
+            allowed = [allowed]
+        if current not in {str(value).casefold() for value in allowed}:
+            return False
+    return True
+
+
 def _short_form_matches(form: str, query: str) -> bool:
     """Boundary-aware match for codebook forms shorter than five characters."""
     normalized = form.casefold().strip()
