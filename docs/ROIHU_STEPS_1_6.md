@@ -31,6 +31,25 @@ export LACLAUGPT_MULTIMODAL_PRIVATE_ROOT=$LACLAUGPT_PRIVATE_ROOT/analysis/ep24_r
 bash scripts/roihu/install_roihu.sh
 ```
 
+Roihu uses the verified multimedia module pair:
+
+```bash
+module load gcc/13.4.0
+module load ffmpeg/7.1-cuda12.4
+```
+
+### One-time Allas setup
+
+The jobs load CSC\'s `allas` module automatically, but authentication must be configured interactively once for your CSC account. On Roihu run:
+
+```bash
+module load allas
+allas-conf project_2009497
+check-allas-connections
+```
+
+Roihu\'s `allas-conf` defaults to S3. It writes user-level S3/rclone/AWS configuration used by later sessions and batch jobs. Do not put the CSC password or generated credentials in the public repository.
+
 The installer creates/reuses an ARM64 venv at `.venv-roihu-gpu`, uses CSC's CUDA-enabled `python-pytorch` packages through `--system-site-packages`, installs the steps 1-6 Python dependencies, prepares project-scratch caches, and installs a local ARM64 Ollama under the private EP24 tree.
 
 ### Private configuration
