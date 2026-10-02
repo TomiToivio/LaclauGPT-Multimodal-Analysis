@@ -167,7 +167,8 @@ class RDFExportTests(unittest.TestCase):
         )
         self.assertEqual(len(warnings), 1)
         self.assertIn("formula_of_populism_us line 1: malformed pair", warnings[0])
-        self.assertNotIn("the people", graph)
+        self.assertNotIn(' <' + NS + 'element> "the people" .\n', graph)
+        self.assertIn(' <' + NS + 'value> "the people^^hope\\u000A" .\n', graph)
         self.assertIn(' <' + NS + 'element> "elites" .\n', graph)
 
 
