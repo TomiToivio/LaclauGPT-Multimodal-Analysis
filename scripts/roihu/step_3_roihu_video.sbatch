@@ -21,6 +21,9 @@ roihu_diagnostics
 roihu_preflight 3
 
 cd "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
+source "${PUBLIC_ROOT}/scripts/roihu/lib_roihu_diagnostics.sh"
+roihu_diagnostics 3
+
 srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_stage_orchestrator.py" \
   --step 3 \
   --script "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_3_roihu_video.py" \

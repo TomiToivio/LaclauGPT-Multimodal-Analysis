@@ -60,3 +60,103 @@ def load_private_env(path: str | Path | None = None) -> Path:
         str(resolved_root / "outputs"),
     )
     return env_path
+
+# --------------------------------------------------------------------------- #
+# Validation and reporting (issue #188)
+# --------------------------------------------------------------------------- #
+#
+# The helpers above mutate os.environ and are what the pipeline steps use. The
+# functions below exist so the Roihu bootstrap can *report* what resolved and
+# name a missing setting instead of failing with a stack trace, without ever
+# printing a value.
+
+#: Setting name fragments that mark a value as secret. Anything matching is
+#: reported by name and length, never by value.
+SECRET_MARKERS = (
+    "URI", "URL", "KEY", "TOKEN", "PASSWORD", "SECRET", "CREDENTIAL",
+    "CONNECTION", "DSN", "PRIVATE",
+)
+
+#: Settings the Roihu steps 1-6 need. A missing one is reported, not raised, so
+#: the bootstrap can list them all in one run.
+REQUIRED_SETTINGS: tuple[str, ...] = ("LACLAUGPT_MONGODB_URI",)
+
+
+def is_secret(name: str) -> bool:
+    """Whether a setting name looks like it carries a credential."""
+    upper = name.upper()
+    return any(marker in upper for marker in SECRET_MARKERS)
+
+
+def redact(value: str) -> str:
+    """A safe rendering of a value for logs: never the value itself."""
+    if not value:
+        return "<empty>"
+    return f"<redacted {len(value)} chars>"
+
+
+def describe(environ: dict[str, str] | None = None) -> list[str]:
+    """One safe line per set LACLAUGPT_* setting: name, and redacted-or-plain value."""
+    env = environ if environ is not None else dict(os.environ)
+    lines: list[str] = []
+    for name in sorted(env):
+        if not name.startswith("LACLAUGPT_"):
+            continue
+        value = env[name]
+        if not value:
+            continue
+        lines.append(f"{name}={redact(value) if is_secret(name) else value}")
+    return lines
+
+
+def validate(
+    environ: dict[str, str] | None = None,
+    required: tuple[str, ...] = REQUIRED_SETTINGS,
+) -> list[str]:
+    """Return the names of required settings that are unset or empty."""
+    env = environ if environ is not None else dict(os.environ)
+    return [name for name in required if not env.get(name)]
+
+
+def summary(environ: dict[str, str] | None = None) -> str:
+    """A multi-line, secret-free report for bootstrap logs."""
+    env = environ if environ is not None else dict(os.environ)
+    lines = [f"private_root={private_root()}"]
+    env_file = env.get("LACLAUGPT_EP24_ENV_FILE") or str(private_root() / ".env")
+    lines.append(f"env_file={env_file}{'' if Path(env_file).exists() else ' (not found)'}")
+    lines.extend(f"  {line}" for line in describe(env))
+    missing = validate(env)
+    lines.append(f"missing_required={missing if missing else 'none'}")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI for the Roihu bootstrap: report settings, redacting every secret."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Report resolved EP24 private settings. Values of anything that "
+                    "looks like a credential are redacted, so this output is safe to paste."
+    )
+    parser.add_argument("--private-root", default=None,
+                        help="private checkout to read .env from (sets LACLAUGPT_EP24_PRIVATE_ROOT)")
+    parser.add_argument("--env-file", default=None, help="explicit settings file")
+    args = parser.parse_args(argv)
+
+    if args.private_root:
+        os.environ["LACLAUGPT_EP24_PRIVATE_ROOT"] = args.private_root
+    load_private_env(args.env_file)
+    print(summary())
+    missing = validate()
+    if missing:
+        print(
+            f"WARNING: {len(missing)} required setting(s) missing: {', '.join(missing)}. "
+            "Set them in the private .env (see docs/ROIHU_RUNBOOK.md).",
+            file=__import__("sys").stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
