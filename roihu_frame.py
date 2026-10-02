@@ -357,7 +357,7 @@ def analyze_videos(language=None):
                 logger.debug("row_field index=%s name=%s value=%s", index, field, _preview(row.get(field, "")))
 
             try:
-                frame_file = str(row.get("frame_file", "") or "").strip()
+                frame_file = str(row.get('frame_file', '')).strip()
                 if not frame_file:
                     raise ValueError("Step 2 requires Step 1 field 'frame_file'")
 
