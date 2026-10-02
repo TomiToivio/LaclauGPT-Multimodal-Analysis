@@ -316,7 +316,12 @@ def enrich_statement(
             "concept_normalization_provenance": concept_provenance,
             "agreement": agreement,
             "qualifier": "positive" if agreement is True else "negative" if agreement is False else None,
-            "exportable_to_dna": bool(\n                agreement in (True, False)\n                and statement_time(row)\n                and actor_canonical\n                and concept_canonical\n            ),
+            "exportable_to_dna": bool(
+                agreement in (True, False)
+                and statement_time(row)
+                and actor_canonical
+                and concept_canonical
+            ),
             "provenance": {
                 "method": "Leifeld_DNA_statement_coding",
                 "prompt_version": PROMPT_VERSION,
