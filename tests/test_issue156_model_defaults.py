@@ -95,12 +95,63 @@ def test_no_active_python_path_defaults_to_the_legacy_model():
 # --- overrides -------------------------------------------------------------
 
 def test_multimodal_model_override_still_wins(monkeypatch):
-    """The shared env var must override the new default."""
-    import roihu_postprocess as rp  # noqa: F401  (import proves it is importable)
+    """The shared env var must override the new default.
+
+    Exercises the resolver directly rather than importing a stage module: the
+    stages import `ollama` at module scope, which is not in the CI test extra, so
+    importing one here would be a collection error in CI (it only passes in a
+    full local venv, which is exactly the kind of false green to avoid).
+    """
+    import ep24_cli
+
     monkeypatch.setenv("LACLAUGPT_MULTIMODAL_MODEL", "custom:1b")
-    assert os.getenv("LACLAUGPT_MULTIMODAL_MODEL", OLLAMA_DEFAULT) == "custom:1b"
+    assert ep24_cli.resolve_model("LACLAUGPT_MULTIMODAL_MODEL") == "custom:1b"
+
     monkeypatch.delenv("LACLAUGPT_MULTIMODAL_MODEL", raising=False)
-    assert os.getenv("LACLAUGPT_MULTIMODAL_MODEL", OLLAMA_DEFAULT) == OLLAMA_DEFAULT
+    assert ep24_cli.resolve_model("LACLAUGPT_MULTIMODAL_MODEL") == OLLAMA_DEFAULT
+
+
+def test_resolver_takes_the_first_non_empty_variable(monkeypatch):
+    """Precedence is positional: the first non-empty variable wins."""
+    import ep24_cli
+
+    monkeypatch.setenv("VAR_MOST_SPECIFIC", "specific:1b")
+    monkeypatch.setenv("VAR_SHARED", "shared:1b")
+    assert ep24_cli.resolve_model("VAR_MOST_SPECIFIC", "VAR_SHARED") == "specific:1b"
+
+    monkeypatch.delenv("VAR_MOST_SPECIFIC", raising=False)
+    assert ep24_cli.resolve_model("VAR_MOST_SPECIFIC", "VAR_SHARED") == "shared:1b"
+
+    monkeypatch.delenv("VAR_SHARED", raising=False)
+    assert ep24_cli.resolve_model("VAR_MOST_SPECIFIC", "VAR_SHARED") == OLLAMA_DEFAULT
+
+
+def test_resolver_ignores_blank_values(monkeypatch):
+    """An empty env var must fall through, not resolve to ''."""
+    import ep24_cli
+
+    monkeypatch.setenv("VAR_A", "   ")
+    monkeypatch.setenv("VAR_B", "b:1b")
+    assert ep24_cli.resolve_model("VAR_A", "VAR_B") == "b:1b"
+
+
+def test_resolver_logs_the_source(caplog):
+    """Requirement 5: the log must say where the model came from."""
+    import logging
+
+    import ep24_cli
+
+    with caplog.at_level(logging.INFO, logger="ep24_cli"):
+        ep24_cli.resolve_model("VAR_UNSET_XYZ")
+    assert "source=repository-default" in caplog.text
+
+    os.environ["VAR_SET_XYZ"] = "x:1b"
+    try:
+        with caplog.at_level(logging.INFO, logger="ep24_cli"):
+            ep24_cli.resolve_model("VAR_SET_XYZ")
+        assert "source=VAR_SET_XYZ" in caplog.text
+    finally:
+        os.environ.pop("VAR_SET_XYZ", None)
 
 
 def test_entity_adjudicator_prefers_its_specific_override():
