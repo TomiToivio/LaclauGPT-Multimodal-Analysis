@@ -16,6 +16,8 @@ os.makedirs('./database', exist_ok=True)
 logging.basicConfig(handlers=[RotatingFileHandler('./logs/frame.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
+# Convert this to use the remote MongoDB database?
+# You can use Pandas dataframe CSV / Sqlite as backup of data 
 # Use sqlite3 database to store TikTok video frame analysis results
 conn = sqlite3.connect('./database/frame.db')
 c = conn.cursor()
@@ -36,9 +38,9 @@ def get_analysis(frame_file, row_context=''):
     # Social-semiotic first-pass prompt. Keep this stage descriptive and pre-discursive.
     system_prompt = f'''### System Prompt
 
-You are performing a **multimodal social-semiotic pre-analysis** of a single sampled frame from incoming social-media or web video.
+You are performing a **multimodal social-semiotic pre-analysis** of a single frame from incoming social-media or web video a TikTok or Instagram video related to European Parliament Elections in 2024. It is recorded from a GrapheneOS phone video feed by a researcher doing digital ethnography. 
 
-This is an upstream descriptive stage. **Do not perform political, ideological, partisan, populism, sentiment, discourse, or Laclauian analysis.** Do not classify empty/floating signifiers, nodal points, chains of equivalence, antagonisms, hegemony, political camps, motives, or persuasive effectiveness. Those tasks belong to later analytical stages.
+Note the political context and take into account recognizable politicians, political slogans, political symbols, country flags and political situations like voting or campaign rallies. The videos are from different countries of the European Union: Finland, Sweden, Germany, France, Spain, Portugal, Croatia, Hungary and Bulgaria. 
 
 Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Leeuwen, multimodal social semiotics, and structuralist attention to signs and relations. Separate observation from interpretation and mark uncertainty explicitly.
 
@@ -53,17 +55,19 @@ Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Le
 1. **Denotative description**
    - Describe only what is visibly present.
    - Include people without identifying unknown persons, objects, setting, actions frozen in the frame, text, graphics, interface elements, and embedded images/screens.
+   - Keep in mind the European Parliament Elections 2024 context. Note any recognizable politicians, party symbols and situations like campaign rallies.
    - Distinguish observation from inference.
 
 2. **Semiotic resources / modes**
    - Identify visible resources such as photographic image, illustration, writing, typography, colour, gesture/posture, spatial arrangement, symbols, diagrams, emojis, platform/interface elements, and image-within-image.
+   - Pay attention to political symbols and party colors.
    - Note what each resource appears to contribute descriptively.
 
 3. **Participants, processes, circumstances**
    - Participants: visible people, groups, objects, institutions represented by explicit text/logo, places, or other entities.
    - Processes: visible actions or represented processes.
    - Circumstances: visible spatial, temporal, environmental, or situational context.
-   - Do not infer intentions or political roles unless explicitly stated in the frame.
+   - Identify recognizable politicians. Note political roles like politician or voter and situations like voting.
 
 4. **Composition and salience**
    - Foreground/background; centre/periphery; relative size/scale; camera distance/angle where observable; cropping; gaze/gesture direction; repetition; contrast; visual hierarchy.
@@ -72,7 +76,7 @@ Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Le
 
 5. **Salient signs / signifiers**
    - List especially prominent, repeated, foregrounded, or explicitly emphasized words, objects, symbols, gestures, colours, and graphic elements.
-   - Keep them as descriptive signifiers. Do **not** assign Laclaudian status or political meaning.
+   - Think about the meaning in political context.
 
 6. **Relations among signs**
    - Note observable juxtapositions, contrasts, pairings, repetitions, sequences implied inside the frame, part-whole relations, labels, arrows, vectors, or other relational structures.
@@ -89,6 +93,11 @@ Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Le
 
 9. **Ambiguity and uncertainty**
    - List unclear identities, illegible text, ambiguous symbols, uncertain scene context, cropping limitations, or interpretations that require other frames/audio/transcript.
+
+10. **Video metadata**
+   - These videos are from TikTok and Instagram feeds: list any visible metadata.
+   - List the author username of the creator of TikTok or Instagram video.
+   - Also list other visible metadata like hashtags, video title, date, other visible text.
 
 ### Output
 Produce a detailed structured description under the headings above, and include:
@@ -147,7 +156,9 @@ def parse_frame_files(value):
 
 def analyze_videos(language=None):
     """Analyze TikTok videos for a specific language."""
-    filename = os.getenv('LACLAUGPT_INPUT_CSV') or f'./csv/tiktok_{language}.csv'
+    # Use correct filename / SQLITE / Remote Mongo for incoming data
+    # Loop through all videos of each country in specified order.
+    filename = os.getenv('LACLAUGPT_INPUT_CSV') or f'./csv/tiktok_{language}.csv' 
     df = load_cumulative_csv(filename, require_canonical=bool(os.getenv('LACLAUGPT_INPUT_CSV')))
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
     if max_rows > 0:
@@ -231,6 +242,7 @@ def analyze_videos(language=None):
 # Loop through all EP2024 TikTok languages and analyze videos
 # All EP2024 TikTok languages for this stage (module level: the documented
 # stage contract reads it without importing or executing the stage).
+# Use the country list instead of this.
 languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
 
 
