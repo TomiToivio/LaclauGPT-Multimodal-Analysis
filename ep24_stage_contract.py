@@ -118,6 +118,18 @@ STAGES_BY_NUMBER: dict[int, Stage] = {stage.number: stage for stage in STAGE_CON
 # Country processing priority (issue #64): the first three are required for the
 # demo samples; the remainder follows one deterministic documented order.
 COUNTRY_PRIORITY: tuple[str, ...] = ("Finland", "Poland", "Portugal")
+COUNTRY_PROCESSING_ORDER: tuple[str, ...] = (
+    "Finland",
+    "Poland",
+    "Portugal",
+    "Germany",
+    "Spain",
+    "Hungary",
+    "Croatia",
+    "France",
+    "Bulgaria",
+    "Sweden",
+)
 
 # Lowercase tokens as they appear in the private input filenames
 # (analysis/ep24_reprocess/data/to_reprocess/ep24_<token>.csv).
@@ -145,16 +157,15 @@ def stage(number: int) -> Stage:
 
 
 def country_order(available: list[str]) -> list[str]:
-    """Order the countries present in the input by the documented priority.
+    """Order known EP24 countries exactly as required by issue #128.
 
-    Finland, Poland, Portugal first, in that order, then every remaining country
-    in deterministic (alphabetical) order. Unknown countries are not dropped --
-    they take their place in the alphabetical tail rather than disappearing.
+    Unknown countries are never dropped: they follow the ten known countries in
+    deterministic alphabetical order.
     """
     present = list(dict.fromkeys(available))
-    priority = [c for c in COUNTRY_PRIORITY if c in present]
-    rest = sorted(c for c in present if c not in priority)
-    return priority + rest
+    known = [country for country in COUNTRY_PROCESSING_ORDER if country in present]
+    unknown = sorted(country for country in present if country not in COUNTRY_PROCESSING_ORDER)
+    return known + unknown
 
 
 def all_contracted_columns() -> tuple[str, ...]:
