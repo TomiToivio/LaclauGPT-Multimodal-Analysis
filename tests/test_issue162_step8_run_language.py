@@ -50,6 +50,10 @@ def test_run_language_processes_a_row_instead_of_raising_unbound_local(
 ):
     pytest.importorskip("pydantic")
     monkeypatch.setenv("LACLAUGPT_MAX_ROWS", "1")
+    # configure_step_cli() in earlier tests may set this indirectly via
+    # os.environ, which pytest's monkeypatch cannot automatically restore.
+    # This regression exercises Step 8's historical in-place direct-call path.
+    monkeypatch.delenv("LACLAUGPT_OUTPUT_CSV", raising=False)
 
     csv_path = tmp_path / "ep24_fi.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
