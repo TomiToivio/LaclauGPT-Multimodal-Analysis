@@ -9,6 +9,7 @@ from __future__ import annotations
 import json, logging, os
 from pathlib import Path
 import pandas as pd
+from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_entities import fold_key, resolution_lookup
 from ep24_cli import configure_step_cli
@@ -64,7 +65,8 @@ def run_language(lang):
     for col in ("dna_analysis_markdown","dna_statements_json"):
         if col not in df.columns: df[col]=""
     limit=int(os.getenv("LACLAUGPT_MAX_ROWS","100") or 100)
-    model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL","gemma4:12b")
+    model=ollama_model()
+    LOG.info('model=%s model_source=%s', model, ollama_model_source())
     for i,row in df.head(limit).iterrows():
         evidence = metadata_context(row) + "\n\nANALYTICAL EVIDENCE:\n" + "\n\n".join(
             str(row.get(k, "")) for k in
