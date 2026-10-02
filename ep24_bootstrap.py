@@ -1,15 +1,12 @@
 """EP24 country bootstrap for MongoDB-first restartable processing.
 
 Private CSV/codebook contents never belong in this public repository. This module
-reads them at runtime, creates stable record IDs, merges researcher entity/theme
-fields before Step 1, and stores cumulative records in MongoDB.
+reads already-canonicalized private country CSVs, validates human `entities` /\n`themes`, creates stable record IDs, and stores cumulative records in MongoDB.
 """
 from __future__ import annotations
 
 import argparse
-import ast
 import hashlib
-import json
 import logging
 import os
 from pathlib import Path
@@ -23,47 +20,9 @@ LOG = logging.getLogger("ep24_bootstrap")
 PRIORITY = ("finland", "poland", "portugal")
 
 
-def _items(value: object) -> list[str]:
-    if value is None:
-        return []
-    text = str(value).strip()
-    if not text or text.lower() == "nan":
-        return []
-    try:
-        parsed = ast.literal_eval(text)
-    except (ValueError, SyntaxError):
-        parsed = None
-    if isinstance(parsed, (list, tuple, set)):
-        raw = [str(x).strip() for x in parsed]
-    elif isinstance(parsed, str):
-        raw = [parsed.strip()]
-    else:
-        raw = [x.strip() for x in text.replace("|", ";").split(";")]
-        if len(raw) == 1 and "," in text:
-            raw = [x.strip() for x in text.split(",")]
-    out: list[str] = []
-    seen: set[str] = set()
-    for item in raw:
-        if not item:
-            continue
-        key = item.casefold()
-        if key not in seen:
-            seen.add(key)
-            out.append(item)
-    return out
-
-
-def merged_field(*values: object) -> str:
-    merged: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        for item in _items(value):
-            key = item.casefold()
-            if key not in seen:
-                seen.add(key)
-                merged.append(item)
-    return json.dumps(merged, ensure_ascii=False)
-
+# Issue #21: private country CSVs are canonicalized before bootstrap.
+# Human annotations arrive in `entities` and `themes`; bootstrap must not
+# reconstruct or overwrite them.
 
 def country_slug(path: Path) -> str:
     return path.stem.removeprefix("ep24_").casefold()
@@ -94,22 +53,25 @@ def stable_ep24_id(row: pd.Series, *, country: str, row_number: int) -> str:
 
 
 def prepare_dataframe(df: pd.DataFrame, *, country: str) -> pd.DataFrame:
+    """Validate canonical input and add stable storage identity only."""
     out = df.copy()
-    required = {"video_id", "allas_filename", "new_entity", "researcher_new_persons",
-                "new_theme", "researcher_new_themes"}
+    required = {"video_id", "allas_filename", "entities", "themes"}
     missing = sorted(required - set(out.columns))
     if missing:
-        raise ValueError(f"{country}: missing bootstrap columns: {missing}")
+        raise ValueError(
+            f"{country}: input is not migrated to issue #21 canonical schema; missing={missing}"
+        )
 
-    # These canonical fields MUST exist before Step 1. Originals remain untouched.
-    out["entities"] = [
-        merged_field(row.get("new_entity", ""), row.get("researcher_new_persons", ""))
-        for _, row in out.iterrows()
-    ]
-    out["themes"] = [
-        merged_field(row.get("new_theme", ""), row.get("researcher_new_themes", ""))
-        for _, row in out.iterrows()
-    ]
+    forbidden = {
+        "new_entity", "researcher_new_persons",
+        "new_theme", "researcher_new_themes",
+    }
+    leaked = sorted(forbidden & set(out.columns))
+    if leaked:
+        raise ValueError(
+            f"{country}: legacy annotation columns must be removed before Step 1: {leaked}"
+        )
+
     out["_storage_id"] = [
         stable_ep24_id(row, country=country, row_number=i)
         for i, (_, row) in enumerate(out.iterrows())
