@@ -472,12 +472,18 @@ def _reviewed_short_form(entry: CodebookEntry, form: str) -> bool:
     """
     if len(form) > SHORT_ALIAS_MAX_LENGTH:
         return True
+    wanted = identity_key(form)
+    # An alias stored in the codebook is already an explicit declaration, even
+    # when the surrounding entry is still PROVISIONAL. What we refuse is a
+    # short *label* or other inferred form becoming an alias merely because it
+    # happens to collide lexically.
+    if any(identity_key(alias) == wanted for alias in entry.aliases):
+        return True
     if entry.locked or entry.review_state.upper() == "CANONICAL":
         return True
     explicit = entry.metadata.get("reviewed_short_aliases") or []
     if isinstance(explicit, str):
         explicit = [explicit]
-    wanted = identity_key(form)
     return any(identity_key(value) == wanted for value in explicit)
 
 
