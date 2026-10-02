@@ -244,7 +244,7 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         registry,
         country=country,
         language=language,
-        mention_columns=("new_entity", "researcher_new_persons", "entities"),
+        mention_columns=("entities",),
         adjudicator=adjudicator,
     )
 
@@ -286,14 +286,8 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         frame.at[index, "ep24_codebook_fingerprint"] = profile["fingerprint"]
         frame.at[index, "ep24_codebook_context_json"] = json.dumps(selection, ensure_ascii=False, sort_keys=True)
 
-        entity_seed_values = [
-            *split_values(row.get("new_entity")),
-            *split_values(row.get("researcher_new_persons")),
-        ]
-        theme_seed_values = [
-            *split_values(row.get("new_theme")),
-            *split_values(row.get("researcher_new_themes")),
-        ]
+        entity_seed_values = split_values(row.get("entities"))
+        theme_seed_values = split_values(row.get("themes"))
         entity_seeds = resolve_many(entity_seed_values, entries, country=country, kinds=ENTITY_KINDS)
         theme_seeds = resolve_many(theme_seed_values, entries, country=country, kinds=THEME_KINDS)
         # Resolve the actual Step-5 "themes" field and sentiment buckets.
@@ -355,7 +349,7 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         "country": country,
         "language": language,
         "rows": len(frame),
-        "legacy_columns_preserved": before_columns == [c for c in frame.columns if c in before_columns],
+        "input_columns_preserved": before_columns == [c for c in frame.columns if c in before_columns],
         "profile": profile,
         "entity_resolution": resolution_report,
         "entity_registry": {
