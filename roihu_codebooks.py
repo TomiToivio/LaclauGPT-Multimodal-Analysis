@@ -31,6 +31,7 @@ COUNTRY_PROFILES = {
     "BG": {"country": "Bulgaria", "languages": ["bg", "en"], "file": "ep24_bg_private.json"},
 }
 LAYER_ORDER = {"common": 0, "eu": 1, "country": 2, "language": 3, "researcher": 4}
+SHORT_ALIAS_MAX_LENGTH = 4
 
 
 def _clean(value: Any) -> str:
@@ -418,26 +419,73 @@ def entity_type_distribution(entries: Iterable[CodebookEntry]) -> dict[str, int]
     return dict(sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
 
 
-def score_entry(query: str, entry: CodebookEntry) -> float:
-    """Lexical retrieval score: recall-oriented, so it matches substrings.
+def _reviewed_short_form(entry: CodebookEntry, form: str) -> bool:
+    """Whether a short surface form is explicitly safe enough for retrieval.
 
-    Retrieval and identity are different questions, and they need opposite
-    biases:
+    Short aliases are high-collision political identifiers. They are allowed
+    only on reviewed/locked entries, or when entry metadata explicitly names
+    them in ``reviewed_short_aliases``. This keeps provisional guesses from
+    acquiring a one-letter or acronym identity by accident while letting
+    country codebooks carry reviewed forms such as Swedish ``S``, ``M``,
+    ``KD``, ``MP`` and ``SD``.
+    """
+    if len(form) > SHORT_ALIAS_MAX_LENGTH:
+        return True
+    if entry.locked or entry.review_state.upper() == "CANONICAL":
+        return True
+    explicit = entry.metadata.get("reviewed_short_aliases") or []
+    if isinstance(explicit, str):
+        explicit = [explicit]
+    wanted = identity_key(form)
+    return any(identity_key(value) == wanted for value in explicit)
 
-    - **Retrieval** (this function) feeds background context, which is advisory.
-      A miss costs context; the EP24 languages are heavily inflective, so
-      ``ilmasto`` must retrieve for ``ilmastosta`` and a substring match is what
-      buys that. Over-matching is a quality problem, bounded by the selection
-      limit and by the evidence firewall, not a correctness one.
-    - **Identity** (``roihu_identity.resolve_surface``) decides what an actor
-      *is*. A false positive there silently attributes a statement to the wrong
-      party. That path uses exact ``identity_key`` matching only, and abstains
-      otherwise. ``boundary_matches`` belongs to that side and to coverage
-      counting.
 
-    The substring behaviour here is therefore deliberate and load-bearing, not
-    an oversight: ``test_private_profile_merge_keeps_locked_human_entry_and_bilingual_context``
-    depends on the Finnish inflection case.
+def _short_scope_allows(entry: CodebookEntry, form: str, *, language: str = "", election: str = "") -> bool:
+    """Apply optional alias-level language/election constraints.
+
+    Country and entity-kind scope are structural properties of the entry.
+    Private codebooks may additionally set metadata maps
+    ``short_alias_languages`` and ``short_alias_elections``, keyed by alias.
+    Missing maps mean "no extra restriction", preserving older codebook shapes.
+    """
+    wanted = identity_key(form)
+    for key, current in (
+        ("short_alias_languages", language.lower()),
+        ("short_alias_elections", election.casefold()),
+    ):
+        if not current:
+            continue
+        mapping = entry.metadata.get(key) or {}
+        if not isinstance(mapping, dict):
+            continue
+        allowed = None
+        for alias, values in mapping.items():
+            if identity_key(alias) == wanted:
+                allowed = values
+                break
+        if allowed is None:
+            continue
+        if isinstance(allowed, str):
+            allowed = [allowed]
+        normalized_allowed = {str(value).casefold() for value in allowed}
+        if current not in normalized_allowed:
+            return False
+    return True
+
+
+def score_entry(query: str, entry: CodebookEntry, *, language: str = "", election: str = "") -> float:
+    """Lexical retrieval score with strict matching for reviewed short aliases.
+
+    Retrieval stays recall-oriented for ordinary words: forms longer than four
+    characters retain substring matching so inflected EP24 language still
+    works (for example ``ilmasto`` -> ``ilmastosta``). Short political forms
+    are different: they must be reviewed and match on token boundaries,
+    preventing ``Most`` from matching ``Mostar``, ``HDZ`` from matching
+    ``HDZx``, or Swedish ``S`` from appearing inside arbitrary words.
+
+    This does not make identity fuzzier. ``roihu_identity.resolve_surface``
+    still uses exact conservative keys and may return AMBIGUOUS when multiple
+    reviewed entries share the same acronym.
     """
     q = query.casefold()
     if not q.strip():
@@ -446,35 +494,96 @@ def score_entry(query: str, entry: CodebookEntry) -> float:
         normalized = form.casefold().strip()
         if not normalized:
             continue
-        if len(normalized) >= 3 and normalized in q:
+        if len(normalized) <= SHORT_ALIAS_MAX_LENGTH:
+            if not _reviewed_short_form(entry, normalized):
+                continue
+            if not _short_scope_allows(entry, normalized, language=language, election=election):
+                continue
+            if boundary_matches(normalized, q):
+                return 1.0
+            continue
+        if normalized in q:
             return 1.0
-        if len(normalized) < 3 and re.search(rf"(?<!\w){re.escape(normalized)}(?!\w)", q):
-            return 1.0
+
     q_tokens = _tokens(query)
     entry_tokens = set()
-    for value in [*entry.forms, entry.definition, entry.english_definition]:
+    for value in entry.forms:
+        normalized = value.casefold().strip()
+        if len(normalized) > SHORT_ALIAS_MAX_LENGTH:
+            entry_tokens.update(_tokens(value))
+    for value in [entry.definition, entry.english_definition]:
         entry_tokens.update(_tokens(value))
     return len(q_tokens & entry_tokens) / max(1, len(entry_tokens))
 
 
-def select_context(query: str, entries: Iterable[CodebookEntry], *, country: str, language: str = "", limit: int = 8, threshold: float = 0.15) -> tuple[list[CodebookEntry], dict[str, Any]]:
+def select_context(
+    query: str,
+    entries: Iterable[CodebookEntry],
+    *,
+    country: str,
+    language: str = "",
+    election: str = "",
+    limit: int = 8,
+    threshold: float = 0.15,
+) -> tuple[list[CodebookEntry], dict[str, Any]]:
     scoped = [entry for entry in entries if entry.country in {"", "COMMON", country.upper()}]
-    ranked = sorted(((score_entry(query, e), e) for e in scoped), key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()))
+    ranked = sorted(
+        ((score_entry(query, entry, language=language, election=election), entry) for entry in scoped),
+        key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()),
+    )
     selected = [(score, entry) for score, entry in ranked[: max(0, limit)] if score >= threshold]
-    return [e for _, e in selected], {
-        "country": country.upper(), "language": language.lower(), "limit": limit, "threshold": threshold,
-        "selection_method": "deterministic_lexical_v2_bilingual", "evidence_role": "background_context_not_source_evidence",
-        "selected": [{"entry_id": e.entry_id, "kind": e.kind, "label": e.label, "english_label": e.english_label, "score": round(score, 6)} for score, e in selected],
+    return [entry for _, entry in selected], {
+        "country": country.upper(),
+        "language": language.lower(),
+        "election": election,
+        "limit": limit,
+        "threshold": threshold,
+        "selection_method": "deterministic_lexical_v3_scoped_short_aliases",
+        "evidence_role": "background_context_not_source_evidence",
+        "selected": [
+            {
+                "entry_id": entry.entry_id,
+                "kind": entry.kind,
+                "label": entry.label,
+                "english_label": entry.english_label,
+                "score": round(score, 6),
+            }
+            for score, entry in selected
+        ],
     }
 
 
-def context_block(query: str, entries: Iterable[CodebookEntry], *, country: str, language: str = "", limit: int = 8, threshold: float = 0.15) -> tuple[str, dict[str, Any]]:
-    selected, provenance = select_context(query, entries, country=country, language=language, limit=limit, threshold=threshold)
+def context_block(
+    query: str,
+    entries: Iterable[CodebookEntry],
+    *,
+    country: str,
+    language: str = "",
+    election: str = "",
+    limit: int = 8,
+    threshold: float = 0.15,
+) -> tuple[str, dict[str, Any]]:
+    selected, provenance = select_context(
+        query,
+        entries,
+        country=country,
+        language=language,
+        election=election,
+        limit=limit,
+        threshold=threshold,
+    )
     if not selected:
         return "", provenance
-    lines = ["[EP24 CODEBOOK CONTEXT] Background context only, not evidence from the current item and not proof of an actor's beliefs or the author's agreement."]
+    lines = [
+        "[EP24 CODEBOOK CONTEXT] Background context only, not evidence from the current item "
+        "and not proof of an actor's beliefs or the author's agreement."
+    ]
     for entry in selected:
-        bilingual = entry.label if not entry.english_label or entry.english_label == entry.label else f"{entry.label} / {entry.english_label}"
+        bilingual = (
+            entry.label
+            if not entry.english_label or entry.english_label == entry.label
+            else f"{entry.label} / {entry.english_label}"
+        )
         definition = entry.english_definition or entry.definition
         lines.append(f"- {entry.kind}: {bilingual}" + (f" | {definition}" if definition else ""))
     return "\n".join(lines), provenance
