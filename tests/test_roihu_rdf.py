@@ -281,3 +281,68 @@ def test_stage_does_not_run_inside_the_pipeline_stages() -> None:
         text = path.read_text(encoding="utf-8")
         assert "roihu_rdf" not in text, f"{name} must not import the export stage"
     assert checked >= 5, f"expected to check the five stages, checked {checked}"
+
+
+@pytest.fixture()
+def runtime_asr_schema(tmp_path: Path) -> Path:
+    """Synthetic row shaped like the active #128 Step-1 producer, not legacy Whisper."""
+    (tmp_path / "csv").mkdir()
+    (tmp_path / "logs").mkdir()
+    row = {
+        "video_id": "SYNTH-FI-ASR-0001",
+        "country": "Finland",
+        "author_username": "synth_asr_author",
+        "account_type": "Synthetic",
+        "source_type": "TikTok",
+        "source_recording": "synthetic-recording",
+        "sequence_number": "1",
+        "political_preference": "",
+        "allas_filename": "synthetic.mp4",
+        "new_entity": "",
+        "new_theme": "",
+        "video_duration": "12.0",
+        "researcher_new_persons": "",
+        "researcher_new_themes": "",
+        "researcher_note": "",
+        "language": "fi",
+        "frame_file": "./Keyframes/tiktok/synth_asr_author/SYNTH-FI-ASR-0001/frame_t1.0s.jpg",
+        "frame_timestamp_seconds": "1.0",
+        "ocr_1": "SYNTHETIC screen text",
+        "ocr_backend": "paddleocr",
+        "ocr_model": "PP-OCRv5",
+        "asr_transcript": "SYNTHETIC alkuperäinen puhe.",
+        "asr_language": "fi",
+        "asr_translated": "SYNTHETIC translated speech.",
+        "asr_backend": "canary",
+        "asr_model": "nvidia/canary-1b-v2",
+        "frame_analysis_1": "SYNTHETIC active frame analysis",
+        "summary_analysis": "SYNTHETIC active summary",
+    }
+    target = tmp_path / "csv" / "tiktok_fi.csv"
+    with target.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerow(row)
+    return tmp_path
+
+
+def test_active_asr_schema_emits_typed_transcript(runtime_asr_schema: Path) -> None:
+    """Regression for #128: the primary asr_* path must not fall into legacy fallback."""
+    result = run_export(runtime_asr_schema, "--language", "fi")
+    assert result.returncode == 0, result.stderr
+    graph = parse(runtime_asr_schema / "rdf" / "ep24_fi.ttl")
+    rdflib = pytest.importorskip("rdflib")
+
+    transcript_type = rdflib.URIRef(LG + "Transcript")
+    rdf_type = rdflib.URIRef(RDF_NS + "type")
+    nodes = list(graph.subjects(rdf_type, transcript_type))
+    assert len(nodes) == 1
+    node = nodes[0]
+
+    values = lambda predicate: {str(v) for v in graph.objects(node, rdflib.URIRef(LG + predicate))}
+    assert values("text") == {"SYNTHETIC translated speech."}
+    assert values("originalText") == {"SYNTHETIC alkuperäinen puhe."}
+    assert values("translatedText") == {"SYNTHETIC translated speech."}
+    assert values("language") == {"fi"}
+    assert values("asrBackend") == {"canary"}
+    assert values("asrModel") == {"nvidia/canary-1b-v2"}
