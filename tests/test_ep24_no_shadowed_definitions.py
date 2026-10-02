@@ -198,6 +198,27 @@ def test_the_public_alias_still_exists_for_existing_callers() -> None:
     assert cb.label_looks_english("Rassemblement National") is False
 
 
+def test_the_public_alias_resolves_to_the_language_policy_vocabulary() -> None:
+    """`label_looks_english` must keep answering with the vocabulary it always did.
+
+    Before #116 the second (language-policy) definition won, so that is the
+    answer external callers observed. Repointing the alias at the label policy
+    would be a silent behaviour change for every existing caller — and it would
+    pass a test that only checks the two labels on which the policies agree.
+
+    `Partidos` is the distinguishing case: the language policy's marker list
+    contains ``partidos?`` and the label policy's does not, so the two predicates
+    disagree on it. Asserting the alias against BOTH predicates is what makes a
+    repoint fail here rather than ship.
+    """
+    assert cb.label_looks_english is cb._language_policy_looks_english
+    assert cb.label_looks_english is not cb._label_policy_looks_english
+    # and the disagreement is real, so the identity check above is load-bearing
+    assert cb._language_policy_looks_english("Partidos") is False
+    assert cb._label_policy_looks_english("Partidos") is True
+    assert cb.label_looks_english("Partidos") is False
+
+
 if __name__ == "__main__":
     import pytest
 
