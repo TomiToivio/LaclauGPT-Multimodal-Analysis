@@ -12,22 +12,18 @@
 #SBATCH --mail-type=ALL
 
 set -euo pipefail
-PUBLIC_ROOT=${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-/scratch/project_2009497/LaclauGPT-Multimodal-Analysis}
-PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:-/scratch/project_2009497/LaclauGPT-Private/ep24_reprocess}
-VENV=${LACLAUGPT_MULTIMODAL_VENV:-${PUBLIC_ROOT}/.venv-roihu-gpu}
-export LACLAUGPT_MAX_ROWS=${LACLAUGPT_MAX_ROWS:-100}
-export HF_HOME=${HF_HOME:-/scratch/project_2009497/hf-cache}
-export TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-${HF_HOME}}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/roihu_job_common.sh"
 
-mkdir -p /scratch/project_2009497/logs "${PRIVATE_ROOT}"/{csv,Allas,Keyframes,database,logs,whisper}
-module --force purge
-module load python-pytorch
-module load ffmpeg
-unset PYTHONPATH
-unset PYTHONHOME
-[[ -x "${VENV}/bin/python" ]] || { echo "Missing Roihu ARM64 venv: ${VENV}" >&2; exit 2; }
-source "${VENV}/bin/activate"
-python3 "${PUBLIC_ROOT}/scripts/roihu/check_ep24_runtime.py"
-python3 "${PUBLIC_ROOT}/scripts/roihu/check_ep24_preprocess_runtime.py"
-cd "${PRIVATE_ROOT}"
-srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 1 --script "${PUBLIC_ROOT}/step_1_roihu_preprocess.py" "$@"
+roihu_load_runtime "pytorch"
+roihu_diagnostics
+roihu_preflight 1
+
+cd "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
+srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_stage_orchestrator.py" \
+  --step 1 \
+  --script "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_1_roihu_preprocess.py" \
+  "$@"
+
+echo "EP24 Step 1 completed at $(date --iso-8601=seconds)"
