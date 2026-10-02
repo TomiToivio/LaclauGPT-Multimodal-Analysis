@@ -92,17 +92,24 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
         for index, entry in enumerate(row.get(column, "").splitlines()):
             if not entry.strip():
                 continue
-            if entry.count("^") != 1 or not all(part.strip() for part in entry.split("^")):
+            if entry.count("^") > 1:
                 warnings.append(f"{column} line {index + 1}: malformed pair retained as raw cell")
                 continue
-            element, affect = entry.split("^")
+            if "^" in entry:
+                element, affect = (part.strip() for part in entry.split("^", 1))
+                if not element or not affect:
+                    warnings.append(f"{column} line {index + 1}: malformed pair retained as raw cell")
+                    continue
+            else:
+                element, affect = entry.strip(), ""
             assertion = uri(base, project, "coding", json.dumps([dataset, row_number, column, index]))
             lines.extend([triple(assertion, RDF_TYPE, NS + "LaclauCoding", resource=True),
                           triple(record, NS + "coding", assertion, resource=True),
                           triple(assertion, NS + "category", category),
-                          triple(assertion, NS + "element", element),
-                          triple(assertion, NS + "affect", affect),
-                          triple(assertion, NS + "assertionKind", "coded-origin-unspecified"),
+                          triple(assertion, NS + "element", element)])
+            if affect:
+                lines.append(triple(assertion, NS + "affect", affect))
+            lines.extend([triple(assertion, NS + "assertionKind", "coded-origin-unspecified"),
                           triple(assertion, PROV + "wasDerivedFrom", record, resource=True)])
     return document, record, "".join(lines), warnings
 

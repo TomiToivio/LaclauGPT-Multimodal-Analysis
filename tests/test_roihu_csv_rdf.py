@@ -111,6 +111,21 @@ class RDFExportTests(unittest.TestCase):
         self.assertNotIn(NS + "Actor", graph)
         self.assertEqual(len(warnings), 1)
 
+    def test_bare_populism_elements_preserve_coding_without_fabricated_affect(self):
+        row = {
+            "videoId": "bare-1",
+            "formula_of_populism_us": "the people\n",
+            "formula_of_populism_frontier": "elites\n",
+        }
+        _, _, graph, warnings = project_row(
+            row, base="https://example.org", project="p", dataset="d", row_number=1
+        )
+        self.assertEqual(warnings, [])
+        self.assertIn(' <' + NS + 'element> "the people" .\n', graph)
+        self.assertIn(' <' + NS + 'element> "elites" .\n', graph)
+        self.assertNotIn(' <' + NS + 'affect> ', graph)
+
+
     def test_limit_and_empty_input(self):
         self.write(self.rows * 3)
         self.assertEqual(export(self.args("sample", limit=1))["rows"], 1)
