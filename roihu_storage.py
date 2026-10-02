@@ -295,6 +295,29 @@ class MongoStorage:
                 count += 1
             return count
 
+    def patch_documents(
+        self,
+        purpose: str,
+        documents: Iterable[Mapping[str, Any]],
+        *,
+        id_field: str = "_storage_id",
+    ) -> int:
+        """Patch fields into cumulative Mongo documents without replacing prior stages."""
+        collection = self.db[self.collection_name(purpose)]
+        count = 0
+        for raw in documents:
+            doc = dict(raw)
+            key = doc.pop(id_field, None)
+            if key in (None, ""):
+                continue
+            collection.update_one(
+                {id_field: key},
+                {"$set": doc, "$setOnInsert": {id_field: key}},
+                upsert=True,
+            )
+            count += 1
+        return count
+
     def find(self, purpose: str, query: Mapping[str, Any] | None = None, *, limit: int = 0) -> list[dict]:
         cursor = self.db[self.collection_name(purpose)].find(dict(query or {}))
         if limit:

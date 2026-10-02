@@ -1,27 +1,156 @@
+import hashlib
 import logging
 import os
 import sqlite3
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
-import ollama
 from ep24_models import ollama_model, ollama_model_source
-from ep24_pipeline import load_cumulative_csv, metadata_context
-from ep24_schema import value as ep24_value
+from ep24_pipeline import load_cumulative_csv, metadata_context, write_cumulative_csv
+from ep24_schema import stable_source_id, value as ep24_value
+from roihu_storage import MongoStorage, StorageConfig
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
 logging.basicConfig(handlers=[RotatingFileHandler('./logs/summary.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# Sqlite3 database connection
-conn = sqlite3.connect('./database/summary.db')
-c = conn.cursor()
-# Create table if not exists
-c.execute('''CREATE TABLE IF NOT EXISTS tiktok_videos
-                (author_username text, 
-                video_id text,
-                summary_analysis text)''')
-conn.commit()
+OUTPUT_COLUMNS = ("metadata", "summary_analysis", "summary_summary_md")
+DB_PATH = Path(os.getenv("LACLAUGPT_SUMMARY_SQLITE", "./database/summary.db"))
+DEDICATED_MODAL_COLUMNS = (
+    "frame_analysis_1",
+    "ocr_1",
+    "asr_transcript",
+    "asr_translated",
+    "whisper_transcript",
+    "whisper_translated",
+    "whisperResult",
+    "vllm_video_analysis",
+    "vllm_video_markdown_analysis",
+    "metadata",
+    "summary_analysis",
+    "summary_summary_md",
+)
+
+
+def _open_cache() -> sqlite3.Connection:
+    """Open the Step-4 restart cache. CSV/Mongo remain the cumulative stores."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS summary_cache (
+            source_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            context_sha256 TEXT NOT NULL,
+            summary_analysis TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (source_id, model, context_sha256)
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+
+def _cache_lookup(
+    conn: sqlite3.Connection, source_id: str, model: str, context_sha256: str
+) -> str | None:
+    row = conn.execute(
+        """SELECT summary_analysis FROM summary_cache
+           WHERE source_id=? AND model=? AND context_sha256=?""",
+        (source_id, model, context_sha256),
+    ).fetchone()
+    return None if row is None else str(row[0] or "")
+
+
+def _cache_store(
+    conn: sqlite3.Connection,
+    *,
+    source_id: str,
+    model: str,
+    context_sha256: str,
+    summary_analysis: str,
+) -> None:
+    conn.execute(
+        """INSERT INTO summary_cache
+           (source_id, model, context_sha256, summary_analysis, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(source_id, model, context_sha256) DO UPDATE SET
+             summary_analysis=excluded.summary_analysis,
+             updated_at=excluded.updated_at""",
+        (
+            source_id,
+            model,
+            context_sha256,
+            summary_analysis,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
+
+
+def _metadata_for_prompt(row):
+    """Keep the full cumulative row except evidence already supplied in dedicated blocks."""
+    reduced = row.drop(labels=[c for c in DEDICATED_MODAL_COLUMNS if c in row.index])
+    return metadata_context(reduced, include_model_fields=True)
+
+
+def _evidence_from_row(row) -> tuple[str, str, str, str]:
+    metadata = _metadata_for_prompt(row)
+    transcript = (
+        str(row.get("asr_translated", "")).strip()
+        or str(row.get("asr_transcript", "")).strip()
+        or str(row.get("whisper_translated", "")).strip()
+        or str(row.get("whisper_transcript", "")).strip()
+        or str(row.get("whisperResult", "")).strip()
+    )
+    frame_parts: list[str] = []
+    frame_text = str(row.get("frame_analysis_1", "")).strip()
+    ocr_text = str(row.get("ocr_1", "")).strip()
+    if frame_text:
+        frame_parts.append(frame_text)
+    if ocr_text:
+        frame_parts.append("### OCR at original t=1.0s\n" + ocr_text)
+    frame_analysis = "\n\n".join(frame_parts)
+    video_analysis = (
+        str(row.get("vllm_video_analysis", "")).strip()
+        or str(row.get("vllm_video_markdown_analysis", "")).strip()
+        or str(row.get("vllm_structured_output", "")).strip()
+    )
+    return metadata, transcript, frame_analysis, video_analysis
+
+
+def _prompt_sha256(system_prompt: str, user_prompt: str, model: str) -> str:
+    payload = f"{model}\n{system_prompt}\n{user_prompt}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _persist_mongo_patch(row, *, source_id: str, model: str, context_sha256: str) -> str:
+    config = StorageConfig.from_env()
+    if not config.mongo_enabled:
+        return "mongo_disabled"
+    storage = MongoStorage(config)
+    try:
+        document = {
+            "_storage_id": source_id,
+            "metadata": str(row.get("metadata", "")),
+            "summary_analysis": str(row.get("summary_analysis", "")),
+            "summary_summary_md": str(row.get("summary_summary_md", "")),
+            "_provenance.step4_summary": {
+                "pipeline_stage": "step_4_summary",
+                "model": model,
+                "context_sha256": context_sha256,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+        count = storage.patch_documents("dataframe", [document])
+        return f"mongo_ok:{count}"
+    finally:
+        storage.close()
+
 
 # Note: Only one Frame analysis from now on.
 # Add video analysis
@@ -188,100 +317,232 @@ The result must be useful as evidence-preserving input to later discourse analys
     return system_prompt
 
 
-def get_llama_summary_response(system_prompt, user_prompt):
-    """Get the Llama model's response for the summary analysis."""
-    options = {"repeat_last_n": 64,
-               "repeat_penalty": 1.1,
-               "num_ctx": 10240,
-               "top_p": 0.9,
-               "top_k": 40,
-               "min_p": 0.0,
-               "temperature": 0.0,
-               "num_predict": 2048}
-    logger.info("model=%s model_source=%s", ollama_model(), ollama_model_source())
-    logger.debug(f"System prompt: {system_prompt}")
-    logger.debug(f"User prompt: {user_prompt}")
-    response = ollama.chat(model=ollama_model(), messages=[
+def get_llama_summary_response(system_prompt, user_prompt, *, model=None):
+    """Get the configured Ollama model's response for the summary analysis."""
+    selected_model = model or ollama_model()
+    options = {
+        "repeat_last_n": 64,
+        "repeat_penalty": 1.1,
+        "num_ctx": int(os.getenv("LACLAUGPT_SUMMARY_NUM_CTX", "32768")),
+        "top_p": 0.9,
+        "top_k": 40,
+        "min_p": 0.0,
+        "temperature": 0.0,
+        "num_predict": int(os.getenv("LACLAUGPT_SUMMARY_NUM_PREDICT", "2048")),
+    }
+    logger.info(
+        "model_call_start model=%s model_source=%s num_ctx=%s num_predict=%s",
+        selected_model,
+        ollama_model_source(),
+        options["num_ctx"],
+        options["num_predict"],
+    )
+    logger.debug("system_prompt=%s", system_prompt)
+    logger.debug("user_prompt=%s", user_prompt)
+    import ollama
+
+    response = ollama.chat(
+        model=selected_model,
+        messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
-    ], options=options)
-    llama_response = response['message']['content']
-    logger.debug(f"LLAMA response: {llama_response}")
+        ],
+        options=options,
+    )
+    llama_response = str(response["message"]["content"])
+    logger.info("model_call_end model=%s response_chars=%d", selected_model, len(llama_response))
+    logger.debug("llama_response=%s", llama_response)
     return llama_response
 
 
 def analyze_videos(language=None):
-    """Fuse all upstream evidence without dropping canonical EP24 metadata."""
-    filename = os.getenv('LACLAUGPT_INPUT_CSV') or f'./csv/tiktok_{language}.csv'
-    df = load_cumulative_csv(filename, require_canonical=bool(os.getenv('LACLAUGPT_INPUT_CSV')))
+    """Run cumulative Step 4 without dropping any upstream data."""
+    started = time.monotonic()
+    filename = os.getenv("LACLAUGPT_INPUT_CSV") or f"./csv/tiktok_{language}.csv"
+    if not Path(filename).exists():
+        logger.warning("input_missing path=%s language=%s", filename, language)
+        return
+    output = os.getenv("LACLAUGPT_OUTPUT_CSV") or filename
+    model = ollama_model()
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
+
+    df = load_cumulative_csv(
+        filename,
+        require_canonical=bool(os.getenv("LACLAUGPT_INPUT_CSV")),
+    )
     if max_rows > 0:
+        logger.warning("demo_row_limit active=%d total=%d", max_rows, len(df))
         df = df.head(max_rows).copy()
-        logger.info("Demo row limit active: processing first %s rows", max_rows)
 
-    # Preserve documented historical behavior without dropping canonical rows.
-    if not os.getenv('LACLAUGPT_INPUT_CSV') and 'whisperResult' in df.columns:
-        df = df.dropna(subset=['whisperResult'])
+    # Step-owned columns may be updated on an idempotent rerun. Every other
+    # incoming value must remain byte-for-byte equivalent through the stage.
+    before = df.drop(
+        columns=[column for column in OUTPUT_COLUMNS if column in df.columns],
+        errors="ignore",
+    ).copy(deep=True)
+    for column in OUTPUT_COLUMNS:
+        if column not in df.columns:
+            df[column] = ""
 
-    if 'summary_analysis' not in df.columns:
-        df['summary_analysis'] = ''
-    if 'summary_summary_md' not in df.columns:
-        df['summary_summary_md'] = ''
+    from ep24_stage_contract import STAGE_CONTRACT
 
-    for index, row in df.iterrows():
-        author_username = ep24_value(row, 'author_username')
-        video_id = ep24_value(row, 'video_id')
-        logger.debug('Analyzing video %s', video_id)
+    expected_prior = [
+        column
+        for stage in STAGE_CONTRACT
+        if stage.number < 4
+        for column in stage.appends
+    ]
+    present_prior = [column for column in expected_prior if column in df.columns]
+    missing_prior = [column for column in expected_prior if column not in df.columns]
 
-        metadata = metadata_context(row)
-        transcript = (
-            str(row.get('asr_translated', '')).strip()
-            or str(row.get('asr_transcript', '')).strip()
-            # Temporary read-only compatibility for frozen legacy artifacts.
-            or str(row.get('whisper_translated', '')).strip()
-            or str(row.get('whisper_transcript', '')).strip()
-            or str(row.get('whisperResult', '')).strip()
-        )
+    config = StorageConfig.from_env()
+    logger.info(
+        "startup step=4 input=%s output=%s language=%s country=%s rows=%d columns=%d "
+        "model=%s model_source=%s sqlite=%s mongo_enabled=%s mongo_db=%s mongo_collection=%s max_rows=%d",
+        filename,
+        output,
+        language or "",
+        config.country,
+        len(df),
+        len(df.columns),
+        model,
+        ollama_model_source(),
+        DB_PATH,
+        config.mongo_enabled,
+        config.mongo_database,
+        config.collection("dataframe"),
+        max_rows,
+    )
+    logger.debug("incoming_columns=%s", list(df.columns))
+    logger.info(
+        "upstream_contract present=%d missing=%d",
+        len(present_prior),
+        len(missing_prior),
+    )
+    if missing_prior:
+        logger.warning("upstream_contract_missing=%s", missing_prior)
 
-        frame_parts = []
-        frame_text = str(row.get('frame_analysis_1', '')).strip()
-        ocr_text = str(row.get('ocr_1', '')).strip()
-        if frame_text:
-            frame_parts.append(frame_text)
-        if ocr_text:
-            frame_parts.append(f"### OCR frame at original t=1.0s\n{ocr_text}")
-        video_text = str(row.get('vllm_video_analysis', '')).strip()
-        if video_text:
-            frame_parts.append("### Whole-video analysis\n" + video_text)
-        frame_analysis = "\n\n".join(frame_parts)
+    stats = {"processed": 0, "failed": 0, "cache_hits": 0, "mongo_writes": 0}
+    connection = _open_cache()
+    try:
+        total = len(df)
+        for ordinal, (index, row) in enumerate(df.iterrows(), start=1):
+            source_id = stable_source_id(row)
+            author_username = ep24_value(row, "author_username")
+            video_id = ep24_value(row, "video_id")
+            metadata, transcript, frame_analysis, video_analysis = _evidence_from_row(row)
+            system_prompt = get_llama_summary_system_prompt()
+            user_prompt = get_llama_summary_user_prompt(
+                metadata,
+                transcript,
+                frame_analysis,
+                video_analysis,
+            )
+            context_sha256 = _prompt_sha256(system_prompt, user_prompt, model)
 
-        c.execute(
-            "SELECT summary_analysis FROM tiktok_videos WHERE author_username = ? AND video_id = ?",
-            (str(author_username), str(video_id)),
-        )
-        cached = c.fetchone()
-        if cached:
-            summary_analysis = str(cached[0] or '')
-        else:
+            logger.info(
+                "row_start ordinal=%d total=%d index=%s source_id=%s author=%s video_id=%s "
+                "frame=%s ocr=%s asr=%s video=%s",
+                ordinal,
+                total,
+                index,
+                source_id,
+                author_username,
+                video_id,
+                bool(str(row.get("frame_analysis_1", "")).strip()),
+                bool(str(row.get("ocr_1", "")).strip()),
+                bool(transcript),
+                bool(video_analysis),
+            )
+            logger.debug(
+                "row_context source_id=%s metadata_chars=%d transcript_chars=%d "
+                "frame_chars=%d video_chars=%d user_prompt_chars=%d context_sha256=%s",
+                source_id,
+                len(metadata),
+                len(transcript),
+                len(frame_analysis),
+                len(video_analysis),
+                len(user_prompt),
+                context_sha256,
+            )
+
             try:
-                user_prompt = get_llama_summary_user_prompt(metadata, transcript, frame_analysis)
-                system_prompt = get_llama_summary_system_prompt()
-                summary_analysis = get_llama_summary_response(system_prompt, user_prompt)
-                c.execute(
-                    "INSERT INTO tiktok_videos (author_username, video_id, summary_analysis) VALUES (?, ?, ?)",
-                    (str(author_username), str(video_id), str(summary_analysis)),
+                cached = _cache_lookup(connection, source_id, model, context_sha256)
+                if cached is not None:
+                    summary_analysis = cached
+                    stats["cache_hits"] += 1
+                    logger.info("cache_hit source_id=%s response_chars=%d", source_id, len(cached))
+                else:
+                    summary_analysis = get_llama_summary_response(
+                        system_prompt,
+                        user_prompt,
+                        model=model,
+                    )
+                    _cache_store(
+                        connection,
+                        source_id=source_id,
+                        model=model,
+                        context_sha256=context_sha256,
+                        summary_analysis=summary_analysis,
+                    )
+                    logger.debug("cache_store source_id=%s", source_id)
+
+                df.at[index, "metadata"] = metadata
+                df.at[index, "summary_analysis"] = summary_analysis
+                df.at[index, "summary_summary_md"] = summary_analysis
+                stats["processed"] += 1
+
+                # Local cumulative CSV is the first durability boundary.
+                write_cumulative_csv(before, df, output)
+                logger.info(
+                    "local_checkpoint source_id=%s output=%s fields=%s",
+                    source_id,
+                    output,
+                    OUTPUT_COLUMNS,
                 )
-                conn.commit()
+
+                try:
+                    status = _persist_mongo_patch(
+                        df.loc[index],
+                        source_id=source_id,
+                        model=model,
+                        context_sha256=context_sha256,
+                    )
+                    if status.startswith("mongo_ok:"):
+                        stats["mongo_writes"] += int(status.split(":", 1)[1])
+                    logger.info("mongo_status source_id=%s status=%s", source_id, status)
+                except Exception:
+                    logger.exception(
+                        "mongo_patch_failed source_id=%s local_checkpoint_is_safe=true",
+                        source_id,
+                    )
             except Exception as exc:
-                logger.exception('Error processing video %s: %s', video_id, exc)
-                summary_analysis = ''
+                stats["failed"] += 1
+                logger.exception(
+                    "row_failed index=%s source_id=%s video_id=%s error=%s",
+                    index,
+                    source_id,
+                    video_id,
+                    exc,
+                )
 
-        df.at[index, 'metadata'] = metadata
-        df.at[index, 'summary_analysis'] = summary_analysis
-        df.at[index, 'summary_summary_md'] = summary_analysis
+        # Ensure even an all-failure/empty run materializes the stage-owned columns.
+        write_cumulative_csv(before, df, output)
+    finally:
+        connection.close()
+        logger.debug("sqlite_closed path=%s", DB_PATH)
 
-    output = os.getenv('LACLAUGPT_OUTPUT_CSV') or filename
-    df.to_csv(output, index=False)
+    logger.info(
+        "complete step=4 processed=%d failed=%d cache_hits=%d mongo_writes=%d "
+        "output=%s elapsed_seconds=%.3f",
+        stats["processed"],
+        stats["failed"],
+        stats["cache_hits"],
+        stats["mongo_writes"],
+        output,
+        time.monotonic() - started,
+    )
+
 
 # Loop through each EP2024 TikTok language and analyze videos
 # All EP2024 TikTok languages for this stage (module level: the documented
@@ -289,15 +550,11 @@ def analyze_videos(language=None):
 languages = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg', 'en']
 
 
-if __name__ == '__main__':
-    try:
-        if os.getenv('LACLAUGPT_INPUT_CSV'):
-            analyze_videos(None)
-        else:
-            for language in languages:
-                analyze_videos(language)
-    finally:
-        c.close()
-        conn.close()
+if __name__ == "__main__":
+    if os.getenv("LACLAUGPT_INPUT_CSV"):
+        analyze_videos(None)
+    else:
+        for language in languages:
+            analyze_videos(language)
 
 
