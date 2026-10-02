@@ -370,20 +370,51 @@ def _affect_for(label: str, affects: list[AffectObservation]) -> str:
 
 
 def compatibility_columns(result: EP24DiscourseAnalysis) -> tuple[str, str]:
+    """Project the structured result onto the legacy ``element^affect`` surface.
+
+    The legacy columns are a deliberate RDF-compatibility surface, so an element
+    that is **evidenced but has no evidenced affect** must still reach it. Two
+    wrong answers are available here and both have been in the tree:
+
+    * ``f"{label}^{affect}"`` fabricates an emotion when there is none;
+    * dropping the line loses the coding entirely, so abstention costs the
+      analysis its finding (#180).
+
+    A bare ``element`` line is neither: it carries the evidenced element and
+    states no affect. Both downstream RDF consumers read it that way -- the CSV
+    projection emits the coding with no affect triple, and the graph exporter's
+    ``parse_populism_elements`` documents the same choice ("a line without the
+    separator is kept as an element with no affect rather than dropped, because
+    an unparsed researcher value is still a research value"). This stage must not
+    import either of them, so the format is agreed by contract, not by import.
+
+    An element with an evidenced affect keeps the historical ``element^affect``
+    form unchanged, and an element with no label is skipped.
+    """
     us_lines = []
     for item in result.us_constructs:
+        label = item.label.strip()
+        if not label:
+            continue
         affect = _affect_for(item.label, result.affects)
-        # Historical RDF expects element^affect. If affect is not evidenced,
-        # omit the legacy projection rather than inventing an emotion or
-        # emitting a malformed bare label. The rich JSON still retains the Us.
-        if affect:
-            us_lines.append(f"{item.label}^{affect}")
+        # An affect containing a newline or a second "^" would make the line
+        # parse differently in the two RDF consumers, so it is omitted rather
+        # than emitted ambiguously.
+        if affect and "^" not in affect and "\n" not in affect:
+            us_lines.append(f"{label}^{affect}")
+        else:
+            us_lines.append(label)
 
     frontier_lines = []
     for item in result.frontier_constructs:
+        them_side = item.them_side.strip()
+        if not them_side:
+            continue
         affect = _affect_for(item.them_side, result.affects)
-        if affect:
-            frontier_lines.append(f"{item.them_side}^{affect}")
+        if affect and "^" not in affect and "\n" not in affect:
+            frontier_lines.append(f"{them_side}^{affect}")
+        else:
+            frontier_lines.append(them_side)
 
     return "\n".join(us_lines), "\n".join(frontier_lines)
 

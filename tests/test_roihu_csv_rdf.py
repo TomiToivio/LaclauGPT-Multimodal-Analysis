@@ -47,7 +47,7 @@ class RDFExportTests(unittest.TestCase):
         self.assertEqual(self.rows[0], {key: actual[key] for key in self.rows[0]})
         self.assertEqual(self.input.read_bytes(), before)
         self.assertEqual((self.root / "run/source.csv").read_bytes(), before)
-        self.assertEqual(result["warnings"], 1)
+        self.assertEqual(result["warnings"], 0)
         self.assertEqual(result["rows"], 1)
 
     def test_cache_hit_then_human_edit_invalidates(self):
@@ -109,7 +109,11 @@ class RDFExportTests(unittest.TestCase):
         self.assertIn("coded-origin-unspecified", graph)
         self.assertNotIn("supports", graph)
         self.assertNotIn(NS + "Actor", graph)
-        self.assertEqual(len(warnings), 1)
+        # The fixture's bare "malformed" line is a coding with no evidenced affect,
+        # not a malformed pair (#180), so it is represented rather than warned
+        # about. Nothing invents an actor or a social edge either way.
+        self.assertEqual(warnings, [])
+        self.assertIn("malformed", graph)
 
     def test_bare_populism_elements_preserve_coding_without_fabricated_affect(self):
         row = {
