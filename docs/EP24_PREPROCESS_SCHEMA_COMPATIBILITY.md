@@ -19,13 +19,15 @@ The materialized private `to_reprocess` files were inspected on 2026-10-02. Ther
 | Bulgaria | 1,700 | 23 |
 | Sweden | 2,591 | 23 |
 
-The 15-column identity/keep schema is:
-`video_id, country, author_username, account_type, source_type, source_recording, sequence_number, political_preference, allas_filename, new_entity, new_theme, video_duration, researcher_new_persons, researcher_new_themes, researcher_note`.
+Issue #21 changes the active input contract to the 13-column canonical annotation schema:
+`video_id, country, author_username, account_type, source_type, source_recording, sequence_number, political_preference, allas_filename, entities, themes, video_duration, researcher_note`.
+
+The four legacy annotation columns are migration inputs only and must be absent before Step 1.
 
 Eight countries additionally carry:
 `entities_seed_provenance, themes_seed_provenance, researcher_note_source, cleaning_status, cleaning_reason, cleaning_rule_id, include_in_reprocess, needs_human_review`.
 
-Those eight fields are real incoming provenance and **must be preserved**. The active reader is therefore deliberately additive/dynamic rather than a projection to 15 columns. Required media identity (`video_id`, `allas_filename`) is present in all ten materialized files.
+Those eight fields are real incoming provenance and **must be preserved**. The active reader is therefore deliberately additive/dynamic rather than a projection to 15 columns. Required media identity (`video_id`, `allas_filename`) and canonical human annotations (`entities`, `themes`) are required by Step 1.
 
 GitHub's ordinary file view still exposes LFS pointer stubs rather than private rows. Step 1 therefore refuses pointer files and logs SHA256, row count, ordered columns, dtypes, and missing media fields after materialization. No private rows are copied into public fixtures or documentation.
 
