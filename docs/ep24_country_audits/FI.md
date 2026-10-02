@@ -2,7 +2,7 @@
 
 Status: **provisional first-agent pass** for issue #72. This is not a completion marker. Finland must be re-checked independently by at least one additional agent before its codebook/context is treated as mature.
 
-Pass 1 also fixed two defects in the shared coverage auditor (`scripts/ep24/codebook_coverage.py`) that made this and every other country's numbers incomparable. See "Tool defects found" below.
+Pass 1 also found and fixed a defect in the shared coverage auditor (`scripts/ep24/codebook_coverage.py`) that made every country's fragmentation numbers incomparable, and independently confirmed a second auditor defect that was fixed upstream. See "Tool defects affecting this pass" below.
 
 ## Scope
 
@@ -67,13 +67,13 @@ Measured surface forms per party inside the legacy `entities` field:
 
 | Party | Distinct forms | Most frequent |
 | --- | --- | --- |
-| Perussuomalaiset | **21** | `perussuomalaiset finns party` |
-| Vihreät | 13 | `green party` |
-| Kokoomus | 11 | `kokoomus` |
-| Keskusta | 10 | `keskusta` |
-| Vasemmistoliitto | 7 | `vasemmistoliitto` |
+| Perussuomalaiset | **21** | a Finnish name + English name combination |
+| Vihreät | 13 | an English name alone |
+| Kokoomus | 11 | the Finnish name alone |
+| Keskusta | 10 | the Finnish name alone |
+| Vasemmistoliitto | 7 | the Finnish name alone |
 
-The variation is not only spelling: it includes **translation into English**, **suffix `party`**, **acronym only** (`ps`), and **both languages concatenated** (`kokoomus national coalition party`). A codebook whose Perussuomalaiset entry carries one alias cannot resolve 21 observed forms.
+The variation is not only spelling: it includes **translation into English**, **suffix `party`**, **acronym only** (`ps`), and **both languages concatenated**. A codebook whose Perussuomalaiset entry carries one alias cannot resolve 21 observed forms.
 
 ### F4. `new_entity` is a *pruning* field, not a correction field — 74.7% removal
 
@@ -136,7 +136,7 @@ This is a defensible prioritization rather than a defect — the seat-winners ca
 ## Normalization recommendations (FI)
 
 1. **Case is not a reliable signal.** 68% of legacy forms are lower-case. Match on a casefolded key and keep the observed surface form for provenance; never require cased agreement.
-2. **Resolve `fi`/`sv`/`en` triples on one canonical ID.** Every major FI party has a Finnish name, a Swedish name and an English name, and the legacy data used all three. The book already hints at this (`Perussuomalaiset` → `Sannfinländarna`, `Kansallinen Kokoomus` → `Samlingspartiet`) but coverage is thin.
+2. **Resolve `fi`/`sv`/`en` triples on one canonical ID.** Every major FI party has a Finnish name, a Swedish name and an English name, and the legacy data used all three. The book already hints at this but coverage is thin.
 3. **Treat a trailing `party` as a kind marker, not part of the name.** The same lesson as the auditor fix: `Perussuomalaiset party` and `Perussuomalaiset` are one entity.
 4. **Do not let a coalition/list acronym stand for a party** where lists exist. Finland used open-list PR in a single nationwide constituency with no electoral threshold, so the coalition-vs-party problem is milder than in HR/PT — but electoral alliances still appear in some countries' data and the rule is shared.
 5. **Institutions are entities too.** Given F4, decide explicitly whether `European Parliament`, `European Union` and `Finnish Government` belong in the entity layer. If they do, they must be re-added deliberately, because the legacy pipeline removed them.
@@ -148,25 +148,40 @@ This is a defensible prioritization rather than a defect — the seat-winners ca
 - **Do not inject the full codebook.** With 325 entries and 83.7% alias-poor, whole-book injection would mostly add unmatched strings. Retrieve by entity, kind and country.
 - **State the evidence boundary in the prompt.** Given F4 and F5, a prompt that says "these are known entities" without distinguishing *observed in this item* from *known in the world* invites the model to assert presence.
 
-## Tool defects found and fixed in this pass
+## Tool defects affecting this pass
 
-Both are in `scripts/ep24/codebook_coverage.py`, added by #81. Both are covered by new regression tests (`tests/test_ep24_codebook_coverage_resolution.py`), each verified to fail against the unfixed tool.
+Both are in `scripts/ep24/codebook_coverage.py`, added by #81. One was fixed in this pass; the other was fixed independently on `main` while this pass was in progress.
 
-1. **Codebook resolution assumed the filename equals the ISO2 code.** `--country FI` failed outright with *"no codebook found"*: Finland's book is `ep24_finland_private.json`, Poland's is `ep24_poland_private.json`, and `countries/fi.json` / `countries/pl.json` do not exist. The auditor therefore could not open **2 of the 11 country books**. Resolution now reads the `country_code` / `country` fields recorded inside each file, falling back to filename matching, and the not-found error lists the books that do exist.
-2. **`entity_fragmentation` keyed on the last token longer than 3 characters**, which for English-labelled entries is often a *kind* word. Finland's largest reported group was **25 unrelated entries collapsed under the key `party`** (`Brothers of Italy party`, `Centre Party`, `Finnish Social Democratic Party`, …) at `obs=209`. That is a false merge, and it **masked the real signal**: post-fix, Finland's genuine fragmentation surfaces as 36 groups, led by Perussuomalaiset (5 forms) and Kokoomus (4).
+### 1. `entity_fragmentation` keyed on kind words — **fixed in this pass**
 
-Blast radius of defect 2: it affects PT, FI, PL, DE and SE; HR, ES, BG, FR and HU are immune. #81's tests were verified against **Croatia** — one of the immune countries — which is why the verification looked clean.
+`entity_fragmentation` keyed on the last token longer than 3 characters, which for English-labelled entries is often a *kind* word rather than a name. Finland's largest reported group was **25 unrelated entries collapsed under the key `party`** at `obs=209`.
+
+That is a false merge, and it **masked the real signal** — it outranked everything, so the genuine groups never surfaced. Post-fix, Finland reports **36** real groups, led by Perussuomalaiset (5 surface forms) and Kokoomus (4).
+
+Blast radius: **PT, FI, PL, DE, SE** affected; **HR, ES, BG, FR, HU immune**. #81's tests were verified against **Croatia** — one of the immune countries — which is why the verification looked clean.
+
+Pinned by `tests/test_ep24_codebook_coverage_resolution.py`, which also verifies each guard fails against the unfixed tool.
+
+### 2. Codebook resolution assumed the filename equals the ISO2 code — **fixed upstream, not in this pass**
+
+`--country FI` originally failed outright with *"no codebook found"*: Finland's book is `ep24_finland_private.json`, Poland's is `ep24_poland_private.json`, and `countries/fi.json` / `countries/pl.json` do not exist. The auditor therefore could not open **2 of the 11 country books**, and this blocked the first measurement attempt for this audit.
+
+This was spotted in this pass and reported, but a parallel agent landed the fix on `main` first, resolving through the repository's own `COUNTRY_PROFILES` mapping. **That fix is upstream's and is the better one** — it uses the project's declared country map rather than inferring from filenames, so it will keep working when a book is renamed again. This pass contributes only an independent confirmation that the upstream fix resolves `FI` and `PL` correctly.
+
+### A third defect documented-but-not-fixed upstream
+
+`_fold` deletes letters that do not decompose under NFKD — Polish `ł`/`đ` and similar. `Arłukowicz` folds to `ar ukowicz`, splitting one token into two. #88 documented this and added `scripts/ep24/fold_fix.py`, but **did not patch the auditor**, so the defect is still live in `codebook_coverage.py`. It does not affect Finnish (`ä`/`ö` decompose normally), but it means PL's published fragmentation counts are inflated relative to other countries. Flagged here; not fixed in this pass, to keep this pass's scope to what was measured for Finland.
 
 ## Open questions for the next FI reviewer
 
 1. Decide F4 explicitly: is `new_entity` a person-only field, or did historical matching remove organisations that should be kept? This changes the #33 seed construction.
 2. Are institutions (`European Parliament`, `European Union`) entities in this project's data model?
 3. Should the FI book be extended to the 7 non-seat-winning 2024 parties, or is seat-weighting the intended policy?
-4. Why do `Brothers of Italy party` and `Italian Prime Minister Meloni` appear in the FI book? They may be legitimate cross-border mentions in Finnish media, or a scoping leak. Not deleted in this pass — flagged.
-5. Confirm the `fi` ↔ `sv` ↔ `en` triple coverage per party against the official party register.
+4. Why do two Italy-related entries appear in the FI book? They may be legitimate cross-border mentions in Finnish media, or a scoping leak. Flagged, not deleted.
+5. Confirm the `fi` ↔ `sv` ↔ `en` triple coverage per party against the official register.
 
 ## Status
 
-Finland is **not finished**. One agent has now measured the state and fixed the two tool defects that made measurement unreliable. Per #72, at least one further independent agent must re-check FI — including the materialized private material — and should challenge these findings rather than accept them.
+Finland is **not finished**. One agent has now measured the state and fixed the auditor defect that made measurement unreliable. Per #72, at least one further independent agent must re-check FI — including the materialized private material — and should challenge these findings rather than accept them.
 
 #72 stays open.
