@@ -1,20 +1,17 @@
 """EP24 researcher-feed metadata helpers.
 
 The active EP24 reprocessing inputs are researcher-recorded/split feed data.
-The input CSV itself is authoritative. Pipeline stages must preserve every
-incoming column dynamically and append new analysis fields.
+The private country CSVs are canonicalized before analysis: human annotations
+arrive in `entities` and `themes`, and the four legacy annotation columns are
+removed by the verified migration in LaclauGPT-Private.
 
-Only media identity is mandatory for media stages:
+Pipeline stages must preserve every incoming column dynamically and append new
+analysis fields. Only media identity is mandatory for media access:
 - video_id
 - allas_filename
 
-Every other incoming column flows through dynamically.
-
-EP24_REPROCESS_COLUMNS describes the canonical post-migration researcher-feed field order. It is
-deliberately NOT a validator: newer inputs may carry extra columns (and older
-ones may miss some), and those must still be preserved and forwarded. It is kept
-because downstream stages (for example roihu_rdf.py) rely on it to order the
-identity columns, and because it pins the canonical contract in tests.
+EP24_REPROCESS_COLUMNS pins the canonical post-migration source order used by
+contracts/tests. It is not a projection rule: extra columns must still survive.
 """
 from __future__ import annotations
 
@@ -34,139 +31,10 @@ EP24_REPROCESS_COLUMNS: tuple[str, ...] = (
     "entities",
     "themes",
     "video_duration",
-    "researcher_note",
-)
-"EP24 researcher-feed metadata helpers.
-
-The active EP24 reprocessing inputs are researcher-recorded/split feed data.
-The input CSV itself is authoritative. Pipeline stages must preserve every
-incoming column dynamically and append new analysis fields.
-
-Only media identity is mandatory for media stages:
-- video_id
-- allas_filename
-
-Every other incoming column flows through dynamically.
-
-EP24_REPROCESS_COLUMNS describes the canonical researcher-feed field order. It is
-deliberately NOT a validator: newer inputs may carry extra columns (and older
-ones may miss some), and those must still be preserved and forwarded. It is kept
-because downstream stages (for example roihu_rdf.py) rely on it to order the
-identity columns, and because it pins the canonical contract in tests.
-"""
-from __future__ import annotations
-
-from collections.abc import Mapping
-from typing import Any
-
-"EP24 researcher-feed metadata helpers.
-
-The active EP24 reprocessing inputs are researcher-recorded/split feed data.
-The input CSV itself is authoritative. Pipeline stages must preserve every
-incoming column dynamically and append new analysis fields.
-
-Only media identity is mandatory for media stages:
-- video_id
-- allas_filename
-
-Every other incoming column flows through dynamically.
-
-EP24_REPROCESS_COLUMNS describes the canonical researcher-feed field order. It is
-deliberately NOT a validator: newer inputs may carry extra columns (and older
-ones may miss some), and those must still be preserved and forwarded. It is kept
-because downstream stages (for example roihu_rdf.py) rely on it to order the
-identity columns, and because it pins the canonical contract in tests.
-"""
-from __future__ import annotations
-
-from collections.abc import Mapping
-from typing import Any
-
-EP24_REPROCESS_COLUMNS: tuple[str, ...] = (
-    "country",
-    "author_username",
-    "account_type",
-    "source_type",
-    "source_recording",
-    "video_id",
-    "sequence_number",
-    "political_preference",
-    "allas_filename",
-    "entities",
-    "themes",
-    "video_duration",
-    "researcher_note",
-)
-"EP24 researcher-feed metadata helpers.
-
-The active EP24 reprocessing inputs are researcher-recorded/split feed data.
-The input CSV itself is authoritative. Pipeline stages must preserve every
-incoming column dynamically and append new analysis fields.
-
-Only media identity is mandatory for media stages:
-- video_id
-- allas_filename
-
-Every other incoming column flows through dynamically.
-
-EP24_REPROCESS_COLUMNS describes the canonical researcher-feed field order. It is
-deliberately NOT a validator: newer inputs may carry extra columns (and older
-ones may miss some), and those must still be preserved and forwarded. It is kept
-because downstream stages (for example roihu_rdf.py) rely on it to order the
-identity columns, and because it pins the canonical contract in tests.
-"""
-from __future__ import annotations
-
-from collections.abc import Mapping
-from typing import Any
-
-EP24_REPROCESS_COLUMNS: tuple[str, ...] = (
-    "country",
-    "author_username",
-    "account_type",
-    "source_type",
-    "source_recording",
-    "video_id",
-    "sequence_number",
-    "political_preference",
-    "allas_filename",
-    "new_entity",
-    "new_theme",
-    "video_duration",
-    "researcher_new_persons",
-    "researcher_new_themes",
     "researcher_note",
 )
 
 REQUIRED_MEDIA_COLUMNS: tuple[str, ...] = ("video_id", "allas_filename")
-
-# The canonical source columns of the researcher-feed reprocess input
-# (analysis/ep24_reprocess/data/to_reprocess/ep24_<country>.csv).
-#
-# This is the KEEP-SCHEMA as a contract constant, not a filter. The active
-# pipeline is deliberately dynamic: every incoming column is preserved as-is and
-# analysis fields are appended, so a country whose CSV carries extra or slightly
-# differently named columns still flows through untouched (see
-# ``source_metadata``). This tuple exists so stages and tests can name, document
-# and validate the canonical schema in one place instead of re-declaring the
-# column names independently. Do not use it to project a row into a fixed shape.
-EP24_REPROCESS_COLUMNS: tuple[str, ...] = (
-    "country",
-    "author_username",
-    "account_type",
-    "source_type",
-    "source_recording",
-    "video_id",
-    "sequence_number",
-    "political_preference",
-    "allas_filename",
-    "new_entity",
-    "new_theme",
-    "video_duration",
-    "researcher_new_persons",
-    "researcher_new_themes",
-    "researcher_note",
-)
 
 LEGACY_ALIASES: dict[str, tuple[str, ...]] = {
     "video_id": ("videoId",),
@@ -177,7 +45,7 @@ LEGACY_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 def value(row: Mapping[str, Any], column: str, default: str = "") -> str:
-    """Read a field, falling back to legacy aliases only when needed."""
+    """Read a field, falling back to scraper-era identity aliases when needed."""
     for candidate in (column, *LEGACY_ALIASES.get(column, ())):
         raw = row.get(candidate, "")
         text = "" if raw is None else str(raw).strip()
