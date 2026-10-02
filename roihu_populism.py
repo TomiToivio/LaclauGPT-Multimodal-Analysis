@@ -114,6 +114,14 @@ class SignifierCandidate(EvidenceCandidate):
     document_level_only: bool = True
 
 
+class PalonenDynamicEvidence(BaseModel):
+    dynamic: Literal["fringe", "mainstream", "competing"]
+    description: str
+    text_span: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    uncertainty_notes: list[str] = Field(default_factory=list)
+
+
 class RhetoricalPerformance(BaseModel):
     action: Literal[
         "connects_demands",
@@ -136,7 +144,8 @@ class EP24DiscourseAnalysis(BaseModel):
     chains: list[ChainRelation] = Field(default_factory=list)
     signifier_candidates: list[SignifierCandidate] = Field(default_factory=list)
     rhetorical_performances: list[RhetoricalPerformance] = Field(default_factory=list)
-    palonen_dynamic_evidence: list[str] = Field(default_factory=list)
+    palonen_dynamic_evidence: list[PalonenDynamicEvidence] = Field(default_factory=list)
+    hegemonic_evidence_candidates: list[EvidenceCandidate] = Field(default_factory=list)
     formula_minimum_conditions_met: bool = False
     formula_abstention_reason: str | None = None
     counter_evidence: list[str] = Field(default_factory=list)
@@ -247,7 +256,12 @@ def build_prompt_context(row: pd.Series, *, max_chars: int | None = None) -> tup
     }
 
     source_meta, source_repr, researcher_fields, prior_analysis = [], [], [], []
+    step6_owned = set(STEP6_COLUMNS)
     for name in row.index:
+        if name in step6_owned:
+            # Never feed Step 6's own prior output back into a rerun prompt.
+            # This keeps context hashes stable and prevents circular reinforcement.
+            continue
         if name in external:
             continue
         if name in researcher:
@@ -287,7 +301,9 @@ def build_prompt_context(row: pd.Series, *, max_chars: int | None = None) -> tup
 
 
 def _prompt_hash(context: str) -> str:
-    return hashlib.sha256(context.encode("utf-8")).hexdigest()
+    model = ollama_model()
+    payload = f"{PROMPT_VERSION}\n{model}\n{SYSTEM_PROMPT}\n{context}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _model_metadata() -> dict[str, Any]:
@@ -323,6 +339,21 @@ def analyze_context(context: str) -> tuple[str, EP24DiscourseAnalysis]:
         parsed = EP24DiscourseAnalysis.model_validate_json(raw)
     except Exception as exc:
         raise Step6ParseError(f"Step 6 structured JSON validation failed: {exc}", raw_response=raw) from exc
+
+    # Mechanical theory guard: a fluent model cannot declare the Formula's
+    # minimum conditions met unless both a collective Us and an explicitly
+    # antagonistic frontier are present in its own structured evidence.
+    minimum_supported = bool(parsed.us_constructs) and any(
+        item.relation == "antagonistic_frontier"
+        for item in parsed.frontier_constructs
+    )
+    if not minimum_supported:
+        parsed.formula_minimum_conditions_met = False
+        if not parsed.formula_abstention_reason:
+            parsed.formula_abstention_reason = (
+                "Minimum conditions not met: both a collective Us and an "
+                "antagonistic frontier require current-source evidence."
+            )
     return raw, parsed
 
 
@@ -342,12 +373,17 @@ def compatibility_columns(result: EP24DiscourseAnalysis) -> tuple[str, str]:
     us_lines = []
     for item in result.us_constructs:
         affect = _affect_for(item.label, result.affects)
-        us_lines.append(f"{item.label}^{affect}" if affect else item.label)
+        # Historical RDF expects element^affect. If affect is not evidenced,
+        # omit the legacy projection rather than inventing an emotion or
+        # emitting a malformed bare label. The rich JSON still retains the Us.
+        if affect:
+            us_lines.append(f"{item.label}^{affect}")
 
     frontier_lines = []
     for item in result.frontier_constructs:
         affect = _affect_for(item.them_side, result.affects)
-        frontier_lines.append(f"{item.them_side}^{affect}" if affect else item.them_side)
+        if affect:
+            frontier_lines.append(f"{item.them_side}^{affect}")
 
     return "\n".join(us_lines), "\n".join(frontier_lines)
 
@@ -413,6 +449,27 @@ def _persist_row(storage, row: pd.Series, *, country: str) -> int:
     return storage.patch_documents("dataframe", [doc])
 
 
+def _resume_from_mongo(storage, record_id: str, *, context_hash: str) -> dict[str, Any] | None:
+    """Return Step 6 fields only when durable provenance exactly matches."""
+    docs = storage.find("dataframe", {"_storage_id": record_id}, limit=1)
+    if not docs:
+        return None
+    doc = docs[0]
+    if str(doc.get("laclau_status", "")) != "ok":
+        return None
+    if str(doc.get("laclau_prompt_version", "")) != PROMPT_VERSION:
+        return None
+    if str(doc.get("laclau_context_sha256", "")) != context_hash:
+        return None
+    try:
+        model_meta = json.loads(str(doc.get("laclau_model_metadata_json", "") or "{}"))
+    except json.JSONDecodeError:
+        return None
+    if str(model_meta.get("model", "")) != ollama_model():
+        return None
+    return {column: doc.get(column, "") for column in STEP6_COLUMNS}
+
+
 def _finalize_context_handle(handle: Any | None, df: pd.DataFrame) -> None:
     if not handle:
         return
@@ -432,6 +489,11 @@ def process_country(country: str | None = None) -> Path:
     original = load_cumulative_csv(input_path, require_canonical=bool(os.getenv("LACLAUGPT_INPUT_CSV")))
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
     if max_rows > 0:
+        if output_path.resolve() == input_path.resolve() and max_rows < len(original):
+            raise ValueError(
+                "Refusing to truncate the input CSV: when LACLAUGPT_MAX_ROWS is set, "
+                "LACLAUGPT_OUTPUT_CSV must be a different path."
+            )
         original = original.head(max_rows).copy()
 
     out = original.copy()
@@ -473,6 +535,22 @@ def process_country(country: str | None = None) -> Path:
                     context_hash, truncated,
                 )
                 try:
+                    resumed = (
+                        _resume_from_mongo(storage, record_id, context_hash=context_hash)
+                        if storage is not None
+                        else None
+                    )
+                    if resumed is not None:
+                        for column, value in resumed.items():
+                            out.at[index, column] = value
+                        out.at[index, "laclau_persistence_status"] = "mongo_resume"
+                        redis.mark(record_id, "complete")
+                        LOG.info(
+                            "Step 6 Mongo resume hit country=%s row=%s id=%s context_sha256=%s",
+                            normalized_country, index, record_id, context_hash,
+                        )
+                        continue
+
                     raw, result = analyze_context(context)
                     us_legacy, frontier_legacy = compatibility_columns(result)
                     generated_at = datetime.now(timezone.utc).isoformat()
@@ -504,7 +582,6 @@ def process_country(country: str | None = None) -> Path:
                         out.at[index, "laclau_persistence_status"] = "mongo_patch:pending"
                         persisted = _persist_row(storage, out.loc[index], country=normalized_country)
                         out.at[index, "laclau_persistence_status"] = f"mongo_patch:{persisted}"
-                        _persist_row(storage, out.loc[index], country=normalized_country)
                     else:
                         out.at[index, "laclau_persistence_status"] = "mongo_disabled"
                     redis.mark(record_id, "complete")
