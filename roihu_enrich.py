@@ -39,15 +39,20 @@ def enabled() -> bool:
 
 
 def split_values(value) -> list[str]:
+    """Parse cumulative list fields without splitting commas inside labels."""
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return []
     text = str(value).strip()
     if not text:
         return []
-    for separator in ("\\n", ";", "|"):
-        text = text.replace(separator, ",")
-    return [item.strip() for item in text.split(",") if item.strip()]
-
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = None
+    if isinstance(parsed, list):
+        return [str(item).strip() for item in parsed if str(item).strip()]
+    parts = re.split(r"[;|\\n]+", text)
+    return [item.strip() for item in parts if item.strip()]
 
 def _abstain_fields(identity: dict[str, Any]) -> dict[str, Any]:
     """Shrink a ``resolve_identity`` payload to what an unresolved record needs.
