@@ -16,6 +16,7 @@ from laclaugpt_quality import (
     delete_audit_output_path,
     merge_status,
     normalize_status,
+    partition_by_status,
     reprocess_output_path,
     safe_delete_local_paths,
 )
@@ -446,10 +447,7 @@ def analyze_responses(language=None):
         )
 
     # Step 5 is the authoritative routing gate. Only OK rows reach Step 6.
-    status_series = df["processing_status"].map(lambda value: normalize_status(value or "OK"))
-    ok_df = df.loc[status_series == "OK"].copy()
-    reprocess_df = df.loc[status_series == "REPROCESS"].copy()
-    delete_df = df.loc[status_series == "DELETE"].copy()
+    ok_df, reprocess_df, delete_df = partition_by_status(df)
 
     reprocess_path = reprocess_output_path(output)
     delete_audit_path = delete_audit_output_path(output)
