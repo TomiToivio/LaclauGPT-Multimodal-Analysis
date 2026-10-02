@@ -55,7 +55,7 @@ def test_cumulative_write_preserves_source_and_upstream_fields(tmp_path):
     assert list(reloaded.columns[:len(EP24_REPROCESS_COLUMNS)]) == list(EP24_REPROCESS_COLUMNS)
     for column, expected in ROW.items():
         assert reloaded.loc[0, column] == expected
-    for column in ("whisper_transcript", "frame_analysis_1", "summary_analysis", "dna_statements_json"):
+    for column in ("asr_transcript", "frame_analysis_1", "summary_analysis", "dna_statements_json"):
         assert column in reloaded.columns
 
 
@@ -70,7 +70,7 @@ def test_source_metadata_mutation_is_rejected():
 def test_prompt_context_separates_provenance_classes():
     row = pd.Series({
         **ROW,
-        "whisper_transcript": "model transcript",
+        "asr_transcript": "model transcript",
         "summary_analysis": "model summary",
         "codebook_matches": "derived codebook context",
     })
