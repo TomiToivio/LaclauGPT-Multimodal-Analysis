@@ -31,6 +31,7 @@ from ep24_pipeline import (
 )
 from ep24_schema import stable_source_id, value as ep24_value
 from ep24_video import VIDEO_INITIAL_SKIP_SECONDS
+from laclaugpt_quality import QUALITY_COLUMNS, merge_status, quality_decision_from_analysis
 
 FRAME_TIMESTAMP_SECONDS = 1.0
 OUTPUT_COLUMNS = (
@@ -39,6 +40,9 @@ OUTPUT_COLUMNS = (
     "frame_analysis_status",
     "frame_analysis_model",
     "frame_analysis_context_sha256",
+    "frame_quality_status",
+    "frame_quality_reason",
+    *QUALITY_COLUMNS,
 )
 LOG_PREVIEW_CHARS = int(os.getenv("LACLAUGPT_LOG_PREVIEW_CHARS", "1200"))
 
@@ -423,19 +427,53 @@ def analyze_videos(language=None):
                 df.at[index, "frame_analysis_status"] = status
                 df.at[index, "frame_analysis_model"] = model
                 df.at[index, "frame_analysis_context_sha256"] = context_sha256
+                frame_quality_status, frame_quality_reason = quality_decision_from_analysis(frame_response)
+                old_status = row.get("processing_status", "OK")
+                old_reason = row.get("processing_status_reason", "")
+                merged_status, merged_reason = merge_status(
+                    old_status,
+                    frame_quality_status,
+                    current_reason=old_reason,
+                    new_reason=frame_quality_reason,
+                )
+                df.at[index, "frame_quality_status"] = frame_quality_status
+                df.at[index, "frame_quality_reason"] = frame_quality_reason
+                df.at[index, "processing_status"] = merged_status
+                df.at[index, "processing_status_reason"] = merged_reason
+                if str(old_status or "OK").upper() != merged_status:
+                    logger.info(
+                        "[QUALITY] %s %s -> %s: %s",
+                        source_id, str(old_status or "OK").upper(), merged_status, merged_reason,
+                    )
                 logger.debug(
                     "row_written index=%s fields=%s status=%s",
                     index, list(OUTPUT_COLUMNS), status,
                 )
             except Exception as exc:
                 df.at[index, "frame_analysis_status"] = "error"
+                old_status = row.get("processing_status", "OK")
+                old_reason = row.get("processing_status_reason", "")
+                frame_quality_status, frame_quality_reason = quality_decision_from_analysis(
+                    "", failure=True, failure_reason=str(exc)
+                )
+                merged_status, merged_reason = merge_status(
+                    old_status,
+                    frame_quality_status,
+                    current_reason=old_reason,
+                    new_reason=frame_quality_reason,
+                )
+                df.at[index, "frame_quality_status"] = frame_quality_status
+                df.at[index, "frame_quality_reason"] = frame_quality_reason
+                df.at[index, "processing_status"] = merged_status
+                df.at[index, "processing_status_reason"] = merged_reason
+                logger.info("[QUALITY] %s -> %s: %s", source_id, merged_status, merged_reason)
                 logger.exception(
                     "row_failed index=%s source_id=%s platform=%s video_id=%s error=%s",
                     index, source_id, platform, video_id, exc,
                 )
 
         # Verify the stage is additive before writing. Existing columns are immutable.
-        assert_source_metadata_preserved(before, df)
+        assert_source_metadata_preserved(before, df, mutable_columns=QUALITY_COLUMNS)
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output, index=False, encoding="utf-8")
         logger.info("output_saved path=%s rows=%d columns=%d", output, len(df), len(df.columns))

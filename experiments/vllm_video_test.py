@@ -46,6 +46,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ep24_pipeline import assert_source_metadata_preserved, metadata_context
+from laclaugpt_quality import QUALITY_COLUMNS, merge_status, quality_decision_from_analysis
 from ep24_video import (
     VIDEO_INITIAL_SKIP_SECONDS,
     analysis_clip_path,
@@ -122,6 +123,9 @@ OUTPUT_COLUMNS = (
     "vllm_peak_gpu_memory_mb",
     "vllm_structured_status",
     "vllm_structured_output",
+    "video_quality_status",
+    "video_quality_reason",
+    *QUALITY_COLUMNS,
 )
 
 # EDITABLE RESEARCHER PROMPT SECTION.
@@ -1336,6 +1340,21 @@ def main(argv: list[str] | None = None) -> int:
             record["vllm_video_analysis"] = analysis
             record["vllm_video_markdown_analysis"] = analysis
             record["vllm_video_status"] = "ok"
+            video_quality_status, video_quality_reason = quality_decision_from_analysis(analysis)
+            prior_status = row.get("processing_status", "OK")
+            prior_reason = row.get("processing_status_reason", "")
+            merged_status, merged_reason = merge_status(
+                prior_status,
+                video_quality_status,
+                current_reason=prior_reason,
+                new_reason=video_quality_reason,
+            )
+            record["video_quality_status"] = video_quality_status
+            record["video_quality_reason"] = video_quality_reason
+            record["processing_status"] = merged_status
+            record["processing_status_reason"] = merged_reason
+            if str(prior_status or "OK").upper() != merged_status:
+                logger.info("[QUALITY] %s %s -> %s: %s", source_id, str(prior_status or "OK").upper(), merged_status, merged_reason)
             logger.info("  analysis_chars    : %d", len(analysis))
             logger.debug("  raw_response      : %s", redact_sensitive(raw_output))
             if sha256_file(local_path) != source_checksum:
@@ -1346,6 +1365,22 @@ def main(argv: list[str] | None = None) -> int:
             failed += 1
             record["vllm_video_status"] = "error"
             record["vllm_video_error"] = redact_sensitive(f"{type(exc).__name__}: {exc}")
+            video_quality_status, video_quality_reason = quality_decision_from_analysis(
+                "", failure=True, failure_reason=record["vllm_video_error"]
+            )
+            prior_status = row.get("processing_status", "OK")
+            prior_reason = row.get("processing_status_reason", "")
+            merged_status, merged_reason = merge_status(
+                prior_status,
+                video_quality_status,
+                current_reason=prior_reason,
+                new_reason=video_quality_reason,
+            )
+            record["video_quality_status"] = video_quality_status
+            record["video_quality_reason"] = video_quality_reason
+            record["processing_status"] = merged_status
+            record["processing_status_reason"] = merged_reason
+            logger.info("[QUALITY] %s -> %s: %s", source_id, merged_status, merged_reason)
             logger.error("  FAILED: %s", redact_sensitive(f"{type(exc).__name__}: {exc}"))
             logger.error("  traceback:\n%s", redact_sensitive(traceback.format_exc()))
         finally:
@@ -1373,6 +1408,7 @@ def main(argv: list[str] | None = None) -> int:
     assert_source_metadata_preserved(
         before.loc[selected].reset_index(drop=True),
         out_df,
+        mutable_columns=QUALITY_COLUMNS,
     )
     try:
         mongo_status = persist_mongo_patch(

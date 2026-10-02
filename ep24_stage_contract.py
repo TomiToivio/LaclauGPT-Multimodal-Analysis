@@ -81,7 +81,8 @@ STAGE_CONTRACT: tuple[Stage, ...] = (
         2, "frame", "roihu_frame.py",
         ("frame_analysis_1", "frame_analysis_timestamp_seconds",
          "frame_analysis_status", "frame_analysis_model",
-         "frame_analysis_context_sha256"),
+         "frame_analysis_context_sha256", "frame_quality_status", "frame_quality_reason",
+         "processing_status", "processing_status_reason"),
         notes="Exactly one Step 1 keyframe at original t=1.0s; all accumulated row fields are preserved and passed as cumulative prompt context.",
     ),
     _s(
@@ -102,14 +103,16 @@ STAGE_CONTRACT: tuple[Stage, ...] = (
          "vllm_video_inference_seconds", "vllm_video_prompt_hash",
          "vllm_version", "vllm_torch_version", "vllm_cuda_version", "vllm_gpu_name",
          "vllm_hostname", "vllm_peak_gpu_memory_mb", "vllm_structured_status",
-         "vllm_structured_output"),
+         "vllm_structured_output", "video_quality_status", "video_quality_reason",
+         "processing_status", "processing_status_reason"),
         notes="Cumulative whole-video VLM stage. The entry point is "
               "step_3_roihu_video.py, which wraps experiments/vllm_video_test.py; "
               "ep24_video.py is the shared skip/trim rules library, not an "
               "executable stage. Column list mirrors vllm_video_test.OUTPUT_COLUMNS.",
     ),
     _s(4, "summary", "roihu_summary.py",
-       ("metadata", "summary_analysis", "summary_summary_md")),
+       ("metadata", "summary_analysis", "summary_summary_md", "summary_quality_status",
+        "summary_quality_reason", "processing_status", "processing_status_reason")),
     _s(
         5,
         "postprocess",
@@ -139,6 +142,8 @@ STAGE_CONTRACT: tuple[Stage, ...] = (
             "ep24_seed_themes_json",
             "ep24_sentiment_targets_json",
             "ep24_human_seed_context",
+            "processing_status",
+            "processing_status_reason",
         ),
         notes="Structured machine entity/theme/sentiment extraction is stored separately from immutable human entities/themes, followed immediately by conservative codebook/memory normalization before Step 6.",
     ),

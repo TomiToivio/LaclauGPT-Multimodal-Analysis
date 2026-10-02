@@ -15,13 +15,14 @@ from ep24_rag import retrieve_stage_rag, upsert_stage_rag
 from ep24_redis import RedisCoordinator
 from ep24_schema import stable_source_id, value as ep24_value
 from roihu_storage import StorageConfig
+from laclaugpt_quality import QUALITY_COLUMNS, merge_status, summary_quality_decision
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
 logging.basicConfig(handlers=[RotatingFileHandler('./logs/summary.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-OUTPUT_COLUMNS = ("metadata", "summary_analysis", "summary_summary_md")
+OUTPUT_COLUMNS = ("metadata", "summary_analysis", "summary_summary_md", "summary_quality_status", "summary_quality_reason", *QUALITY_COLUMNS)
 DB_PATH = Path(os.getenv("LACLAUGPT_SUMMARY_SQLITE", "./database/summary.db"))
 DEDICATED_MODAL_COLUMNS = (
     "frame_analysis_1",
@@ -508,6 +509,27 @@ def analyze_videos(language=None):
             author_username = ep24_value(row, "author_username")
             video_id = ep24_value(row, "video_id")
             metadata, transcript, frame_analysis, video_analysis = _evidence_from_row(row)
+            old_status = row.get("processing_status", "OK")
+            old_reason = row.get("processing_status_reason", "")
+            summary_quality_status, summary_quality_reason = summary_quality_decision(
+                transcript=transcript,
+                frame_analysis=frame_analysis,
+                video_analysis=video_analysis,
+                prior_status=old_status,
+                prior_reason=old_reason,
+            )
+            merged_status, merged_reason = merge_status(
+                old_status,
+                summary_quality_status,
+                current_reason=old_reason,
+                new_reason=summary_quality_reason,
+            )
+            df.at[index, "summary_quality_status"] = summary_quality_status
+            df.at[index, "summary_quality_reason"] = summary_quality_reason
+            df.at[index, "processing_status"] = merged_status
+            df.at[index, "processing_status_reason"] = merged_reason
+            if str(old_status or "OK").upper() != merged_status:
+                logger.info("[QUALITY] %s %s -> %s: %s", source_id, str(old_status or "OK").upper(), merged_status, merged_reason)
             retrieval_query = "\n".join(
                 value for value in (
                     str(row.get("entities", "")).strip(),
@@ -628,7 +650,7 @@ def analyze_videos(language=None):
                     stats["processed"] += 1
 
                     # CSV remains the cumulative interchange/checkpoint artifact.
-                    write_cumulative_csv(before, df, output)
+                    write_cumulative_csv(before, df, output, mutable_columns=QUALITY_COLUMNS)
                     logger.info(
                         "local_checkpoint source_id=%s output=%s fields=%s",
                         source_id,
@@ -681,7 +703,7 @@ def analyze_videos(language=None):
                 )
 
         # Ensure even an all-failure/empty run materializes the stage-owned columns.
-        write_cumulative_csv(before, df, output)
+        write_cumulative_csv(before, df, output, mutable_columns=QUALITY_COLUMNS)
     finally:
         connection.close()
         logger.debug("sqlite_closed path=%s", DB_PATH)
