@@ -1,6 +1,21 @@
-# EP24 bilingual codebook policy
+# EP24 bilingual codebook policy — the *review-state* metric
 
 Tracking: #101.
+
+> **This document describes ONE of two bilingual metrics.** There are two, they
+> answer different questions, and they legitimately disagree by ~8x on the same
+> corpus. Read both before quoting either number:
+>
+> | question | function | report | this doc? |
+> |---|---|---|---|
+> | Has every non-English-sourced entry had its **review state** recorded, even when the English form is identical? | `english_label_required` | `scripts/ep24/english_label_coverage.py` | **yes** |
+> | Does the label need an English **translation**? (label is not already English) | `english_translation_required` | `scripts/ep24/check_bilingual_coverage.py` | no — see `docs/EP24_BILINGUAL_LABEL_POLICY.md` |
+>
+> The two are kept as separate named functions on purpose (#116/#120). The
+> review-state metric exists so that "verified identical" stays distinguishable
+> from "not reviewed yet"; the translation metric exists so a researcher has a
+> bounded repair list. Which one a workflow should gate on is a project decision,
+> not something either document settles.
 
 EP24 codebooks preserve the local-language canonical label. English is a linked
 retrieval/translation form, never a reason to replace or merge the local canonical
