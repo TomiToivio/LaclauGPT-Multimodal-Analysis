@@ -43,6 +43,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from ep24_models import ollama_model
 from ep24_schema import EP24_REPROCESS_COLUMNS, value as ep24_value
 
 os.makedirs("./logs", exist_ok=True)
@@ -325,7 +326,7 @@ class Provenance:
     def capture(cls) -> Provenance:
         return cls(
             run_id=os.getenv("SLURM_JOB_ID", f"local-{int(time.time())}"),
-            model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"),
+            model=ollama_model(),
             generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             code_version=os.getenv("LACLAUGPT_MULTIMODAL_CODE_VERSION", "unversioned"),
         )
