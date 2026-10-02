@@ -58,6 +58,28 @@ def normalised(relative: str) -> str:
     return " ".join(text.split()).lower()
 
 
+def sentences(text: str) -> list[str]:
+    """Split normalised text into sentences, for assertion scoped to one claim."""
+    return [part for part in re.split(r"(?<=[.!?])\s+", text) if part]
+
+
+#: Completion claims the guide must not make while the migration has not happened.
+#:
+#: The honest wording NEGATES these ("No EP24->AI26 port has been performed"), so the
+#: check is per-sentence and a sentence carrying a negation token is exempt.
+_OVERCLAIM_CLAIMS = (
+    re.compile(r"migration\s+(?:is|has\s+been)\s+(?:complete|completed|done|finished)"),
+    re.compile(r"\bport\s+(?:is|has\s+been)\s+(?:complete|completed|done|performed)"),
+    re.compile(r"\bfully\s+ported\b"),
+    re.compile(r"\bhas\s+been\s+ported\b"),
+    re.compile(r"\bmigrated\s+to\s+ai26\b"),
+    re.compile(r"\bmigration\s+is\s+no\s+longer\s+needed\b"),
+)
+
+#: Tokens that mark a completion claim as negated, i.e. honest.
+_OVERCLAIM_NEGATIONS = ("no ", "not ", "never", "n't", "without", "pending", "not started")
+
+
 class TestGuideExists:
     def test_guide_exists(self) -> None:
         assert (ROOT / GUIDE).exists(), f"{GUIDE} is missing"
@@ -118,10 +140,53 @@ class TestContractAwareness:
 
 class TestNoOverclaim:
     def test_migration_is_not_claimed_as_done(self) -> None:
-        """#198 scopes the port as future direction."""
+        """#198 scopes the port as future direction.
+
+        This asserts both directions. Checking only that the honest wording is
+        PRESENT is satisfiable while a contradictory claim sits beside it: inserting
+        "the migration is complete" into the section left the previous version of this
+        guard green. A structural guard has to reject the overclaim too.
+        """
         text = normalised(GUIDE)
         assert "status: not started" in text
         assert "no ep24→ai26 port has been performed" in text
+
+    def test_no_sentence_claims_the_migration_is_complete(self) -> None:
+        """The negative half: an overclaiming sentence must not coexist with the above.
+
+        Scoped per sentence and exempting negated ones, because the honest status line
+        legitimately negates the same phrases ("No EP24->AI26 port has been performed").
+        """
+        offences: list[str] = []
+        for sentence in sentences(normalised(GUIDE)):
+            if any(token in sentence for token in _OVERCLAIM_NEGATIONS):
+                continue
+            for pattern in _OVERCLAIM_CLAIMS:
+                if pattern.search(sentence):
+                    offences.append(sentence)
+                    break
+        assert not offences, (
+            "the guide claims the migration is complete, which #198 scopes as future "
+            f"direction: {offences}"
+        )
+
+    def test_the_overclaim_check_can_actually_fire(self) -> None:
+        """Sabotage the check itself, so it cannot pass vacuously.
+
+        Without this, a typo in the patterns would leave the guard green forever and
+        the gap it exists to close would silently reopen.
+        """
+        sample = "the ep24 → ai26 migration is complete and everything has been ported."
+        hits = [p for p in _OVERCLAIM_CLAIMS if p.search(sample)]
+        assert hits, "the overclaim patterns no longer match a plain completion claim"
+        # ...and the honest negation must NOT be flagged.
+        honest = "no ep24→ai26 port has been performed; status: not started."
+        negated = [
+            p
+            for p in _OVERCLAIM_CLAIMS
+            if p.search(honest) and not any(t in honest for t in _OVERCLAIM_NEGATIONS)
+        ]
+        assert not negated, f"honest status wording is falsely flagged: {negated}"
 
     def test_repository_status_table_names_both_repos(self) -> None:
         text = normalised(GUIDE)
