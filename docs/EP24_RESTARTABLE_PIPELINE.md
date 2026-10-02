@@ -17,12 +17,9 @@ Bootstrap discovers `LaclauGPT-Private/analysis/ep24_reprocess/data/to_reprocess
 3. Portugal
 4. all remaining countries alphabetically
 
-Before Step 1, bootstrap creates canonical row fields:
+Before Step 1, the private country CSVs are already canonicalized by the issue #21 migration. Human annotations arrive only in `entities` and `themes`; the four legacy annotation columns have been removed after verification.
 
-- `new_entity + researcher_new_persons -> entities`
-- `new_theme + researcher_new_themes -> themes`
-
-The four original researcher columns remain unchanged for provenance. Bootstrap also creates stable `_storage_id` values, imports the cumulative records to MongoDB, loads available bilingual private codebooks into MongoDB, seeds normalization memory, and writes Step 0 CSV + SQLite backups with checksums.
+Bootstrap validates that canonical schema, creates stable `_storage_id` values, imports the cumulative records to MongoDB, loads available bilingual private codebooks into MongoDB, seeds normalization memory, and writes Step 0 CSV + SQLite backups with checksums.
 
 ## Storage roles
 
