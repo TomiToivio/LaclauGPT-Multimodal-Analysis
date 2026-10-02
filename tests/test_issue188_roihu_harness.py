@@ -30,6 +30,9 @@ def test_all_first_six_jobs_use_current_roihu_contract():
         assert "#SBATCH --gres=gpu:gh200:1" in text
         assert "#SBATCH --time=36:00:00" in text
         assert "roihu_job_common.sh" in text
+        assert "SLURM_SUBMIT_DIR" in text
+        assert "LACLAUGPT_MULTIMODAL_PUBLIC_ROOT" in text
+        assert 'dirname "${BASH_SOURCE[0]}"' not in text
         assert "roihu_preflight" in text
         assert 'srun --ntasks=1 python3' in text
 
@@ -76,3 +79,9 @@ def test_private_env_root_override_drives_derived_paths(tmp_path, monkeypatch):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+def test_roihu_common_exports_legacy_diagnostic_root_aliases():
+    text = read("scripts/roihu/roihu_job_common.sh")
+    assert 'export PUBLIC_ROOT=' in text
+    assert 'export PRIVATE_ROOT=' in text
