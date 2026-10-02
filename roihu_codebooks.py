@@ -250,6 +250,21 @@ def _normalize_item(item: dict[str, Any], *, kind: str, default_country: str, de
         source_values = [item.get("provenance")]
     if not isinstance(source_values, list):
         source_values = [source_values]
+    # Public-context codebook entries nest their authoritative URLs inside
+    # ``provenance.sources`` (a list of URL strings), not at entry level. Read
+    # them explicitly: passing the bare provenance dict to ``_source_ref``
+    # yields a single ref whose ``url`` is empty, so every nested URL used to be
+    # dropped silently and ``entry.sources[].url`` was always "".
+    nested_values: list[Any] = []
+    for value in source_values:
+        if not isinstance(value, dict):
+            continue
+        for key in ("sources", "source_refs", "urls"):
+            inner = value.get(key)
+            if isinstance(inner, str):
+                inner = [inner]
+            if isinstance(inner, list):
+                nested_values.extend(inner)
     origin = _clean(item.get("origin") or item.get("provenance_class") or item.get("status") or "public_context")
     reviewed = item.get("reviewed")
     review_state = _clean(item.get("review_state") or item.get("state"))
@@ -272,7 +287,7 @@ def _normalize_item(item: dict[str, Any], *, kind: str, default_country: str, de
         entity_type=_clean(item.get("entity_type") or item.get("type")),
         review_state=review_state.upper(), origin=origin, locked=locked,
         valid_from=_clean(item.get("valid_from")), valid_to=_clean(item.get("valid_to")), layer=layer,
-        sources=[_source_ref(v) for v in source_values], metadata=dict(item.get("metadata") or {}),
+        sources=[_source_ref(v) for v in [*source_values, *nested_values]], metadata=dict(item.get("metadata") or {}),
     )
 
 
