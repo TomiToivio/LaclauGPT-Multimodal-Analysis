@@ -44,10 +44,10 @@ queries and reasoners can see them.
 |---|---|---|
 | `lg:Document` | one video/post | one CSV row |
 | `lg:Actor` | the posting account | `authorUniqueId` (+ `authorNickname`, `authorSignature`) |
-| `lg:Frame` | an extracted keyframe file | one entry in `frame_files` |
-| `lg:FrameAnalysis` | a model's reading of a frame | `frame_analysis_1..6` |
-| `lg:ScreenText` | on-screen text observed in a frame (OCR) | `ocr_1..6` |
-| `lg:Transcript` | speech transcript | `whisperResult`, `whisper_transcript`, `whisper_translated` |
+| `lg:Frame` | an extracted keyframe file | active `frame_file`; historical `frame_files` fallback |
+| `lg:FrameAnalysis` | a model's reading of a frame | active `frame_analysis_1`; historical `frame_analysis_1..6` fallback |
+| `lg:ScreenText` | on-screen text observed in a frame (OCR) | active `ocr_1`; historical `ocr_1..6` fallback |
+| `lg:Transcript` | speech transcript | active `asr_transcript`, `asr_translated`, `asr_language`, backend/model provenance; historical Whisper fallback |
 | `lg:Summary` | the summary analysis | `summary_analysis` (+ `metadata` as its prompt input) |
 | `lg:Topic` | a topic | `topics` |
 | `lg:Entity` | an entity | `entities` |
@@ -90,16 +90,18 @@ unrecognised ones become `lg:LegacyField` and are **not** dropped.
 
 | Stage | Columns |
 |---|---|
-| preprocess | `frame_files`, `ocr_1..6`, `whisperResult`, `whisper_transcript`, `whisper_language`, `whisper_translated` |
+| preprocess | active: `frame_file`, `frame_timestamp_seconds`, `ocr_1`, `ocr_backend`, `ocr_model`, `asr_transcript`, `asr_language`, `asr_translated`, `asr_backend`, `asr_model`, runtime/status/provenance fields; frozen legacy rows may still contain `frame_files`, `ocr_2..6`, `whisperResult`, `whisper_*` |
 | frame | `frame_analysis_1..6` |
 | summary | `metadata`, `summary_analysis`, `authorNickname`, `authorSignature`, `videoCreated`, `videoDescription`, `videoDuration`, `videoCommentCount`, `videoDiggCount`, `videoPlayCount`, `videoShareCount` |
 | postprocess | `entities`, `topics`, `positive`, `neutral`, `negative` |
 | populism | `formula_of_populism_analysis`, `formula_of_populism_us`, `formula_of_populism_frontier` |
 | identity | `authorUniqueId`, `videoId`, `video_filename`, `language`, `scrapedCountry` |
 
-Two encodings of `frame_files` exist historically — `str(list)` from older cache
-rows and comma-separated paths from fresh ones — and both are parsed, matching
-`puhti_preprocess.normalize_frame_files`.
+Issue #128 makes the active preprocess representation singular: one `frame_file`
+at original t=1.0s, one `ocr_1`, and backend-neutral `asr_*` fields. The RDF
+export still reads the two historical `frame_files` encodings and Whisper-named
+fields so frozen pre-#128 artifacts remain exportable; it never writes those
+legacy fields back into the dataframe.
 
 ## Usage
 
