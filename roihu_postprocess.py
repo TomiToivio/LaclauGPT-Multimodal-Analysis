@@ -6,6 +6,7 @@ import ollama
 import pandas as pd
 from logging.handlers import RotatingFileHandler
 from pydantic import BaseModel
+from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import ensure_columns, load_cumulative_csv, metadata_context
 from ep24_schema import stable_source_id, value as ep24_value
 
@@ -67,8 +68,9 @@ def get_response(user_prompt, system_prompt):
         'num_predict': 2048,
     }
     try:
+        logger.info('model=%s model_source=%s', ollama_model(), ollama_model_source())
         response = ollama.chat(
-            model=os.getenv('LACLAUGPT_MULTIMODAL_MODEL', 'gemma4:12b'),
+            model=ollama_model(),
             messages=[
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': user_prompt},
