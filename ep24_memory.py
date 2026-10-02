@@ -33,7 +33,7 @@ def seed_researcher_memory(storage, df: pd.DataFrame, *, country: str) -> int:
                     "label": label,
                     "country": country,
                     "review_state": "RESEARCHER_SEED",
-                    "origin": "pre_step_1_researcher_merge",
+                    "origin": "canonical_private_input",
                     "evidence_role": "normalization_context_not_source_evidence",
                 }
     storage.upsert_documents("memory", docs.values())

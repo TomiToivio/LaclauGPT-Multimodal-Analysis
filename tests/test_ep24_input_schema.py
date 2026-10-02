@@ -122,7 +122,7 @@ def test_always_empty_columns_are_detected(tmp_path):
     _write_csv(insp.country_csv_path(root, "Spain"), CANONICAL,
                [_row(), _row(video_id="v2")])
     result = insp.inspect_country(root, "Spain")
-    # researcher_note is blank in both fixture rows
+    # researcher_new_persons/themes/note are blank in both fixture rows
     assert "researcher_note" in result.empty_columns
 
 

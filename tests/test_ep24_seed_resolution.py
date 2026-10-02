@@ -89,7 +89,7 @@ def test_resolve_many_deduplicates_normalized_surface_forms():
     assert results[0]["entry_id"] == "party-ep"
 
 
-def test_enrichment_recycles_canonical_human_annotations_without_overwriting_them(tmp_path):
+def test_enrichment_recycles_canonical_human_seed_columns_without_overwriting_them(tmp_path):
     pd = pytest.importorskip("pandas")
     from roihu_enrich import enrich_file
     from roihu_memory import EP24Memory
@@ -140,12 +140,12 @@ def test_enrichment_recycles_canonical_human_annotations_without_overwriting_the
     csv_path = tmp_path / "ep24_fi.csv"
     pd.DataFrame([{
         "summary_analysis": "Synthetic fixture",
-        "entities": '["EP", "Alice"]',
-        "themes": '["hintojen nousu", "cost of living"]',
+        "entities": "EP; Alice",
+        "themes": "hintojen nousu; cost of living",
         "topics": "OLD MODEL TOPIC",
-        "positive": '["EP"]',
-        "neutral": "[]",
-        "negative": '["Alice"]',
+        "positive": "EP",
+        "neutral": "",
+        "negative": "Alice",
     }]).to_csv(csv_path, index=False)
 
     enrich_file(
@@ -158,9 +158,8 @@ def test_enrichment_recycles_canonical_human_annotations_without_overwriting_the
     out = pd.read_csv(csv_path)
     row = out.iloc[0]
 
-    assert row["entities"] == '["EP", "Alice"]'
-    assert row["themes"] == '["hintojen nousu", "cost of living"]'
-    assert row["topics"] == "OLD MODEL TOPIC"
+    assert row["entities"] == "EP; Alice"
+    assert row["themes"] == "hintojen nousu; cost of living"\n    assert row["topics"] == "OLD MODEL TOPIC"
 
     entity_seeds = json.loads(row["ep24_seed_entities_json"])
     theme_seeds = json.loads(row["ep24_seed_themes_json"])
