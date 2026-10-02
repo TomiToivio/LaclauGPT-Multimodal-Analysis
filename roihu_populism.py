@@ -8,6 +8,7 @@ import sqlite3
 from datetime import datetime
 from pydantic import BaseModel
 from logging.handlers import RotatingFileHandler
+from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import ensure_columns, load_cumulative_csv, metadata_context
 from ep24_schema import stable_source_id, value as ep24_value
 
@@ -343,8 +344,9 @@ def get_response(user_prompt, system_prompt):
                "temperature": 0.0,
                "num_predict": 2048}
     try:
-        # llama3.3:70b or gemma3:27b or qwen3:32b or mistral-large:123b or llama4:latest
-        response = ollama.chat(model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"), messages=[
+        logger.info('model=%s model_source=%s', ollama_model(), ollama_model_source())
+        # Model remains environment-overridable; qwen3.8:27b is the active repository default.
+        response = ollama.chat(model=ollama_model(), messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ], options=options, format=FormulaOfPopulism.model_json_schema())
