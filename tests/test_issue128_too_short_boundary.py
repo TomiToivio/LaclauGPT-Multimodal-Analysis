@@ -157,6 +157,11 @@ def test_just_above_the_boundary_still_produces_one_frame(tmp_path, monkeypatch)
     monkeypatch.setattr(preprocess, "load_ocr_backend", lambda: StubOCR())
     monkeypatch.setattr(preprocess, "load_asr_model", lambda: StubASR())
     monkeypatch.setattr(
+        preprocess,
+        "prepare_analysis_clip",
+        lambda path, output_dir: video_path,
+    )
+    monkeypatch.setattr(
         preprocess, "local_media_path", lambda row, root=None: video_path
     )
 
