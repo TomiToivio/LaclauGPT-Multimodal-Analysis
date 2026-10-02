@@ -84,8 +84,11 @@ def test_preprocess_uses_exact_one_second_frame_and_generic_status():
     assert "frame_timestamp_seconds" in source
     assert "preprocess_status" in source
     assert "too_short" in source
-    # #128 explicitly sends the full staged video to the ASR backend.
-    assert "asr.transcribe(local_path" in source
+    # The repository-wide EP24 invariant excludes the known 0-1 s scroll artifact
+    # from ASR while keeping the t=1.0 s source frame for OCR.
+    assert "prepare_analysis_clip(local_path" in source
+    assert "asr.transcribe(str(analysis_clip)" in source
+    assert "asr.transcribe(local_path" not in source
 
 
 def test_vllm_prompt_and_output_expose_scroll_contract():
