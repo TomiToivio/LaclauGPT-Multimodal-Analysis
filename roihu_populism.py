@@ -62,6 +62,12 @@ COUNTRY_ALIASES = {
 }
 
 
+class Step6ParseError(ValueError):
+    def __init__(self, message: str, *, raw_response: str):
+        super().__init__(message)
+        self.raw_response = raw_response
+
+
 class EvidenceCandidate(BaseModel):
     label: str
     text_span: str
@@ -208,12 +214,56 @@ def _external_context(row: pd.Series, column: str, heading: str, role: str) -> s
     return f"{heading}\nROLE: {role}\n{value or '[]'}"
 
 
+def _render_fields(row: pd.Series, names: list[str]) -> str:
+    lines = []
+    for name in names:
+        value = _json_text(row.get(name, ""))
+        if value:
+            lines.append(f"- {name}: {value}")
+    return "\n".join(lines) if lines else "- <none>"
+
+
 def build_prompt_context(row: pd.Series, *, max_chars: int | None = None) -> tuple[str, bool]:
-    """Build deterministic cumulative context with explicit evidentiary classes."""
+    """Build deterministic context while keeping evidence classes inspectable."""
     max_chars = max_chars or int(os.getenv("LACLAUGPT_STEP6_MAX_CONTEXT_CHARS", DEFAULT_MAX_CONTEXT_CHARS))
-    base = metadata_context(row, include_model_fields=True)
+    external = {
+        "codebook_context_json", "memory_context_json", "rag_context_json",
+        "entity_normalization_json", "theme_normalization_json", "context_evidence_role",
+    }
+    researcher = {"entities", "themes", "political_preference", "researcher_note"}
+    source_representation_prefixes = ("asr_", "ocr_", "preprocess_")
+    prior_analysis_prefixes = (
+        "frame_analysis_", "vllm_", "summary_", "postprocess_", "ep24_entity_",
+        "ep24_theme_", "ep24_memory_", "ep24_seed_", "ep24_sentiment_",
+        "formula_of_populism_", "laclau_", "dna_", "sna_",
+    )
+    source_representation_exact = {
+        "frame_file", "frame_timestamp_seconds", "video_duration_seconds",
+        "whisper_transcript", "whisper_translated", "whisperResult",
+    }
+    prior_analysis_exact = {
+        "metadata", "positive", "neutral", "negative", "video_analysis",
+        "frame_analysis_1", "summary_analysis",
+    }
+
+    source_meta, source_repr, researcher_fields, prior_analysis = [], [], [], []
+    for name in row.index:
+        if name in external:
+            continue
+        if name in researcher:
+            researcher_fields.append(name)
+        elif name in source_representation_exact or name.startswith(source_representation_prefixes):
+            source_repr.append(name)
+        elif name in prior_analysis_exact or name.startswith(prior_analysis_prefixes):
+            prior_analysis.append(name)
+        else:
+            source_meta.append(name)
+
     sections = [
-        "=== CURRENT SOURCE + CUMULATIVE RECORD ===\n" + base,
+        "=== CURRENT SOURCE METADATA ===\nROLE: recorded source context\n" + _render_fields(row, source_meta),
+        "=== CURRENT SOURCE-DERIVED REPRESENTATIONS ===\nROLE: ASR/OCR/media-derived cues; usable as current-document evidence with normal model-error caution\n" + _render_fields(row, source_repr),
+        "=== HUMAN RESEARCHER ANNOTATION ===\nROLE: authoritative canonical seeds for normalization; not proof of a theoretical relation\n" + _render_fields(row, researcher_fields),
+        "=== DERIVED PRIOR-STAGE ANALYSIS ===\nROLE: derived_prior_stage_analysis_not_source_evidence\n" + _render_fields(row, prior_analysis),
         _external_context(
             row,
             "codebook_context_json",
@@ -233,8 +283,7 @@ def build_prompt_context(row: pd.Series, *, max_chars: int | None = None) -> tup
             "prior_analysis_context_not_source_evidence",
         ),
     ]
-    text = "\n\n".join(sections)
-    return _bounded(text, max_chars)
+    return _bounded("\n\n".join(sections), max_chars)
 
 
 def _prompt_hash(context: str) -> str:
@@ -270,7 +319,11 @@ def analyze_context(context: str) -> tuple[str, EP24DiscourseAnalysis]:
         },
     )
     raw = response["message"]["content"]
-    return raw, EP24DiscourseAnalysis.model_validate_json(raw)
+    try:
+        parsed = EP24DiscourseAnalysis.model_validate_json(raw)
+    except Exception as exc:
+        raise Step6ParseError(f"Step 6 structured JSON validation failed: {exc}", raw_response=raw) from exc
+    return raw, parsed
 
 
 def _affect_for(label: str, affects: list[AffectObservation]) -> str:
@@ -458,7 +511,15 @@ def process_country(country: str | None = None) -> Path:
                 except Exception as exc:
                     out.at[index, "laclau_status"] = "error"
                     out.at[index, "laclau_error"] = f"{type(exc).__name__}: {exc}"
+                    if isinstance(exc, Step6ParseError):
+                        out.at[index, "laclau_raw_response"] = exc.raw_response
                     out.at[index, "laclau_runtime_seconds"] = f"{time.monotonic() - started:.3f}"
+                    if storage is not None:
+                        out.at[index, "laclau_persistence_status"] = "mongo_patch:error_record"
+                        try:
+                            _persist_row(storage, out.loc[index], country=normalized_country)
+                        except Exception:
+                            LOG.exception("Could not persist Step 6 error state id=%s", record_id)
                     redis.mark(record_id, "error")
                     LOG.exception("Step 6 failed country=%s row=%s id=%s", normalized_country, index, record_id)
 
