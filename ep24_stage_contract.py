@@ -178,20 +178,29 @@ STAGE_CONTRACT: tuple[Stage, ...] = (
         (
             "dna_analysis_markdown",
             "dna_statements_json",
-            "dna_exportable_count",
-            "dna_review_count",
-            "dna_eventlist_path",
             "dna_prompt_version",
             "dna_model_metadata_json",
             "dna_generated_at",
             "dna_context_sha256",
+            "dna_context_truncated",
+            "dna_statement_count",
+            "dna_binary_count",
+            "dna_uncertain_count",
+            "dna_actor_unresolved_count",
+            "dna_concept_novel_count",
+            "dna_codebook_fingerprint",
             "dna_memory_context_json",
             "dna_rag_context_json",
+            "dna_raw_response",
             "dna_status",
             "dna_error",
+            "dna_runtime_seconds",
             "dna_persistence_status",
         ),
-        notes="Leifeld-compatible actor-concept-agreement-time statement extraction with Mongo, memory/RAG, optional Redis, and DNA/rDNA event-list export.",
+        notes="Leifeld (2017) Discourse Network Analysis coding: one actor-concept "
+              "statement with an explicit support/oppose qualifier where evidenced. "
+              "Ambiguous stances stay uncertain and never enter the binary rDNA "
+              "event list. Writes the rDNA-compatible export layer via ep24_dna.",
     ),
     _s(
         8,
