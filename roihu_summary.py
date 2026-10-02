@@ -22,23 +22,32 @@ c.execute('''CREATE TABLE IF NOT EXISTS tiktok_videos
                 summary_analysis text)''')
 conn.commit()
 
-def get_llama_summary_user_prompt(metadata, transcript, frame_analysis):
+# Note: Only one Frame analysis from now on.
+# Add video analysis
+# Transcript is good to be here
+# Put the rest of the dataframe columns in metadata. I mean every field the pipeline has produced so far. 
+def get_llama_summary_user_prompt(metadata, transcript, frame_analysis, video_analysis):
     """Construct the user prompt for social-semiotic multimodal pre-analysis."""
     user_message = f'''### User Prompt
 
 ### Input data
 
-1. **Sampled frame analyses**
+1. **Frame analyses**
 ```
 {frame_analysis}
 ```
 
-2. **Source/platform metadata**
+2. **Video analysis**
+```
+{video_analysis}
+```
+
+3. **Source/platform metadata**
 ```
 {metadata}
 ```
 
-3. **Speech / transcript**
+4. **Speech / transcript**
 ```
 {transcript}
 ```
@@ -49,7 +58,7 @@ Integrate all available modalities into one **descriptive multimodal social-semi
 
 Treat frame descriptions, written/visible text, transcript, metadata, and temporal sequence as distinct evidence streams. Preserve disagreements between them rather than forcing a single interpretation. Metadata can provide context but must not override what is actually present in the media.
 
-Do not perform political, ideological, partisan, populism, sentiment, discourse, or Laclauian analysis. Do not classify empty/floating signifiers, nodal points, chains of equivalence, antagonisms, hegemony, political camps, motives, or persuasive effectiveness. Those belong to downstream analysis.
+You are analyzing TikTok and Instagram videos related to the European Parliament Elections of 2024. Pay attention to multimodal political content.  
 '''
     return user_message
 
