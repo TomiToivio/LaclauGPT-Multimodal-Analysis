@@ -87,9 +87,10 @@ STAGE_CONTRACT: tuple[Stage, ...] = (
     ),
     _s(
         2, "frame", "roihu_frame.py",
-        ("frame_analysis_1", "frame_analysis_2", "frame_analysis_3",
-         "frame_analysis_4", "frame_analysis_5", "frame_analysis_6",
-         "frame_analysis_status", "frame_analysis_timestamp_seconds"),
+        ("frame_analysis_1", "frame_analysis_timestamp_seconds",
+         "frame_analysis_status", "frame_analysis_model",
+         "frame_analysis_context_sha256"),
+        notes="Exactly one Step 1 keyframe at original t=1.0s; all accumulated row fields are preserved and passed as cumulative prompt context.",
     ),
     _s(
         3, "video", "ep24_video.py", (),
