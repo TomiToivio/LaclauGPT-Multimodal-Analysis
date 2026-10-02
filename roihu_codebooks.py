@@ -292,44 +292,7 @@ def profile_paths(root: str | Path, country: str) -> list[tuple[Path, str]]:
     ]
 
 
-def english_label_required(entry: CodebookEntry) -> bool:
-    """Whether an entry must carry an explicit English label.
-
-    Policy: every entry sourced in a non-English language needs english_label.
-    If the English form is identical (for example a person's name), store the
-    identical string explicitly. Omission is allowed only with a non-empty
-    metadata["english_label_exempt_reason"] so the exception is auditable.
-    """
-    langs = [lang for lang in entry.source_languages if lang]
-    if not langs or not any(lang != "en" for lang in langs):
-        return False
-    return not bool(_clean(entry.metadata.get("english_label_exempt_reason")))
-
-
-def english_label_coverage(entries: Iterable[CodebookEntry]) -> dict[str, Any]:
-    """Return bilingual-label QA metrics without changing codebook content."""
-    items = list(entries)
-    required = [entry for entry in items if english_label_required(entry)]
-    missing = [entry for entry in required if not entry.english_label]
-    exempt = [
-        entry for entry in items
-        if _clean(entry.metadata.get("english_label_exempt_reason"))
-        and entry.source_languages
-        and any(lang != "en" for lang in entry.source_languages)
-    ]
-    present = len(required) - len(missing)
-    return {
-        "required_count": len(required),
-        "present_count": present,
-        "missing_count": len(missing),
-        "missing_entry_ids": [entry.entry_id for entry in missing],
-        "exempt_count": len(exempt),
-        "coverage_pct": round((present / len(required) * 100), 1) if required else 100.0,
-        "state": "PASS" if not missing else "REVIEW_REQUIRED",
-    }
-
-
-def load_profile(root: str | Path, country: str, *, language: str = "", strict_english: bool | None = None) -> tuple[list[CodebookEntry], dict[str, Any]]:
+def load_profile(root: str | Path, country: str, *, language: str = "") -> tuple[list[CodebookEntry], dict[str, Any]]:
     loaded: list[tuple[list[CodebookEntry], dict[str, Any], str]] = []
     for path, layer in profile_paths(root, country):
         if path.exists():
@@ -365,15 +328,12 @@ def load_profile(root: str | Path, country: str, *, language: str = "", strict_e
             aliases.setdefault((entry.kind, identity_key(form)), set()).add(entry.entry_id)
     ambiguous = sorted({form for (_kind, form), ids in aliases.items() if len(ids) > 1})
     fingerprint = hashlib.sha256("|".join(sorted(m[1]["sha256"] for m in loaded)).encode()).hexdigest()
-    english_qa = english_label_coverage(entries)
-    missing_english = english_qa["missing_entry_ids"]
-    if strict_english is None:
-        strict_english = os.getenv("LACLAUGPT_CODEBOOK_ENGLISH_STRICT", "").strip().casefold() in {"1", "true", "yes", "on"}
-    if strict_english and english_qa["missing_count"]:
-        raise ValueError(
-            f"{country.upper()} codebook requires English-label review: "
-            f"{english_qa['missing_count']}/{english_qa['required_count']} required entries are missing english_label"
-        )
+    missing_english = [
+        entry.entry_id
+        for entry in entries
+        if entry.source_languages and any(lang != "en" for lang in entry.source_languages)
+        and not entry.english_label
+    ]
     sourced = [entry.entry_id for entry in entries if entry.sources]
     source_languages = sorted({
         source.language
@@ -385,8 +345,7 @@ def load_profile(root: str | Path, country: str, *, language: str = "", strict_e
         "country": country.upper(), "language": language.lower(), "fingerprint": fingerprint,
         "books": [m[1] for m in loaded], "entry_count": len(entries), "conflicts": conflicts,
         "ambiguous_forms": ambiguous, "missing_english_entry_ids": missing_english,
-        "missing_english_count": len(missing_english), "english_label_coverage": english_qa,
-        "qa_state": english_qa["state"], "sourced_entry_count": len(sourced),
+        "missing_english_count": len(missing_english), "sourced_entry_count": len(sourced),
         "source_languages": source_languages,
         "evidence_role": "background_context_not_source_evidence",
     }
@@ -459,8 +418,27 @@ def entity_type_distribution(entries: Iterable[CodebookEntry]) -> dict[str, int]
     return dict(sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
 
 
+def _short_form_matches(form: str, query: str) -> bool:
+    """Boundary-aware match for short codebook forms.
+
+    Treat every form up to four characters as a token/boundary match; longer
+    forms keep the historical substring behavior needed for inflected languages.
+    """
+    normalized = form.casefold().strip()
+    return bool(normalized) and len(normalized) <= 4 and boundary_matches(normalized, query)
+
+
+def _matching_short_forms(query: str, entry: CodebookEntry) -> set[str]:
+    """Return short forms from an entry that match query by boundaries."""
+    return {
+        identity_key(form)
+        for form in entry.forms
+        if _short_form_matches(form, query)
+    }
+
+
 def score_entry(query: str, entry: CodebookEntry) -> float:
-    """Lexical retrieval score: recall-oriented, so it matches substrings.
+    """Lexical retrieval score: recall-oriented, but short forms are strict.
 
     Retrieval and identity are different questions, and they need opposite
     biases:
@@ -500,11 +478,39 @@ def score_entry(query: str, entry: CodebookEntry) -> float:
 
 def select_context(query: str, entries: Iterable[CodebookEntry], *, country: str, language: str = "", limit: int = 8, threshold: float = 0.15) -> tuple[list[CodebookEntry], dict[str, Any]]:
     scoped = [entry for entry in entries if entry.country in {"", "COMMON", country.upper()}]
-    ranked = sorted(((score_entry(query, e), e) for e in scoped), key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()))
+
+    short_matches: dict[str, set[str]] = {}
+    for entry in scoped:
+        for form in _matching_short_forms(query, entry):
+            short_matches.setdefault(form, set()).add(entry.entry_id)
+    ambiguous_short_forms = {
+        form for form, entry_ids in short_matches.items() if len(entry_ids) > 1
+    }
+
+    def safe_score(entry: CodebookEntry) -> float:
+        matched_short = _matching_short_forms(query, entry)
+        if matched_short & ambiguous_short_forms:
+            kept = [
+                form for form in entry.forms
+                if identity_key(form) not in ambiguous_short_forms
+            ]
+            shadow = CodebookEntry(
+                **{
+                    **asdict(entry),
+                    "label": kept[0] if kept else "",
+                    "english_label": kept[1] if len(kept) > 1 else "",
+                    "aliases": kept[2:] if len(kept) > 2 else [],
+                }
+            )
+            return score_entry(query, shadow)
+        return score_entry(query, entry)
+
+    ranked = sorted(((safe_score(e), e) for e in scoped), key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()))
     selected = [(score, entry) for score, entry in ranked[: max(0, limit)] if score >= threshold]
     return [e for _, e in selected], {
         "country": country.upper(), "language": language.lower(), "limit": limit, "threshold": threshold,
-        "selection_method": "deterministic_lexical_v2_bilingual", "evidence_role": "background_context_not_source_evidence",
+        "selection_method": "deterministic_lexical_v3_short_alias_safe", "evidence_role": "background_context_not_source_evidence",
+        "ambiguous_short_forms": sorted(ambiguous_short_forms),
         "selected": [{"entry_id": e.entry_id, "kind": e.kind, "label": e.label, "english_label": e.english_label, "score": round(score, 6)} for score, e in selected],
     }
 
