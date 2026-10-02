@@ -27,9 +27,11 @@ from ep24_pipeline import (
 )
 from ep24_sna import (
     SNA_SCHEMA_VERSION,
+    apply_reconciliation_metrics,
     basic_metrics,
     graph_from_edges,
     graph_summary,
+    reconcile_actor_nodes,
     render_markdown_report,
 )
 
@@ -260,7 +262,20 @@ def run_language(lang: str) -> Path | None:
             extracted = SNAResult.model_validate_json(response["message"]["content"])
             raw_edges = _enrich_edges(extracted.edges, row)
             nodes, edges = graph_from_edges(raw_edges, row)
+            # Issue #197: enrichment only supplies a canonical id when the mention
+            # matches a resolved label exactly, so a bare surname, a title-prefixed
+            # form or an inflected form becomes its own actor:<hash> node even though
+            # the row resolved that person. Reconcile conservatively BEFORE the
+            # metrics, so node_count/density/degree are not inflated by the split.
+            nodes, edges, reconciliation = reconcile_actor_nodes(nodes, edges, row)
             metrics = basic_metrics(nodes, edges)
+            metrics = apply_reconciliation_metrics(metrics, reconciliation)
+            if reconciliation["merged_count"] or reconciliation["ambiguous_count"]:
+                LOG.info(
+                    "identity reconciliation row=%s merged=%d ambiguous=%d unresolved=%d",
+                    index, reconciliation["merged_count"],
+                    reconciliation["ambiguous_count"], reconciliation["unresolved_count"],
+                )
             castells = _castells_interpretation(ollama, model, nodes, edges, metrics)
             report = render_markdown_report(
                 row,
