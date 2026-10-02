@@ -11,6 +11,22 @@ from typing import Iterable
 
 import pandas as pd
 
+RAG_TEXT_FIELDS = (
+    "asr_translated",
+    "asr_transcript",
+    "ocr_1",
+    "whisper_translated",
+    "whisper_transcript",
+    "summary_analysis",
+    "frame_analysis_1",
+    "vllm_video_analysis",
+    "vllm_video_markdown_analysis",
+    "video_analysis",
+    "formula_of_populism_analysis",
+    "dna_analysis_markdown",
+    "sna_analysis_markdown",
+)
+
 
 def _first_nonempty(row: pd.Series, names: Iterable[str]) -> str:
     for name in names:
