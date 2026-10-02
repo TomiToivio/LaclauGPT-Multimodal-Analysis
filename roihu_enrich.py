@@ -18,7 +18,7 @@ from roihu_codebooks import COUNTRY_PROFILES, context_block, load_profile
 from roihu_codebook_sources import load_registry_from_dir
 from ep24_entities import EntityRegistry, ollama_adjudicator, registry_documents, resolve_dataframe
 from roihu_memory import EP24Memory
-from roihu_identity import ENTITY_KINDS, SENTIMENT_KINDS, THEME_KINDS, resolve_many, seed_context_lines
+from roihu_identity import (ENTITY_KINDS, SENTIMENT_KINDS, THEME_KINDS, canonical_labels, resolve_many, seed_context_lines)
 
 EP24_FILES = {
     "FI": ("ep24_fi.csv", "fi"),
@@ -205,7 +205,7 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
             break
     registry = EntityRegistry.from_codebooks([*entries, *workbook_entries])
 
-    frame = pd.read_csv(path)
+    frame = pd.read_csv(path, dtype=str, keep_default_na=False)
     before_columns = list(frame.columns)
     adjudicator = None
     if os.getenv("LACLAUGPT_ENTITY_LLM_ADJUDICATION", "0").casefold() in {"1", "true", "yes", "on"}:
@@ -231,6 +231,9 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         "ep24_codebook_context_json",
         "ep24_memory_entity_ids",
         "ep24_memory_topic_ids",
+        "ep24_memory_theme_ids",
+        "ep24_theme_resolution_json",
+        "ep24_theme_canonical_names",
         "ep24_memory_sentiment_target_ids_json",
         "ep24_memory_unresolved_json",
         "ep24_seed_entities_json",
@@ -264,6 +267,22 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         ]
         entity_seeds = resolve_many(entity_seed_values, entries, country=country, kinds=ENTITY_KINDS)
         theme_seeds = resolve_many(theme_seed_values, entries, country=country, kinds=THEME_KINDS)
+        # Resolve the actual Step-5 theme output, not the obsolete "topics"
+        # column. Raw surface forms stay in frame["themes"] for discourse
+        # analysis; canonical labels/ids are appended alongside them.
+        theme_results = resolve_many(
+            split_values(row.get("themes")),
+            entries,
+            country=country,
+            kinds=THEME_KINDS,
+        )
+        frame.at[index, "ep24_theme_resolution_json"] = json.dumps(
+            theme_results, ensure_ascii=False, sort_keys=True
+        )
+        frame.at[index, "ep24_theme_canonical_names"] = json.dumps(
+            canonical_labels(theme_results), ensure_ascii=False
+        )
+
         sentiment_targets = []
         for polarity in ("positive", "neutral", "negative"):
             for result in resolve_many(split_values(row.get(polarity)), entries, country=country, kinds=SENTIMENT_KINDS):
@@ -280,11 +299,15 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         frame.at[index, "ep24_human_seed_context"] = "\\n".join(seed_lines)
 
         entity_ids: list[str] = []
-        topic_ids: list[str] = []
+        theme_ids: list[str] = [
+            str(result.get("entry_id"))
+            for result in theme_results
+            if result.get("decision") == "EXISTING" and result.get("entry_id")
+        ]
         sentiment_target_ids: dict[str, list[str]] = {valence: [] for valence in sentiment_columns}
         unresolved: list[dict[str, Any]] = []
         if memory is not None:
-            for kind, column, output in (("entity", "entities", entity_ids), ("topic", "topics", topic_ids)):
+            for kind, column, output in (("entity", "entities", entity_ids), ("topic", "themes", theme_ids)):
                 for label in split_values(row.get(column)):
                     identity = memory.resolve_identity(label, kind, country=country, language=language, accepted_only=True)
                     if identity["decision"] == "EXISTING":
@@ -301,7 +324,10 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
                     else:
                         unresolved.append({"kind": "target", "valence": valence, "raw": label, **_abstain_fields(identity)})
         frame.at[index, "ep24_memory_entity_ids"] = json.dumps(entity_ids, ensure_ascii=False)
-        frame.at[index, "ep24_memory_topic_ids"] = json.dumps(topic_ids, ensure_ascii=False)
+        # Keep the old topic-id field as a compatibility alias, but source it
+        # from the canonical Step-5 "themes" column.
+        frame.at[index, "ep24_memory_theme_ids"] = json.dumps(theme_ids, ensure_ascii=False)
+        frame.at[index, "ep24_memory_topic_ids"] = json.dumps(theme_ids, ensure_ascii=False)
         frame.at[index, "ep24_memory_sentiment_target_ids_json"] = json.dumps(sentiment_target_ids, ensure_ascii=False, sort_keys=True)
         frame.at[index, "ep24_memory_unresolved_json"] = json.dumps(unresolved, ensure_ascii=False, sort_keys=True)
 
