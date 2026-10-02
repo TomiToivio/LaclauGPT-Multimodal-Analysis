@@ -74,10 +74,10 @@ EP24 visual analysis has a mandatory collection-quality rule: the contextual sti
 5. `step_5_roihu_postprocess.py` - legacy-compatible structured entities/topics/sentiment-target post-processing.
 6. `step_6_roihu_discourse_analysis.py` - Laclau/Palonen discourse analysis; canonical new name for the historical `roihu_populism.py`.
 7. `step_7_roihu_discourse_network_analysis.py` - Phase 2 DNA statement extraction: actor + concept/proposition + stance/agreement + evidence + uncertainty.
-8. `step_8_roihu_social_network_analysis.py` - Phase 2 SNA relation extraction with evidence-supported actor-to-actor edges.
-9. `step_9_roihu_rdf.py` - deterministic RDF export after analytical stages. This is CPU-only; it does not need Ollama or a GPU.
+8. `step_8_roihu_social_network_analysis.py` - basic Phase 2 SNA: explicit node/edge tables, transparent graph metrics, evidence-supported relations, and a separately labelled Castells/Communication Power interpretation.
+9. `step_9_roihu_rdf.py` - deterministic RDF/knowledge-graph export of the cumulative record, including Step 8 SNA nodes/edges and provenance. This is CPU-only; it does not need Ollama or a GPU.
 
-Each stage has its own matching batch file under `scripts/roihu/step_N_*.sbatch`. Submit one stage at a time, inspect its CSV/log output, then submit the next. See [docs/ROIHU_NUMBERED_PIPELINE.md](docs/ROIHU_NUMBERED_PIPELINE.md).
+Each stage has its own matching batch file under `scripts/roihu/step_N_*.sbatch`. Submit one stage at a time, inspect its CSV/log output, then submit the next. See [docs/ROIHU_NUMBERED_PIPELINE.md](docs/ROIHU_NUMBERED_PIPELINE.md) and the canonical [Steps 1–9 pipeline contract](docs/EP24_PIPELINE_CONTRACT.md).
 
 The historical `roihu_preprocess.py`, `roihu_frame.py`, `roihu_summary.py`, `roihu_postprocess.py`, and `roihu_populism.py` files remain available as compatibility implementations and must not be deleted merely because numbered entry points exist.
 

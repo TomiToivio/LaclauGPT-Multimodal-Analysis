@@ -13,8 +13,8 @@ The active EP24 workflow is intentionally boring to operate: **one Python file, 
 | 5 | `step_5_roihu_postprocess.py` | `scripts/roihu/step_5_roihu_postprocess.sbatch` | structured legacy postprocess |
 | 6 | `step_6_roihu_discourse_analysis.py` | `scripts/roihu/step_6_roihu_discourse_analysis.sbatch` | Laclau/Palonen discourse analysis |
 | 7 | `step_7_roihu_discourse_network_analysis.py` | `scripts/roihu/step_7_roihu_discourse_network_analysis.sbatch` | DNA actor-concept statements |
-| 8 | `step_8_roihu_social_network_analysis.py` | `scripts/roihu/step_8_roihu_social_network_analysis.sbatch` | SNA actor-actor relations |
-| 9 | `step_9_roihu_rdf.py` | `scripts/roihu/step_9_roihu_rdf.sbatch` | RDF export |
+| 8 | `step_8_roihu_social_network_analysis.py` | `scripts/roihu/step_8_roihu_social_network_analysis.sbatch` | basic SNA node/edge graph + metrics + Castells interpretation |
+| 9 | `step_9_roihu_rdf.py` | `scripts/roihu/step_9_roihu_rdf.sbatch` | RDF/knowledge-graph export of cumulative data |
 
 Step 3 is reserved now so Steps 4-9 never need renaming. Until the vLLM experiment is accepted, Step 3 is optional.
 
@@ -115,7 +115,7 @@ Keeping them separate makes the methodological boundary inspectable and allows l
 
 ## RDF placement
 
-RDF belongs after DNA/SNA because it is a serialization/export layer, not another interpretive model call. The existing `roihu_csv_rdf.py` exporter remains the implementation.
+RDF belongs after DNA/SNA because it is a serialization/export layer, not another interpretive model call. `roihu_csv_rdf.py` preserves raw cells and projects accounts, entities/themes, SNA nodes/edges/metrics and provenance using the same stable Step 8 identities.
 
 ## Legacy compatibility
 
