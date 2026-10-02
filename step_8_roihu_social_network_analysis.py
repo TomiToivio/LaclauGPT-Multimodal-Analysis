@@ -8,27 +8,32 @@ computed later from the emitted edge JSON without changing the CSV contract.
 from __future__ import annotations
 import json, logging, os
 from pathlib import Path
-import ollama, pandas as pd
+import pandas as pd
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_entities import fold_key, resolution_lookup
-from pydantic import BaseModel, Field
 from ep24_cli import configure_step_cli
 import sys
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG=logging.getLogger("step_8_roihu_social_network_analysis")
 
-class SNAEdge(BaseModel):
-    source_actor: str
-    target_actor: str
-    relation_type: str
-    directed: bool = True
-    evidence_quote: str
-    confidence: float = Field(ge=0.0, le=1.0)
+def _models():
+    """Import runtime-only dependencies after CLI parsing."""
+    from pydantic import BaseModel, Field
 
-class SNAResult(BaseModel):
-    analysis_markdown: str
-    edges: list[SNAEdge]
+    class SNAEdge(BaseModel):
+        source_actor: str
+        target_actor: str
+        relation_type: str
+        directed: bool = True
+        evidence_quote: str
+        confidence: float = Field(ge=0.0, le=1.0)
+
+    class SNAResult(BaseModel):
+        analysis_markdown: str
+        edges: list[SNAEdge]
+
+    return SNAResult
 
 SYSTEM="""You are extracting evidence-supported social/communication network relations
 from an EP24 social-media analysis, following the Phase 2 LaclauGPT SNA layer.
@@ -49,6 +54,8 @@ def source(lang):
     return None
 
 def run_language(lang):
+    import ollama
+    SNAResult = _models()
     p=source(lang)
     if p is None:
         LOG.warning("No CSV for %s",lang); return
