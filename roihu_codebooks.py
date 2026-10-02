@@ -418,8 +418,27 @@ def entity_type_distribution(entries: Iterable[CodebookEntry]) -> dict[str, int]
     return dict(sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
 
 
+def _short_form_matches(form: str, query: str) -> bool:
+    """Boundary-aware match for short codebook forms.
+
+    Treat every form up to four characters as a token/boundary match; longer
+    forms keep the historical substring behavior needed for inflected languages.
+    """
+    normalized = form.casefold().strip()
+    return bool(normalized) and len(normalized) <= 4 and boundary_matches(normalized, query)
+
+
+def _matching_short_forms(query: str, entry: CodebookEntry) -> set[str]:
+    """Return short forms from an entry that match query by boundaries."""
+    return {
+        identity_key(form)
+        for form in entry.forms
+        if _short_form_matches(form, query)
+    }
+
+
 def score_entry(query: str, entry: CodebookEntry) -> float:
-    """Lexical retrieval score: recall-oriented, so it matches substrings.
+    """Lexical retrieval score: recall-oriented, but short forms are strict.
 
     Retrieval and identity are different questions, and they need opposite
     biases:
@@ -459,11 +478,39 @@ def score_entry(query: str, entry: CodebookEntry) -> float:
 
 def select_context(query: str, entries: Iterable[CodebookEntry], *, country: str, language: str = "", limit: int = 8, threshold: float = 0.15) -> tuple[list[CodebookEntry], dict[str, Any]]:
     scoped = [entry for entry in entries if entry.country in {"", "COMMON", country.upper()}]
-    ranked = sorted(((score_entry(query, e), e) for e in scoped), key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()))
+
+    short_matches: dict[str, set[str]] = {}
+    for entry in scoped:
+        for form in _matching_short_forms(query, entry):
+            short_matches.setdefault(form, set()).add(entry.entry_id)
+    ambiguous_short_forms = {
+        form for form, entry_ids in short_matches.items() if len(entry_ids) > 1
+    }
+
+    def safe_score(entry: CodebookEntry) -> float:
+        matched_short = _matching_short_forms(query, entry)
+        if matched_short and matched_short <= ambiguous_short_forms:
+            kept = [
+                form for form in entry.forms
+                if identity_key(form) not in ambiguous_short_forms
+            ]
+            shadow = CodebookEntry(
+                **{
+                    **asdict(entry),
+                    "label": kept[0] if kept else "",
+                    "english_label": kept[1] if len(kept) > 1 else "",
+                    "aliases": kept[2:] if len(kept) > 2 else [],
+                }
+            )
+            return score_entry(query, shadow)
+        return score_entry(query, entry)
+
+    ranked = sorted(((safe_score(e), e) for e in scoped), key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()))
     selected = [(score, entry) for score, entry in ranked[: max(0, limit)] if score >= threshold]
     return [e for _, e in selected], {
         "country": country.upper(), "language": language.lower(), "limit": limit, "threshold": threshold,
-        "selection_method": "deterministic_lexical_v2_bilingual", "evidence_role": "background_context_not_source_evidence",
+        "selection_method": "deterministic_lexical_v3_short_alias_safe", "evidence_role": "background_context_not_source_evidence",
+        "ambiguous_short_forms": sorted(ambiguous_short_forms),
         "selected": [{"entry_id": e.entry_id, "kind": e.kind, "label": e.label, "english_label": e.english_label, "score": round(score, 6)} for score, e in selected],
     }
 
