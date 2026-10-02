@@ -81,7 +81,7 @@ def test_missing_file_is_reported_not_raised(tmp_path):
     assert insp.summary([result])["missing_files"] == ["Sweden"]
 
 
-def test_fifteen_column_finland_is_the_canonical_signature(tmp_path):
+def test_thirteen_column_finland_is_the_canonical_signature(tmp_path):
     root = _root(tmp_path)
     _write_csv(insp.country_csv_path(root, "Finland"), CANONICAL, [_row()])
     result = insp.inspect_country(root, "Finland")
@@ -90,7 +90,7 @@ def test_fifteen_column_finland_is_the_canonical_signature(tmp_path):
     assert result.missing_canonical_columns == []
 
 
-def test_twenty_three_column_country_keeps_cleaning_fields_as_extras(tmp_path):
+def test_twenty_one_column_country_keeps_cleaning_fields_as_extras(tmp_path):
     """The real divergence: 8 of 10 countries carry the cleaning fields.
 
     They must be reported as extra incoming columns, never dropped and never
@@ -101,7 +101,7 @@ def test_twenty_three_column_country_keeps_cleaning_fields_as_extras(tmp_path):
                [*CANONICAL, *CLEANING_EXTRA], [_row()])
     result = insp.inspect_country(root, "Croatia")
     assert result.matches_canonical is False
-    assert result.column_count == 23
+    assert result.column_count == 21
     assert result.extra_columns == CLEANING_EXTRA
     assert result.missing_canonical_columns == []
     assert not result.required_media_missing
@@ -122,7 +122,7 @@ def test_always_empty_columns_are_detected(tmp_path):
     _write_csv(insp.country_csv_path(root, "Spain"), CANONICAL,
                [_row(), _row(video_id="v2")])
     result = insp.inspect_country(root, "Spain")
-    # researcher_new_persons/themes/note are blank in both fixture rows
+    # researcher_note is blank in both fixture rows
     assert "researcher_note" in result.empty_columns
 
 
