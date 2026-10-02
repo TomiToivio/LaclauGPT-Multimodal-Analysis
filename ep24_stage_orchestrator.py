@@ -23,6 +23,7 @@ from ep24_allas import stage_media
 from ep24_backups import write_checkpoint
 from ep24_context import enrich_dataframe, update_retrieval
 from ep24_redis import RedisCoordinator
+from ep24_cli import normalize_country
 from roihu_storage import MongoStorage, StorageConfig
 
 LOG = logging.getLogger("ep24_stage")
@@ -378,12 +379,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--step", type=int, required=True, choices=range(1, 10))
     parser.add_argument("--script", type=Path, required=True)
-    parser.add_argument("--country")
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0),
-    )
+    parser.add_argument("-c", "--country")
+    parser.add_argument("-n", "--limit", type=int)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--retry-errors", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -393,14 +390,60 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    selected = [args.country.casefold()] if args.country else countries()
+    try:
+        if args.country is not None:
+            selected_country = normalize_country(args.country)
+            country_source = "cli"
+        elif os.getenv("LACLAUGPT_COUNTRY"):
+            selected_country = normalize_country(os.environ["LACLAUGPT_COUNTRY"])
+            country_source = "environment"
+        else:
+            selected_country = None
+            country_source = "default"
+
+        if args.limit is not None:
+            if args.limit < 0:
+                raise ValueError("--limit must be >= 0")
+            resolved_limit = args.limit
+            limit_source = "cli"
+        elif os.getenv("LACLAUGPT_MAX_ROWS") not in (None, ""):
+            resolved_limit = int(os.environ["LACLAUGPT_MAX_ROWS"])
+            if resolved_limit < 0:
+                raise ValueError("LACLAUGPT_MAX_ROWS must be >= 0")
+            limit_source = "environment"
+        else:
+            resolved_limit = 0
+            limit_source = "default"
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    available = countries()
+    if selected_country is not None:
+        if available and selected_country not in available:
+            parser.error(
+                f"country {selected_country!r} is not available under LACLAUGPT_EP24_INPUT_ROOT; "
+                f"available={available}"
+            )
+        selected = [selected_country]
+    else:
+        selected = available
+
+    LOG.info(
+        "runtime_selection step=%d country=%s limit=%d selection_source.country=%s "
+        "selection_source.limit=%s",
+        args.step,
+        selected_country or "<all>",
+        resolved_limit,
+        country_source,
+        limit_source,
+    )
     total = 0
     for country in selected:
         total += run_country(
             country,
             step=args.step,
             script=args.script,
-            limit=args.limit,
+            limit=resolved_limit,
             retry_errors=args.retry_errors,
             force=args.force,
             dry_run=args.dry_run,

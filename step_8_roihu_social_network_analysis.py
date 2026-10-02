@@ -12,6 +12,8 @@ import ollama, pandas as pd
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_entities import fold_key, resolution_lookup
 from pydantic import BaseModel, Field
+from ep24_cli import configure_step_cli
+import sys
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG=logging.getLogger("step_8_roihu_social_network_analysis")
@@ -88,6 +90,9 @@ def run_language(lang):
     df.to_csv(p,index=False)
 
 if __name__=="__main__":
+    selection = configure_step_cli(8, sys.argv[1:])
+    if selection.remaining_argv:
+        raise SystemExit(f"unrecognized arguments: {' '.join(selection.remaining_argv)}")
     if os.getenv("LACLAUGPT_INPUT_CSV"):
         run_language("")
     else:
