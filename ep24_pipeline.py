@@ -131,8 +131,7 @@ def metadata_context(row: pd.Series, *, include_model_fields: bool = True) -> st
             "UPSTREAM MODEL / ENRICHMENT CONTEXT (derived, not human ground truth):",
             *(model_lines or ["- <none>"]),
         ])
-    return "
-".join(parts)
+    return "\n".join(parts)
 
 
 def media_key(row: pd.Series) -> str:
