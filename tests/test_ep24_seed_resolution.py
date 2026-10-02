@@ -159,7 +159,8 @@ def test_enrichment_recycles_canonical_human_seed_columns_without_overwriting_th
     row = out.iloc[0]
 
     assert row["entities"] == "EP; Alice"
-    assert row["themes"] == "hintojen nousu; cost of living"\n    assert row["topics"] == "OLD MODEL TOPIC"
+    assert row["themes"] == "hintojen nousu; cost of living"
+    assert row["topics"] == "OLD MODEL TOPIC"
 
     entity_seeds = json.loads(row["ep24_seed_entities_json"])
     theme_seeds = json.loads(row["ep24_seed_themes_json"])
