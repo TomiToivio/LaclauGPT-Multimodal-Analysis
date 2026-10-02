@@ -889,7 +889,9 @@ def assert_english_translation_coverage(
 # Compatibility wrappers for the #110 CLI/API names. These delegate to the
 # translation-work metric and are intentionally not a second policy.
 def bilingual_coverage_report(root: str | Path) -> dict[str, Any]:
-    return english_translation_coverage_report(root)
+    """Compatibility view of the translation-work report from #110."""
+    report = english_translation_coverage_report(root)
+    return {**report, "kind": "ep24.bilingual_coverage/1"}
 
 
 def assert_bilingual_coverage(
