@@ -84,6 +84,7 @@ def run_language(lang):
             edges=[]
             for edge in out.edges:
                 item=edge.model_dump()
+                item["network_layer"]="social"
                 source_hit=lookup.get(fold_key(edge.source_actor))
                 target=lookup.get(fold_key(edge.target_actor))
                 if source_hit:
