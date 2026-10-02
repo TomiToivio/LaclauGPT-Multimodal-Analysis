@@ -34,7 +34,9 @@ fi
 
 module --force purge
 module load python-pytorch
-module load ffmpeg
+# Roihu exposes ffmpeg behind a GCC toolchain. Pin a known-good toolchain
+# instead of relying on an ambiguous bare "module load ffmpeg".
+module load gcc/14.3.0 ffmpeg
 unset PYTHONPATH PYTHONHOME
 
 mkdir -p   "/scratch/${CSC_PROJECT}/logs"   "/scratch/${CSC_PROJECT}/cache/"{huggingface,torch,pip}   "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/"{logs,database,outputs,Keyframes,Allas,.ollama/models}
