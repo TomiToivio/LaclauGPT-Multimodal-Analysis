@@ -54,38 +54,29 @@ def fi_registry() -> E.EntityRegistry:
     return registry
 
 
-def test_split_mentions_matches_the_authoritative_separator_set():
-    """A comma-separated cell must yield one mention per actor, as enrich/RDF do."""
+def test_split_mentions_matches_the_authoritative_json_contract():
     from roihu_enrich import split_values
     from roihu_rdf import split_list
 
-    cell = "Sanna Marin, Petteri Orpo"
+    cell = '["Sanna Marin", "Petteri Orpo"]'
     assert E._split_mentions(cell) == split_list(cell) == split_values(cell)
     assert E._split_mentions(cell) == ["Sanna Marin", "Petteri Orpo"]
 
 
-def test_comma_separated_cell_resolves_every_actor_not_one_mention():
-    """The regression: the whole cell used to become one UNRESOLVED mention."""
+def test_json_canonical_cell_resolves_every_actor():
     pd = pytest.importorskip("pandas")
     frame = pd.DataFrame(
-        [{"country": "FI", "new_entity": "Sanna Marin, Petteri Orpo"}]
+        [{"country": "FI", "entities": '["Sanna Marin", "Petteri Orpo"]'}]
     )
-    summary = E.resolve_dataframe(
-        frame,
-        fi_registry(),
-        country="FI",
-        language="fi",
-        mention_columns=("new_entity",),
-    )
+    summary = E.resolve_dataframe(frame, fi_registry(), country="FI", language="fi")
 
-    assert summary["total"] == 2, f"expected 2 mentions, got {summary['total']}"
+    assert summary["total"] == 2
     assert summary["decisions"].get("RESOLVED") == 2
     assert "UNRESOLVED" not in summary["decisions"]
 
     ids = json.loads(frame.iloc[0]["ep24_entity_ids"])
     assert ids == ["CB-marin", "CB-orpo"], ids
-    # the original wording is untouched -- the issue's central requirement
-    assert frame.iloc[0]["new_entity"] == "Sanna Marin, Petteri Orpo"
+    assert frame.iloc[0]["entities"] == '["Sanna Marin", "Petteri Orpo"]'
 
 
 def test_pipe_and_semicolon_cells_keep_working():
@@ -96,21 +87,20 @@ def test_pipe_and_semicolon_cells_keep_working():
     assert E._split_mentions("Orpo; Orpo") == ["Orpo"]
 
 
-def test_acronym_containing_commas_is_not_an_actor_cell():
-    """A lone token must survive intact; splitting is for list cells only."""
+def test_comma_inside_one_json_label_is_preserved():
+    assert E._split_mentions('["Example Coalition, National Wing"]') == [
+        "Example Coalition, National Wing"
+    ]
     assert E._split_mentions("Petteri Orpo") == ["Petteri Orpo"]
     assert E._split_mentions("[]") == []
     assert E._split_mentions("") == []
 
 
-def test_entities_column_commas_resolve_every_actor():
-    """The real column name from the corpus, not just the synthetic alias."""
+def test_entities_column_json_resolves_every_actor():
     pd = pytest.importorskip("pandas")
     frame = pd.DataFrame(
-        [{"country": "FI", "entities": "Sanna Marin, Petteri Orpo"}]
+        [{"country": "FI", "entities": '["Sanna Marin", "Petteri Orpo"]'}]
     )
-    summary = E.resolve_dataframe(
-        frame, fi_registry(), country="FI", language="fi", mention_columns=("entities",)
-    )
+    summary = E.resolve_dataframe(frame, fi_registry(), country="FI", language="fi")
     assert summary["decisions"].get("RESOLVED") == 2
     assert json.loads(frame.iloc[0]["ep24_entity_ids"]) == ["CB-marin", "CB-orpo"]
