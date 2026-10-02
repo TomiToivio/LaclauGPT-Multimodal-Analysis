@@ -152,9 +152,9 @@ def test_seed_memory_does_not_attach_conflicting_alias(tmp_path):
 def test_populism_context_hook_is_opt_in_and_explicit():
     source = Path("roihu_populism.py").read_text(encoding="utf-8")
     assert "LACLAUGPT_ENRICHMENT_ENABLED" in source
-    assert "add_codebook_context(country, user_prompt)" in source
+    assert "add_codebook_context(country, context_text)" in source
     assert "formula_of_populism_codebook_context_json" in source
-    assert "legacy_cached_result" in source
+    assert "formula_of_populism_codebook_fingerprint" in source
 
 
 def test_memory_schema_migration_creates_backup_and_temporal_columns(tmp_path):
