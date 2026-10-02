@@ -27,7 +27,7 @@ logging.basicConfig(
 
 class Sentiment(BaseModel):
     topics: list[str]
-    entities: list[str]
+    themes: list[str]
     positive: list[str]
     neutral: list[str]
     negative: list[str]
@@ -43,13 +43,13 @@ def get_system_prompt():
 - If a category has no values, return an empty list.
 
 **Tasks**:
-1. Extract political topics, merging obvious duplicates or synonyms.
+1. Extract political themes, merging obvious duplicates or synonyms.
 2. Extract political entities, merging obvious duplicates or synonyms.
 3. Extract sentiment targets and classify each as positive, neutral, or negative.
 
 **Formatting Rules**:
 - Respond only with a valid JSON object.
-- Use exactly these keys: `topics`, `entities`, `positive`, `neutral`, `negative`.
+- Use exactly these keys: `themes`, `entities`, `positive`, `neutral`, `negative`.
 - Every value must be a JSON array of strings.
 - Do not include introductions, markdown fences, comments, or extra fields.
 '''
