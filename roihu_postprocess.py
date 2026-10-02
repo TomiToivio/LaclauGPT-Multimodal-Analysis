@@ -38,7 +38,7 @@ def get_system_prompt():
 
 **Role**:
 - You are presented a previously generated analysis of a political video.
-- Extract entities, sentiments and topics from the analysis.
+- Extract entities, sentiments and themes from the analysis.
 - Provide simple lists of names or sentiment targets.
 - If a category has no values, return an empty list.
 
@@ -139,7 +139,7 @@ def analyze_responses(language=None):
         return
 
     df = ensure_video_filename(df)
-    ensure_columns(df, ('entities', 'topics', 'positive', 'neutral', 'negative', 'postprocess_summary_md'))
+    ensure_columns(df, ('entities', 'themes', 'positive', 'neutral', 'negative', 'postprocess_summary_md'))
 
     system_prompt = get_system_prompt()
 
@@ -157,7 +157,7 @@ def analyze_responses(language=None):
 
         values = {
             'entities': response.entities,
-            'topics': response.topics,
+            'themes': response.themes,
             'positive': response.positive,
             'neutral': response.neutral,
             'negative': response.negative,
@@ -171,7 +171,7 @@ def analyze_responses(language=None):
             df.at[index, column] = ', '.join(unique_items)
         df.at[index, 'postprocess_summary_md'] = (
             '**Entities:** ' + df.at[index, 'entities'] + '\n\n'
-            + '**Themes/topics:** ' + df.at[index, 'topics'] + '\n\n'
+            + '**Themes/topics:** ' + df.at[index, 'themes'] + '\n\n'
             + '**Sentiment targets:** positive=' + df.at[index, 'positive']
             + '; neutral=' + df.at[index, 'neutral']
             + '; negative=' + df.at[index, 'negative']
