@@ -1,16 +1,9 @@
-"""Step 6: evidence-linked Laclau/Mouffe/Palonen discourse analysis for EP24.
-
-The rich structured JSON is the source of truth. Historical
-formula_of_populism_* text columns are compatibility projections for downstream
-RDF/legacy consumers and are derived deterministically from evidenced affects.
-"""
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
 import os
-import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,80 +12,77 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, Field
 
-from ep24_db import country_storage
-from ep24_memory import retrieve_researcher_memory
 from ep24_models import ollama_model, ollama_model_source
-from ep24_pipeline import load_cumulative_csv, metadata_context, write_cumulative_csv
-from ep24_rag import retrieve_stage_rag, upsert_stage_rag
-from ep24_redis import RedisCoordinator
+from ep24_pipeline import ensure_columns, load_cumulative_csv, write_cumulative_csv
 from ep24_schema import stable_source_id
-from roihu_storage import StorageConfig
+from ep24_redis import RedisCoordinator
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger("ep24.step6")
 
-PROMPT_VERSION = "ep24-laclau-palonen-v3"
-DEFAULT_NUM_CTX = 32768
+PROMPT_VERSION = "ep24-laclau-palonen-v2"
+DEFAULT_MAX_CONTEXT_CHARS = 28000
+DEFAULT_NUM_CTX = 16384
 DEFAULT_NUM_PREDICT = 4096
-DEFAULT_MAX_CONTEXT_CHARS = 48000
-CACHE_PATH = Path(os.getenv("LACLAUGPT_POPULISM_SQLITE", "./database/formula_of_populism.db"))
 
-COUNTRY_CODEBOOK = {
-    "finland": ("FI", "fi"),
-    "sweden": ("SE", "sv"),
-    "poland": ("PL", "pl"),
-    "portugal": ("PT", "pt"),
-    "germany": ("DE", "de"),
-    "spain": ("ES", "es"),
-    "hungary": ("HU", "hu"),
-    "croatia": ("HR", "hr"),
-    "france": ("FR", "fr"),
-    "bulgaria": ("BG", "bg"),
-    "fi": ("FI", "fi"),
-    "sv": ("SE", "sv"),
-    "pl": ("PL", "pl"),
-    "pt": ("PT", "pt"),
-    "de": ("DE", "de"),
-    "es": ("ES", "es"),
-    "hu": ("HU", "hu"),
-    "hr": ("HR", "hr"),
-    "fr": ("FR", "fr"),
-    "bg": ("BG", "bg"),
-}
-
-OUTPUT_COLUMNS = (
+STEP6_COLUMNS = (
     "formula_of_populism_analysis",
     "formula_of_populism_us",
     "formula_of_populism_frontier",
     "laclau_summary_md",
     "laclau_structured_json",
+    "laclau_formula_conditions_met",
+    "laclau_abstention_reason",
+    "laclau_prompt_version",
+    "laclau_model_metadata_json",
+    "laclau_generated_at",
+    "laclau_context_sha256",
+    "laclau_context_truncated",
+    "laclau_codebook_fingerprint",
+    "laclau_codebook_context_json",
+    "laclau_memory_context_json",
+    "laclau_rag_context_json",
     "laclau_raw_response",
     "laclau_status",
     "laclau_error",
-    "laclau_prompt_version",
-    "laclau_model",
-    "laclau_context_sha256",
-    "laclau_generated_at",
-    "formula_of_populism_codebook_context_json",
-    "formula_of_populism_codebook_fingerprint",
+    "laclau_runtime_seconds",
+    "laclau_persistence_status",
 )
 
+COUNTRY_ALIASES = {
+    "fi": "finland", "finland": "finland",
+    "pl": "poland", "poland": "poland",
+    "pt": "portugal", "portugal": "portugal",
+    "de": "germany", "germany": "germany",
+    "es": "spain", "spain": "spain",
+    "hu": "hungary", "hungary": "hungary",
+    "hr": "croatia", "croatia": "croatia",
+    "fr": "france", "france": "france",
+    "bg": "bulgaria", "bulgaria": "bulgaria",
+    "sv": "sweden", "se": "sweden", "sweden": "sweden",
+}
 
-class DiscourseParseError(ValueError):
-    def __init__(self, message: str, *, raw_response: str, metadata: dict[str, Any] | None = None):
+
+class Step6ParseError(ValueError):
+    def __init__(self, message: str, *, raw_response: str):
         super().__init__(message)
         self.raw_response = raw_response
-        self.metadata = dict(metadata or {})
 
 
-class UsConstruct(BaseModel):
+class EvidenceCandidate(BaseModel):
     label: str
-    demands: list[str] = Field(default_factory=list)
     text_span: str
     confidence: float = Field(ge=0.0, le=1.0)
     provenance: str = "current_source"
+    uncertainty_notes: list[str] = Field(default_factory=list)
+    counter_evidence: list[str] = Field(default_factory=list)
 
 
-class FrontierConstruct(BaseModel):
+class UsConstruct(EvidenceCandidate):
+    demands: list[str] = Field(default_factory=list)
+    identities: list[str] = Field(default_factory=list)
+
+
+class FrontierConstruct(EvidenceCandidate):
     us_side: str | None = None
     them_side: str
     relation: Literal[
@@ -102,658 +92,461 @@ class FrontierConstruct(BaseModel):
         "threat_construction",
         "exclusion",
         "boundary_construction",
-        "antagonistic_boundary",
+        "antagonistic_frontier",
     ]
-    text_span: str
-    confidence: float = Field(ge=0.0, le=1.0)
-    provenance: str = "current_source"
 
 
-class AffectObservation(BaseModel):
+class AffectObservation(EvidenceCandidate):
     affect: str
     target: str | None = None
+
+
+class ChainRelation(BaseModel):
+    relation_type: Literal["equivalence", "difference"]
+    members: list[str] = Field(default_factory=list)
     text_span: str
     confidence: float = Field(ge=0.0, le=1.0)
-    provenance: str = "current_source"
+    uncertainty_notes: list[str] = Field(default_factory=list)
 
 
-class RelationCandidate(BaseModel):
-    relation: Literal["equivalence", "difference", "articulation"]
-    left: str
-    right: str
+class SignifierCandidate(EvidenceCandidate):
+    candidate_type: Literal["nodal", "floating", "empty"]
+    document_level_only: bool = True
+
+
+class RhetoricalPerformance(BaseModel):
+    action: Literal[
+        "connects_demands",
+        "constructs_collective_subject",
+        "redefines_frontier",
+        "represents_wider_chain",
+        "reframes_political_possibility",
+        "other",
+    ]
+    description: str
     text_span: str
     confidence: float = Field(ge=0.0, le=1.0)
 
 
-class SignifierCandidate(BaseModel):
-    label: str
-    role: Literal["nodal", "floating", "empty"]
-    text_span: str
-    confidence: float = Field(ge=0.0, le=1.0)
-    caveat: str = ""
-
-
-class PopulistDynamicEvidence(BaseModel):
-    dynamic: Literal["fringe", "mainstream", "competing"]
-    text_span: str
-    confidence: float = Field(ge=0.0, le=1.0)
-    caveat: str = ""
-
-
-class EP24DiscourseResult(BaseModel):
-    analysis_markdown: str
+class EP24DiscourseAnalysis(BaseModel):
+    analysis_md: str
     us_constructs: list[UsConstruct] = Field(default_factory=list)
     frontier_constructs: list[FrontierConstruct] = Field(default_factory=list)
     affects: list[AffectObservation] = Field(default_factory=list)
-    relations: list[RelationCandidate] = Field(default_factory=list)
+    chains: list[ChainRelation] = Field(default_factory=list)
     signifier_candidates: list[SignifierCandidate] = Field(default_factory=list)
-    populist_dynamic_evidence: list[PopulistDynamicEvidence] = Field(default_factory=list)
+    rhetorical_performances: list[RhetoricalPerformance] = Field(default_factory=list)
+    palonen_dynamic_evidence: list[str] = Field(default_factory=list)
     formula_minimum_conditions_met: bool = False
-    hegemonic_evidence_candidates: list[str] = Field(default_factory=list)
-    rhetoric_performative_observations: list[str] = Field(default_factory=list)
+    formula_abstention_reason: str | None = None
     counter_evidence: list[str] = Field(default_factory=list)
     uncertainty_notes: list[str] = Field(default_factory=list)
-    prompt_version: str = PROMPT_VERSION
-    model_metadata: dict[str, Any] = Field(default_factory=dict)
-    generated_at: str | None = None
+    corpus_level_cautions: list[str] = Field(default_factory=list)
 
 
-SYSTEM_PROMPT = """You are LaclauGPT, a University of Helsinki social-science research assistant.
-Analyze one EP24 TikTok/Instagram record from the 2024 European Parliament elections using the
-generic discourse-theoretical framework of Ernesto Laclau, Laclau & Mouffe, and Emilia Palonen.
+SYSTEM_PROMPT = """You are LaclauGPT, a social scientist at the University of Helsinki analysing
+2024 European Parliament election TikTok/Instagram material using the generic
+Laclau, Mouffe and Palonen framework.
+
 Return JSON only and conform exactly to the supplied schema.
 
-This is evidence-first document-level coding. Candidate interpretations are provisional and
-human-reviewable, never final theoretical facts.
+EVIDENCE DISCIPLINE
+- Analyse the current document evidence first. Never force an Us, Frontier, affect,
+  chain, nodal/floating/empty signifier or populist formula.
+- Empty lists are valid and preferred when evidence is absent.
+- Researcher/codebook memory, prior-stage model analysis and retrieved corpus
+  context are context for normalization/comparison only. They are NOT evidence
+  that a feature exists in the current document.
+- Human entities/themes are authoritative canonical seeds and must not be silently
+  renamed in your interpretation.
+- Preserve uncertainty and counter-evidence.
 
-THEORETICAL RULES
-- Populism is a political logic, not a permanent party or actor label.
-- Do not force an Us, Frontier, affect, chain, signifier role, or populist dynamic.
-- A plural pronoun alone is not a meaningful collective Us.
-- A disliked entity, criticism, blame, or negative sentiment is not automatically an antagonistic Frontier.
-  Use the relation field to distinguish ordinary opposition/criticism/blame/threat/exclusion/boundary
-  construction from an antagonistic boundary.
-- Affect is affective investment, not detachable sentiment. Never map Us -> positive or Frontier -> negative.
-  Anger can invest an Us; admiration can concern an opponent; ambivalence can matter.
-  If affect is not evidenced, omit it.
-- Co-occurrence is not a chain of equivalence. Only code equivalence/difference/articulation when the
-  current source actually constructs the relation.
-- Frequency/prominence is not hegemony. A single document cannot establish hegemony.
-- Polysemy alone is not floating signification. One heterogeneous use is not enough to establish an
-  empty signifier. Nodal/floating/empty labels are document-level candidates only and require evidence.
-- A two-sided disagreement is not automatically political polarisation. Persistent bipolar hegemony
-  is a corpus-level claim.
-- Palonen's fringe/mainstream/competing populist dynamics are relational heuristics, not party labels.
-  Only emit provisional evidence when the current document supports it.
-- Analyze rhetoric performatively where evidenced: what does naming, metaphor, contrast, repetition,
-  or other rhetoric connect, constitute, exclude, or make represent a wider chain?
-- Every substantive candidate must be grounded in a short span from CURRENT SOURCE EVIDENCE.
-- Researcher memory, codebooks, upstream model analyses, and RAG context can assist interpretation and
-  normalization but are NOT direct evidence that a phenomenon occurs in the current record.
-- Human entities/themes are authoritative canonical spellings for normalization, but do not force a
-  theoretical interpretation.
-- Step-5 sentiment fields are auxiliary context only and are never sufficient evidence of affective investment.
-- Empty lists and formula_minimum_conditions_met=false are valid and expected for non-populist or weakly
-  evidenced material.
-- formula_minimum_conditions_met should be true only when the current source supports both a meaningful
-  collective Us and a genuine antagonistic/boundary Frontier. It is a document-level evidentiary condition,
-  not a permanent label or score.
+THEORY
+- Populism is a political logic, not a permanent party/actor label.
+- A politically meaningful Us is a collective subject produced through articulation;
+  a plural pronoun alone is insufficient.
+- Criticism, disagreement, negative sentiment or opponent mention are not by
+  themselves an antagonistic frontier. Use the relation labels precisely.
+- Affect means affective investment/expression, not detachable sentiment. Never map
+  Us mechanically to positive affect or Frontier to negative affect.
+- Co-occurrence is not a chain of equivalence. Record difference where relevant.
+- Frequency/prominence alone is not a nodal point.
+- Polysemy alone is not floating signification.
+- One heterogeneous use is not enough to establish an empty signifier.
+- Hegemony and bipolar/hegemonic polarisation are corpus-level/dynamic claims and
+  MUST NOT be inferred from a single video.
+- Palonen fringe/mainstream/competing populist dynamics may be noted only as
+  provisional evidence, never as permanent party labels.
+- Rhetorical analysis should focus on what articulation performs: connecting demands,
+  constructing a collective subject, redefining a frontier, making one signifier
+  represent a wider chain, or reframing political possibility.
+
+FORMULA / ABSTENTION
+- Extract components independently.
+- formula_minimum_conditions_met may be true only when BOTH a politically meaningful
+  collective Us and an antagonistic_frontier are supported by current-source evidence.
+- If minimum conditions are not met, set it false and explain briefly in
+  formula_abstention_reason.
+- Never output a populism score.
+- Never infer a permanent populist identity for an actor or party.
+
+EVIDENCE SPANS
+- Every candidate must contain a concise text_span or source cue grounded in the
+  CURRENT SOURCE EVIDENCE section. Do not cite memory/RAG/codebook text as the span.
 """
 
 
-def _clean(value: Any) -> str:
+def _json_text(value: Any) -> str:
     if value is None:
         return ""
     text = str(value).strip()
-    return "" if text.casefold() in {"nan", "none", "null"} else text
+    return "" if text.casefold() == "nan" else text
 
 
-def _source_date(row: pd.Series) -> str | None:
-    for key in ("recording_date", "recording_datetime", "create_time", "date"):
-        value = _clean(row.get(key, ""))
+def _bounded(value: str, limit: int) -> tuple[str, bool]:
+    if len(value) <= limit:
+        return value, False
+    return value[:limit], True
+
+
+def _external_context(row: pd.Series, column: str, heading: str, role: str) -> str:
+    value = _json_text(row.get(column, ""))
+    return f"{heading}\nROLE: {role}\n{value or '[]'}"
+
+
+def _render_fields(row: pd.Series, names: list[str]) -> str:
+    lines = []
+    for name in names:
+        value = _json_text(row.get(name, ""))
         if value:
-            return value
-    return None
+            lines.append(f"- {name}: {value}")
+    return "\n".join(lines) if lines else "- <none>"
 
 
-def _row_storage_id(row: pd.Series) -> str:
-    return _clean(row.get("_storage_id", "")) or stable_source_id(row)
-
-
-def _bounded(text: str, limit: int) -> tuple[str, bool]:
-    if len(text) <= limit:
-        return text, False
-    return text[:limit], True
-
-
-def _current_source_evidence(row: pd.Series) -> str:
-    fields = (
-        "asr_translated",
-        "asr_transcript",
-        "ocr_1",
-        "frame_analysis_1",
-        "vllm_video_analysis",
-        "vllm_video_markdown_analysis",
-        "vllm_video_structured_json",
-    )
-    blocks = []
-    for key in fields:
-        value = _clean(row.get(key, ""))
-        if value:
-            blocks.append(f"### {key}\n{value}")
-    # Researcher annotations are deliberately removed here. They are valuable
-    # normalization/context seeds, but they are not direct evidence from the media.
-    source_row = row.drop(
-        labels=[
-            key for key in ("entities", "themes", "political_preference", "researcher_note")
-            if key in row.index
-        ]
-    )
-    source_meta = metadata_context(source_row, include_model_fields=False)
-    if source_meta.strip():
-        blocks.append("### source_platform_metadata\n" + source_meta)
-    return "\n\n".join(blocks)
-
-
-def _researcher_annotation_context(row: pd.Series) -> str:
-    lines = ["Human annotations/canonical spellings; context only, not source evidence."]
-    found = False
-    for key in ("entities", "themes", "political_preference", "researcher_note"):
-        value = _clean(row.get(key, ""))
-        if value:
-            found = True
-            lines.append(f"- {key}: {value}")
-    return "\n".join(lines) if found else "<none>"
-
-
-def _derived_prior_analysis(row: pd.Series) -> str:
-    fields = (
-        "summary_analysis",
-        "postprocess_summary_md",
-        "postprocess_entities",
-        "postprocess_themes",
-        "positive",
-        "neutral",
-        "negative",
-        "ep24_entity_canonical_names",
-        "ep24_theme_canonical_names",
-    )
-    blocks = []
-    for key in fields:
-        value = _clean(row.get(key, ""))
-        if value:
-            blocks.append(f"- {key}: {value}")
-    return "\n".join(blocks)
-
-
-def _format_memory(items: list[dict]) -> str:
-    if not items:
-        return "<none>"
-    lines = ["Normalization context only; not source evidence."]
-    for item in items:
-        lines.append(
-            f"- {item.get('kind', 'item')}: {item.get('label', '')} "
-            f"[role={item.get('evidence_role', 'normalization_context_not_source_evidence')}]"
-        )
-    return "\n".join(lines)
-
-
-def _format_rag(items: list[dict]) -> str:
-    if not items:
-        return "<none>"
-    lines = ["Prior-corpus/model context only; not source evidence."]
-    for item in items:
-        excerpt = _clean(item.get("text", "")).replace("\n", " ")[:1000]
-        lines.append(
-            f"- stage={item.get('stage', '')} source_record_id={item.get('source_record_id', '')}: {excerpt}"
-        )
-    return "\n".join(lines)
-
-
-_CODEBOOK_CACHE: dict[tuple[str, str, str], tuple[Any, Any]] = {}
-
-
-def _codebook_context(country: str, query: str) -> tuple[str, str, str]:
-    code, language = COUNTRY_CODEBOOK.get(country.casefold(), ("", ""))
-    if not code:
-        return "<none>", "", ""
-    try:
-        from roihu_codebooks import context_block, load_profile
-
-        private_root = os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", ".")
-        key = (private_root, code, language)
-        if key not in _CODEBOOK_CACHE:
-            _CODEBOOK_CACHE[key] = load_profile(private_root, code, language=language)
-        entries, profile = _CODEBOOK_CACHE[key]
-        block, selection = context_block(query, entries, country=code, language=language)
-        return block or "<none>", json.dumps(selection, ensure_ascii=False, sort_keys=True), str(profile.get("fingerprint", ""))
-    except Exception as exc:
-        logger.warning("codebook_context_unavailable country=%s error=%s", country, exc)
-        return "<none>", "", ""
-
-
-def build_step6_context(
-    row: pd.Series,
-    *,
-    memory_items: list[dict] | None = None,
-    rag_items: list[dict] | None = None,
-    codebook_block: str = "<none>",
-    max_chars: int | None = None,
-) -> tuple[str, dict[str, Any]]:
-    max_chars = max_chars or int(os.getenv("LACLAUGPT_DISCOURSE_MAX_CHARS", str(DEFAULT_MAX_CONTEXT_CHARS)))
-    source = _current_source_evidence(row)
-    prior = _derived_prior_analysis(row)
-    memory = _format_memory(memory_items or [])
-    researcher = _researcher_annotation_context(row)
-    rag = _format_rag(rag_items or [])
-    sections = [
-        ("CURRENT SOURCE EVIDENCE — the only direct evidence for document-level coding", source or "<none>"),
-        ("DERIVED PRIOR-STAGE ANALYSIS — context only, not direct source evidence", prior or "<none>"),
-        ("RESEARCHER/CODEBOOK MEMORY — normalization/background only, not source evidence", researcher + "\n\n" + memory + "\n\n" + codebook_block),
-        ("RETRIEVED CORPUS CONTEXT — comparison only, not source evidence", rag),
-    ]
-    full = "\n\n".join(f"## {title}\n{body}" for title, body in sections)
-    bounded, truncated = _bounded(full, max_chars)
-    metadata = {
-        "original_chars": len(full),
-        "sent_chars": len(bounded),
-        "truncated": truncated,
-        "max_chars": max_chars,
-        "source_date": _source_date(row),
+def build_prompt_context(row: pd.Series, *, max_chars: int | None = None) -> tuple[str, bool]:
+    """Build deterministic context while keeping evidence classes inspectable."""
+    max_chars = max_chars or int(os.getenv("LACLAUGPT_STEP6_MAX_CONTEXT_CHARS", DEFAULT_MAX_CONTEXT_CHARS))
+    external = {
+        "codebook_context_json", "memory_context_json", "rag_context_json",
+        "entity_normalization_json", "theme_normalization_json", "context_evidence_role",
     }
-    return bounded, metadata
+    researcher = {"entities", "themes", "political_preference", "researcher_note"}
+    source_representation_prefixes = ("asr_", "ocr_", "preprocess_")
+    prior_analysis_prefixes = (
+        "frame_analysis_", "vllm_", "summary_", "postprocess_", "ep24_entity_",
+        "ep24_theme_", "ep24_memory_", "ep24_seed_", "ep24_sentiment_",
+        "formula_of_populism_", "laclau_", "dna_", "sna_",
+    )
+    source_representation_exact = {
+        "frame_file", "frame_timestamp_seconds", "video_duration_seconds",
+        "whisper_transcript", "whisper_translated", "whisperResult",
+    }
+    prior_analysis_exact = {
+        "metadata", "positive", "neutral", "negative", "video_analysis",
+        "frame_analysis_1", "summary_analysis",
+    }
+
+    source_meta, source_repr, researcher_fields, prior_analysis = [], [], [], []
+    for name in row.index:
+        if name in external:
+            continue
+        if name in researcher:
+            researcher_fields.append(name)
+        elif name in source_representation_exact or name.startswith(source_representation_prefixes):
+            source_repr.append(name)
+        elif name in prior_analysis_exact or name.startswith(prior_analysis_prefixes):
+            prior_analysis.append(name)
+        else:
+            source_meta.append(name)
+
+    sections = [
+        "=== CURRENT SOURCE METADATA ===\nROLE: recorded source context\n" + _render_fields(row, source_meta),
+        "=== CURRENT SOURCE-DERIVED REPRESENTATIONS ===\nROLE: ASR/OCR/media-derived cues; usable as current-document evidence with normal model-error caution\n" + _render_fields(row, source_repr),
+        "=== HUMAN RESEARCHER ANNOTATION ===\nROLE: authoritative canonical seeds for normalization; not proof of a theoretical relation\n" + _render_fields(row, researcher_fields),
+        "=== DERIVED PRIOR-STAGE ANALYSIS ===\nROLE: derived_prior_stage_analysis_not_source_evidence\n" + _render_fields(row, prior_analysis),
+        _external_context(
+            row,
+            "codebook_context_json",
+            "=== RESEARCHER/CODEBOOK CONTEXT ===",
+            "background_context_not_source_evidence",
+        ),
+        _external_context(
+            row,
+            "memory_context_json",
+            "=== RESEARCHER MEMORY ===",
+            "normalization_context_not_source_evidence",
+        ),
+        _external_context(
+            row,
+            "rag_context_json",
+            "=== RETRIEVED CORPUS CONTEXT ===",
+            "prior_analysis_context_not_source_evidence",
+        ),
+    ]
+    return _bounded("\n\n".join(sections), max_chars)
 
 
-def _context_hash(system_prompt: str, context: str, model: str) -> str:
-    payload = f"{PROMPT_VERSION}\n{model}\n{system_prompt}\n{context}"
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+def _prompt_hash(context: str) -> str:
+    return hashlib.sha256(context.encode("utf-8")).hexdigest()
 
 
-def analyze_context(context: str, *, model: str | None = None) -> tuple[str, EP24DiscourseResult]:
-    selected_model = model or ollama_model()
-    num_ctx = int(os.getenv("LACLAUGPT_DISCOURSE_NUM_CTX", str(DEFAULT_NUM_CTX)))
-    num_predict = int(os.getenv("LACLAUGPT_DISCOURSE_NUM_PREDICT", str(DEFAULT_NUM_PREDICT)))
+def _model_metadata() -> dict[str, Any]:
+    return {
+        "provider": "ollama",
+        "model": ollama_model(),
+        "model_source": ollama_model_source(),
+        "num_ctx": int(os.getenv("LACLAUGPT_STEP6_NUM_CTX", DEFAULT_NUM_CTX)),
+        "num_predict": int(os.getenv("LACLAUGPT_STEP6_NUM_PREDICT", DEFAULT_NUM_PREDICT)),
+        "temperature": 0.0,
+    }
+
+
+def analyze_context(context: str) -> tuple[str, EP24DiscourseAnalysis]:
     import ollama
 
+    metadata = _model_metadata()
     response = ollama.chat(
-        model=selected_model,
+        model=metadata["model"],
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": context},
         ],
-        format=EP24DiscourseResult.model_json_schema(),
+        format=EP24DiscourseAnalysis.model_json_schema(),
         options={
             "temperature": 0.0,
-            "num_ctx": num_ctx,
-            "num_predict": num_predict,
+            "num_ctx": metadata["num_ctx"],
+            "num_predict": metadata["num_predict"],
         },
     )
-    raw = str(response["message"]["content"])
-    request_metadata = {
-        "model": selected_model,
-        "prompt_version": PROMPT_VERSION,
-        "num_ctx": num_ctx,
-        "num_predict": num_predict,
-    }
+    raw = response["message"]["content"]
     try:
-        parsed = EP24DiscourseResult.model_validate_json(raw)
+        parsed = EP24DiscourseAnalysis.model_validate_json(raw)
     except Exception as exc:
-        raise DiscourseParseError(
-            f"Step 6 structured output validation failed: {exc}",
-            raw_response=raw,
-            metadata=request_metadata,
-        ) from exc
-    # Enforce the theory-critical abstention rule mechanically rather than
-    # trusting a fluent model to self-police it.
-    frontier_relations = {
-        "antagonistic_boundary",
-        "boundary_construction",
-        "exclusion",
-        "threat_construction",
-    }
-    minimum_supported = bool(parsed.us_constructs) and any(
-        item.relation in frontier_relations for item in parsed.frontier_constructs
-    )
-    parsed.formula_minimum_conditions_met = bool(
-        parsed.formula_minimum_conditions_met and minimum_supported
-    )
-    parsed.prompt_version = PROMPT_VERSION
-    parsed.model_metadata = {
-        "provider": "ollama",
-        "model": selected_model,
-        "model_source": ollama_model_source(),
-        "num_ctx": num_ctx,
-        "num_predict": num_predict,
-    }
-    parsed.generated_at = datetime.now(timezone.utc).isoformat()
+        raise Step6ParseError(f"Step 6 structured JSON validation failed: {exc}", raw_response=raw) from exc
     return raw, parsed
 
 
-def _affects_for_target(result: EP24DiscourseResult, target: str) -> list[AffectObservation]:
-    key = target.casefold().strip()
-    return [
-        item for item in result.affects
-        if _clean(item.target).casefold() == key and _clean(item.affect)
+def _affect_for(label: str, affects: list[AffectObservation]) -> str:
+    target = label.casefold().strip()
+    matches = [
+        item for item in affects
+        if item.target and item.target.casefold().strip() == target
     ]
+    if not matches:
+        return ""
+    matches.sort(key=lambda item: item.confidence, reverse=True)
+    return matches[0].affect.strip()
 
 
-def legacy_formula_projection(result: EP24DiscourseResult) -> tuple[str, str]:
-    """Project rich candidates to historical element^affect lines without fabricating affect."""
-    us_lines: list[str] = []
-    frontier_lines: list[str] = []
+def compatibility_columns(result: EP24DiscourseAnalysis) -> tuple[str, str]:
+    us_lines = []
     for item in result.us_constructs:
-        for affect in _affects_for_target(result, item.label):
-            line = f"{item.label}^{affect.affect}"
-            if line not in us_lines:
-                us_lines.append(line)
+        affect = _affect_for(item.label, result.affects)
+        us_lines.append(f"{item.label}^{affect}" if affect else item.label)
+
+    frontier_lines = []
     for item in result.frontier_constructs:
-        for affect in _affects_for_target(result, item.them_side):
-            line = f"{item.them_side}^{affect.affect}"
-            if line not in frontier_lines:
-                frontier_lines.append(line)
-    return (
-        "\n".join(us_lines) + ("\n" if us_lines else ""),
-        "\n".join(frontier_lines) + ("\n" if frontier_lines else ""),
-    )
+        affect = _affect_for(item.them_side, result.affects)
+        frontier_lines.append(f"{item.them_side}^{affect}" if affect else item.them_side)
+
+    return "\n".join(us_lines), "\n".join(frontier_lines)
 
 
-def _open_cache() -> sqlite3.Connection:
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(CACHE_PATH)
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS discourse_cache (
-            source_id TEXT NOT NULL,
-            model TEXT NOT NULL,
-            context_sha256 TEXT NOT NULL,
-            raw_response TEXT NOT NULL,
-            structured_json TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            PRIMARY KEY (source_id, model, context_sha256)
-        )"""
-    )
-    conn.commit()
-    return conn
+def _clean_document(row: pd.Series) -> dict[str, Any]:
+    doc: dict[str, Any] = {}
+    for key, value in row.to_dict().items():
+        try:
+            if pd.isna(value):
+                value = None
+        except (TypeError, ValueError):
+            pass
+        doc[str(key)] = value
+    return doc
 
 
-def _cache_lookup(conn: sqlite3.Connection, source_id: str, model: str, context_sha256: str) -> tuple[str, EP24DiscourseResult] | None:
-    row = conn.execute(
-        """SELECT raw_response, structured_json FROM discourse_cache
-           WHERE source_id=? AND model=? AND context_sha256=?""",
-        (source_id, model, context_sha256),
-    ).fetchone()
-    if row is None:
-        return None
-    return str(row[0]), EP24DiscourseResult.model_validate_json(str(row[1]))
+def _country(value: str | None) -> str:
+    candidate = value or os.getenv("LACLAUGPT_COUNTRY") or ""
+    key = str(candidate).strip().casefold()
+    return COUNTRY_ALIASES.get(key, key or "unknown")
 
 
-def _cache_store(
-    conn: sqlite3.Connection,
-    *,
-    source_id: str,
-    model: str,
-    context_sha256: str,
-    raw_response: str,
-    result: EP24DiscourseResult,
-) -> None:
-    conn.execute(
-        """INSERT INTO discourse_cache
-           (source_id, model, context_sha256, raw_response, structured_json, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(source_id, model, context_sha256) DO UPDATE SET
-             raw_response=excluded.raw_response,
-             structured_json=excluded.structured_json,
-             updated_at=excluded.updated_at""",
-        (
-            source_id,
-            model,
-            context_sha256,
-            raw_response,
-            result.model_dump_json(),
-            datetime.now(timezone.utc).isoformat(),
-        ),
-    )
-    conn.commit()
+def _prepare_context(df: pd.DataFrame, country: str) -> tuple[pd.DataFrame, Any | None]:
+    """Attach bounded Mongo-backed memory/RAG/codebook context when configured."""
+    if os.getenv("LACLAUGPT_MONGO_ENABLED", "0").casefold() not in {"1", "true", "yes", "on"}:
+        LOG.warning("MongoDB disabled; Step 6 will run without durable memory/RAG persistence")
+        return df.copy(), None
+
+    from ep24_context import bootstrap_context, enrich_dataframe
+    from ep24_db import country_storage
+
+    cm = country_storage(country)
+    storage = cm.__enter__()
+    try:
+        private_root = Path(os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", "."))
+        bootstrap = bootstrap_context(storage, df, private_root=private_root, country=country)
+        LOG.info(
+            "context bootstrap country=%s codebooks=%s memory=%s fingerprint=%s",
+            country,
+            bootstrap.get("codebook_count"),
+            bootstrap.get("memory_seed_count"),
+            bootstrap.get("codebook_fingerprint"),
+        )
+        enriched = enrich_dataframe(storage, df)
+        return enriched, (cm, storage, bootstrap)
+    except Exception:
+        cm.__exit__(*__import__("sys").exc_info())
+        raise
 
 
-def _mongo_resume(storage, source_id: str, *, model: str, context_sha256: str) -> tuple[str, EP24DiscourseResult] | None:
-    docs = storage.find("dataframe", {"_storage_id": source_id}, limit=1)
-    if not docs:
-        return None
-    doc = docs[0]
-    if _clean(doc.get("laclau_model")) != model or _clean(doc.get("laclau_context_sha256")) != context_sha256:
-        return None
-    structured = _clean(doc.get("laclau_structured_json"))
-    if not structured or _clean(doc.get("laclau_status")) != "ok":
-        return None
-    return _clean(doc.get("laclau_raw_response")), EP24DiscourseResult.model_validate_json(structured)
-
-
-def _apply_result(
-    df: pd.DataFrame,
-    index: Any,
-    *,
-    result: EP24DiscourseResult,
-    raw_response: str,
-    model: str,
-    context_sha256: str,
-    codebook_context_json: str,
-    codebook_fingerprint: str,
-) -> None:
-    us_text, frontier_text = legacy_formula_projection(result)
-    df.at[index, "formula_of_populism_analysis"] = result.analysis_markdown
-    df.at[index, "formula_of_populism_us"] = us_text
-    df.at[index, "formula_of_populism_frontier"] = frontier_text
-    df.at[index, "laclau_summary_md"] = result.analysis_markdown
-    df.at[index, "laclau_structured_json"] = result.model_dump_json()
-    df.at[index, "laclau_raw_response"] = raw_response
-    df.at[index, "laclau_status"] = "ok"
-    df.at[index, "laclau_error"] = ""
-    df.at[index, "laclau_prompt_version"] = PROMPT_VERSION
-    df.at[index, "laclau_model"] = model
-    df.at[index, "laclau_context_sha256"] = context_sha256
-    df.at[index, "laclau_generated_at"] = result.generated_at or datetime.now(timezone.utc).isoformat()
-    df.at[index, "formula_of_populism_codebook_context_json"] = codebook_context_json
-    df.at[index, "formula_of_populism_codebook_fingerprint"] = codebook_fingerprint
-
-
-def _apply_error(
-    df: pd.DataFrame,
-    index: Any,
-    *,
-    error: Exception,
-    raw_response: str,
-    model: str,
-    context_sha256: str,
-) -> None:
-    df.at[index, "laclau_status"] = "error"
-    df.at[index, "laclau_error"] = str(error)
-    df.at[index, "laclau_raw_response"] = raw_response
-    df.at[index, "laclau_prompt_version"] = PROMPT_VERSION
-    df.at[index, "laclau_model"] = model
-    df.at[index, "laclau_context_sha256"] = context_sha256
-    df.at[index, "laclau_generated_at"] = datetime.now(timezone.utc).isoformat()
-
-
-def _persist_mongo_row(storage, row: pd.Series, source_id: str) -> int:
-    document = {str(k): v for k, v in row.to_dict().items() if str(k) != "_storage_id"}
-    document["_storage_id"] = source_id
-    document["step6_discourse_provenance"] = {
-        "pipeline_stage": "step_6_discourse_analysis",
+def _persist_row(storage, row: pd.Series, *, country: str) -> int:
+    doc = _clean_document(row)
+    record_id = str(doc.get("_storage_id") or stable_source_id(row))
+    doc["_storage_id"] = record_id
+    doc["_pipeline_step_6"] = {
+        "status": doc.get("laclau_status"),
         "prompt_version": PROMPT_VERSION,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "generated_at": doc.get("laclau_generated_at"),
+        "context_sha256": doc.get("laclau_context_sha256"),
+        "country": country,
     }
-    return storage.patch_documents("dataframe", [document])
+    # Patch, never replace, so prior-stage fields cannot be erased.
+    return storage.patch_documents("dataframe", [doc])
 
 
-def run_step6(country: str | None = None) -> None:
-    started = time.monotonic()
-    filename = os.getenv("LACLAUGPT_INPUT_CSV") or f"ep24_{country}.csv"
-    output = os.getenv("LACLAUGPT_OUTPUT_CSV") or filename
+def _finalize_context_handle(handle: Any | None, df: pd.DataFrame) -> None:
+    if not handle:
+        return
+    cm, storage, _ = handle
+    try:
+        from ep24_context import update_retrieval
+        update_retrieval(storage, df, stage="step_06_discourse_analysis")
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def process_country(country: str | None = None) -> Path:
+    normalized_country = _country(country)
+    input_path = Path(os.getenv("LACLAUGPT_INPUT_CSV") or f"ep24_{country}.csv")
+    output_path = Path(os.getenv("LACLAUGPT_OUTPUT_CSV") or input_path)
+
+    original = load_cumulative_csv(input_path, require_canonical=bool(os.getenv("LACLAUGPT_INPUT_CSV")))
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
-    checkpoint_every = max(1, int(os.getenv("LACLAUGPT_CHECKPOINT_EVERY", "10")))
-    model = ollama_model()
-
-    df = load_cumulative_csv(filename, require_canonical=bool(os.getenv("LACLAUGPT_INPUT_CSV")))
     if max_rows > 0:
-        if Path(filename).resolve() == Path(output).resolve() and max_rows < len(df):
-            raise ValueError("Refusing to truncate the input CSV: with LACLAUGPT_MAX_ROWS set, LACLAUGPT_OUTPUT_CSV must be a different path")
-        df = df.head(max_rows).copy()
+        original = original.head(max_rows).copy()
 
-    before = df.drop(columns=[c for c in OUTPUT_COLUMNS if c in df.columns], errors="ignore").copy(deep=True)
-    for column in OUTPUT_COLUMNS:
-        if column not in df.columns:
-            df[column] = ""
+    out = original.copy()
+    ensure_columns(out, STEP6_COLUMNS)
 
-    config = StorageConfig.from_env()
-    active_country = (country or config.country or "").casefold()
-    redis = RedisCoordinator(active_country, 6)
-    connection = _open_cache()
-    storage_cm = country_storage(active_country) if config.mongo_enabled else None
-    storage = storage_cm.__enter__() if storage_cm is not None else None
+    enriched, context_handle = _prepare_context(out, normalized_country)
+    # Copy only context columns produced by the shared enrichment layer.
+    for column in (
+        "codebook_context_json",
+        "memory_context_json",
+        "rag_context_json",
+        "entity_normalization_json",
+        "theme_normalization_json",
+        "context_evidence_role",
+    ):
+        if column in enriched.columns:
+            out[column] = enriched[column]
 
-    stats = {
-        "processed": 0,
-        "failed": 0,
-        "cache_hits": 0,
-        "mongo_resume_hits": 0,
-        "mongo_writes": 0,
-        "rag_writes": 0,
-        "lock_skips": 0,
-    }
-    logger.info(
-        "step6_start input=%s output=%s country=%s rows=%d columns=%d model=%s model_source=%s mongo=%s redis=%s",
-        filename, output, active_country, len(df), len(df.columns), model, ollama_model_source(),
-        config.mongo_enabled, bool(redis.client),
-    )
+    redis = RedisCoordinator(normalized_country, 6)
+    checkpoint_every = max(1, int(os.getenv("LACLAUGPT_STEP6_CHECKPOINT_EVERY", "10") or 10))
+    processed_since_checkpoint = 0
 
     try:
-        for ordinal, (index, row) in enumerate(df.iterrows(), start=1):
-            source_id = _row_storage_id(row)
-            retrieval_seed = "\n".join(
-                _clean(row.get(key, ""))
-                for key in ("entities", "themes", "summary_analysis", "asr_translated", "asr_transcript")
-                if _clean(row.get(key, ""))
-            )
-            memory_items: list[dict] = []
-            rag_items: list[dict] = []
-            if storage is not None:
-                try:
-                    memory_items = retrieve_researcher_memory(storage, retrieval_seed, limit=16)
-                    rag_items = retrieve_stage_rag(
-                        storage,
-                        retrieval_seed,
-                        exclude_source_record_id=source_id,
-                        limit=8,
-                    )
-                except Exception:
-                    logger.exception("step6_context_retrieval_failed source_id=%s", source_id)
+        storage = context_handle[1] if context_handle else None
+        for index, row in out.iterrows():
+            record_id = str(row.get("_storage_id") or stable_source_id(row))
+            with redis.lock(record_id) as acquired:
+                if not acquired:
+                    LOG.info("record lock busy id=%s; skipped", record_id)
+                    continue
 
-            codebook_block, codebook_json, codebook_fingerprint = _codebook_context(active_country, retrieval_seed)
-            context, context_meta = build_step6_context(
-                row,
-                memory_items=memory_items,
-                rag_items=rag_items,
-                codebook_block=codebook_block,
-            )
-            context_sha256 = _context_hash(SYSTEM_PROMPT, context, model)
-            logger.info(
-                "step6_row ordinal=%d/%d source_id=%s context_chars=%d truncated=%s memory=%d rag=%d codebook=%s hash=%s",
-                ordinal, len(df), source_id, context_meta["sent_chars"], context_meta["truncated"],
-                len(memory_items), len(rag_items), bool(codebook_json), context_sha256,
-            )
-
-            raw_response = ""
-            try:
-                with redis.lock(source_id) as acquired:
-                    if not acquired:
-                        stats["lock_skips"] += 1
-                        redis.mark(source_id, "skipped_locked")
-                        continue
-                    redis.mark(source_id, "running")
-
-                    cached = None
-                    if storage is not None:
-                        cached = _mongo_resume(storage, source_id, model=model, context_sha256=context_sha256)
-                        if cached is not None:
-                            stats["mongo_resume_hits"] += 1
-                    if cached is None:
-                        cached = _cache_lookup(connection, source_id, model, context_sha256)
-                    if cached is not None:
-                        raw_response, result = cached
-                        stats["cache_hits"] += 1
-                    else:
-                        raw_response, result = analyze_context(context, model=model)
-                        _cache_store(
-                            connection,
-                            source_id=source_id,
-                            model=model,
-                            context_sha256=context_sha256,
-                            raw_response=raw_response,
-                            result=result,
-                        )
-
-                    _apply_result(
-                        df,
-                        index,
-                        result=result,
-                        raw_response=raw_response,
-                        model=model,
-                        context_sha256=context_sha256,
-                        codebook_context_json=codebook_json,
-                        codebook_fingerprint=codebook_fingerprint,
-                    )
-                    stats["processed"] += 1
-
-                    if storage is not None:
-                        stats["mongo_writes"] += _persist_mongo_row(storage, df.loc[index], source_id)
-                        rag_df = df.loc[[index]].copy()
-                        rag_df["_storage_id"] = source_id
-                        stats["rag_writes"] += upsert_stage_rag(storage, rag_df, stage="discourse_analysis")
-                    redis.mark(source_id, "completed")
-
-                    if ordinal % checkpoint_every == 0:
-                        write_cumulative_csv(before, df, output)
-                        logger.info("step6_checkpoint ordinal=%d output=%s", ordinal, output)
-
-            except Exception as exc:
-                stats["failed"] += 1
-                if isinstance(exc, DiscourseParseError):
-                    raw_response = exc.raw_response
-                _apply_error(
-                    df,
-                    index,
-                    error=exc,
-                    raw_response=raw_response,
-                    model=model,
-                    context_sha256=context_sha256,
+                redis.mark(record_id, "processing")
+                started = time.monotonic()
+                context, truncated = build_prompt_context(row)
+                context_hash = _prompt_hash(context)
+                LOG.info(
+                    "step6 country=%s row=%s id=%s model=%s prompt=%s context_sha256=%s truncated=%s",
+                    normalized_country, index, record_id, ollama_model(), PROMPT_VERSION,
+                    context_hash, truncated,
                 )
-                redis.mark(source_id, "failed")
-                logger.exception("step6_row_failed source_id=%s error=%s", source_id, exc)
+                try:
+                    raw, result = analyze_context(context)
+                    us_legacy, frontier_legacy = compatibility_columns(result)
+                    generated_at = datetime.now(timezone.utc).isoformat()
+                    model_metadata = _model_metadata()
 
-        write_cumulative_csv(before, df, output)
+                    out.at[index, "formula_of_populism_analysis"] = result.analysis_md
+                    out.at[index, "formula_of_populism_us"] = us_legacy
+                    out.at[index, "formula_of_populism_frontier"] = frontier_legacy
+                    out.at[index, "laclau_summary_md"] = result.analysis_md
+                    out.at[index, "laclau_structured_json"] = result.model_dump_json()
+                    out.at[index, "laclau_formula_conditions_met"] = json.dumps(result.formula_minimum_conditions_met)
+                    out.at[index, "laclau_abstention_reason"] = result.formula_abstention_reason or ""
+                    out.at[index, "laclau_prompt_version"] = PROMPT_VERSION
+                    out.at[index, "laclau_model_metadata_json"] = json.dumps(model_metadata, ensure_ascii=False, sort_keys=True)
+                    out.at[index, "laclau_generated_at"] = generated_at
+                    out.at[index, "laclau_context_sha256"] = context_hash
+                    out.at[index, "laclau_context_truncated"] = json.dumps(truncated)
+                    bootstrap_fingerprint = context_handle[2].get("codebook_fingerprint", "") if context_handle else ""
+                    out.at[index, "laclau_codebook_fingerprint"] = bootstrap_fingerprint or _json_text(row.get("ep24_codebook_fingerprint", ""))
+                    out.at[index, "laclau_codebook_context_json"] = _json_text(row.get("codebook_context_json", ""))
+                    out.at[index, "laclau_memory_context_json"] = _json_text(row.get("memory_context_json", ""))
+                    out.at[index, "laclau_rag_context_json"] = _json_text(row.get("rag_context_json", ""))
+                    out.at[index, "laclau_raw_response"] = raw
+                    out.at[index, "laclau_status"] = "ok"
+                    out.at[index, "laclau_error"] = ""
+                    out.at[index, "laclau_runtime_seconds"] = f"{time.monotonic() - started:.3f}"
+
+                    if storage is not None:
+                        out.at[index, "laclau_persistence_status"] = "mongo_patch:pending"
+                        persisted = _persist_row(storage, out.loc[index], country=normalized_country)
+                        out.at[index, "laclau_persistence_status"] = f"mongo_patch:{persisted}"
+                        _persist_row(storage, out.loc[index], country=normalized_country)
+                    else:
+                        out.at[index, "laclau_persistence_status"] = "mongo_disabled"
+                    redis.mark(record_id, "complete")
+                except Exception as exc:
+                    out.at[index, "laclau_status"] = "error"
+                    out.at[index, "laclau_error"] = f"{type(exc).__name__}: {exc}"
+                    if isinstance(exc, Step6ParseError):
+                        out.at[index, "laclau_raw_response"] = exc.raw_response
+                    out.at[index, "laclau_runtime_seconds"] = f"{time.monotonic() - started:.3f}"
+                    if storage is not None:
+                        out.at[index, "laclau_persistence_status"] = "mongo_patch:error_record"
+                        try:
+                            _persist_row(storage, out.loc[index], country=normalized_country)
+                        except Exception:
+                            LOG.exception("Could not persist Step 6 error state id=%s", record_id)
+                    redis.mark(record_id, "error")
+                    LOG.exception("Step 6 failed country=%s row=%s id=%s", normalized_country, index, record_id)
+
+                processed_since_checkpoint += 1
+                if processed_since_checkpoint >= checkpoint_every:
+                    write_cumulative_csv(original, out, output_path)
+                    LOG.info("CSV checkpoint path=%s row=%s", output_path, index)
+                    processed_since_checkpoint = 0
+
+        write_cumulative_csv(original, out, output_path)
+        LOG.info("Step 6 complete country=%s output=%s rows=%s", normalized_country, output_path, len(out))
+        return output_path
     finally:
-        connection.close()
-        if storage_cm is not None:
-            storage_cm.__exit__(None, None, None)
-
-    logger.info(
-        "step6_complete processed=%d failed=%d cache_hits=%d mongo_resume_hits=%d mongo_writes=%d rag_writes=%d lock_skips=%d elapsed=%.3f output=%s",
-        stats["processed"], stats["failed"], stats["cache_hits"], stats["mongo_resume_hits"],
-        stats["mongo_writes"], stats["rag_writes"], stats["lock_skips"], time.monotonic() - started, output,
-    )
+        _finalize_context_handle(context_handle, out)
 
 
-# Historical API retained for callers/tests.
-def get_formula_of_populism(country: str | None = None) -> None:
-    run_step6(country)
-
-
-countries = ["fi", "sv", "pl", "pt", "de", "es", "hu", "hr", "fr", "bg"]
+# Historical module-level country set kept for documentation/contract discovery.
+countries = ["fi", "pl", "pt", "de", "es", "hu", "hr", "fr", "bg", "sv"]
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=getattr(logging, os.getenv("LACLAUGPT_LOG_LEVEL", "INFO").upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     if os.getenv("LACLAUGPT_INPUT_CSV"):
-        run_step6(None)
+        process_country(os.getenv("LACLAUGPT_COUNTRY"))
     else:
-        for country in countries:
-            run_step6(country)
+        for item in countries:
+            process_country(item)

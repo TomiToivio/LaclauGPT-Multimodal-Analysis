@@ -132,6 +132,13 @@ POPULISM_COLUMNS = [
     "formula_of_populism_analysis",
     "formula_of_populism_us",
     "formula_of_populism_frontier",
+    "laclau_structured_json",
+    "laclau_formula_conditions_met",
+    "laclau_abstention_reason",
+    "laclau_prompt_version",
+    "laclau_model_metadata_json",
+    "laclau_generated_at",
+    "laclau_context_sha256",
 ]
 IDENTITY_COLUMNS = list(EP24_REPROCESS_COLUMNS) + ["video_filename", "language"]
 
@@ -700,6 +707,13 @@ def emit_populism(graph: Graph, document: str, row: dict, language: str, prov: P
     graph.literal(node, f"{LG}text", analysis)
     graph.literal(node, f"{LG}usRaw", us_raw)
     graph.literal(node, f"{LG}frontierRaw", frontier_raw)
+    graph.literal(node, f"{LG}structuredJson", row.get("laclau_structured_json"))
+    graph.literal(node, f"{LG}formulaConditionsMet", row.get("laclau_formula_conditions_met"))
+    graph.literal(node, f"{LG}abstentionReason", row.get("laclau_abstention_reason"))
+    graph.literal(node, f"{LG}promptVersion", row.get("laclau_prompt_version"))
+    graph.literal(node, f"{LG}modelMetadataJson", row.get("laclau_model_metadata_json"))
+    graph.literal(node, f"{LG}generatedAt", row.get("laclau_generated_at"))
+    graph.literal(node, f"{LG}contextSha256", row.get("laclau_context_sha256"))
     emit_provenance(
         graph, node, prov, derivation="model_derived", stage="populism", model=prov.model
     )
