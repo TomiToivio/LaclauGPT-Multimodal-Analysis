@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Standalone CSC Roihu smoke test: native whole-video analysis with vLLM.
+"""CSC Roihu native whole-video analysis engine used by EP24 Step 3.
 
-This is an **isolated experiment**, not a production stage. It does not touch the
-five-stage EP24 pipeline, `roihu_frame.py`, `roihu_summary.py`, the Ollama
-backend, or any legacy CSV contract. It answers one question:
+This module began as an isolated capability harness and is now the tested implementation behind
+the cumulative Step 3 pipeline. It preserves upstream fields and adds durable local and optional MongoDB persistence. It answers one question:
 
     Can we submit a clean sbatch job on CSC Roihu, download prepared EP24
     videos from CSC Allas, analyze each video directly with Qwen3-VL-8B through
     vLLM, and write readable CSV + debug-log output?
 
 Deliberately readable: standard library + pandas, small functions, obvious
-sequential control flow, explicit logging. No classes, no queues, no databases,
-no shared abstractions. Read it top to bottom and you have seen the whole test.
+sequential control flow, explicit logging. Production durability is explicit: CSV and SQLite are local safety copies, while MongoDB is the primary shared store when enabled.
 
 Video input is **native whole-video**, not six independent stills. The source is
 handed to vLLM as a video, and the Qwen preprocessing stack samples frames
@@ -31,6 +29,7 @@ import random
 import re
 import shutil
 import shlex
+import sqlite3
 import socket
 import subprocess
 import sys
@@ -46,6 +45,7 @@ import pandas as pd
 # the shared EP24 media contract is importable in sbatch and local runs alike.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from ep24_pipeline import assert_source_metadata_preserved, metadata_context
 from ep24_video import (
     VIDEO_INITIAL_SKIP_SECONDS,
     analysis_clip_path,
@@ -53,6 +53,7 @@ from ep24_video import (
     parse_scroll_metadata,
     prepare_analysis_clip,
 )
+from roihu_storage import MongoStorage, StorageConfig
 from ep24_schema import (
     REQUIRED_MEDIA_COLUMNS,
     source_metadata as iter_source_metadata,
@@ -100,6 +101,8 @@ OUTPUT_COLUMNS = (
     "vllm_video_runtime_seconds",
     "vllm_video_selected_index",
     "vllm_video_prompt",
+    "vllm_video_context_sha256",
+    "vllm_video_persistence_status",
     "SCROLL",
     "SCROLL_SECONDS",
     "needs_resplit",
@@ -673,18 +676,20 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
 
 
 def ep24_metadata_context(row: pd.Series | None) -> str:
-    """Render real researcher-feed metadata for the model without inventing scraper fields."""
+    """Render the complete cumulative row with explicit epistemic provenance."""
     if row is None:
         return ""
-    lines = [f"- {column}: {value}" for column, value in iter_source_metadata(row)]
-    if not lines:
-        return ""
+    cumulative = metadata_context(row, include_model_fields=True)
     return (
-        "\n\nEP24 SOURCE METADATA (researcher-recorded feed clip; not scraper metadata):\n"
-        + "\n".join(lines)
-        + "\nTreat researcher_* fields and researcher_note as human annotation, not model output."
+        "\n\nEP24 MULTIMODAL EVIDENCE CONTRACT:\n"
+        "- PRIMARY EVIDENCE: the attached whole video after the mandatory 1.0s feed-scroll trim.\n"
+        "- SOURCE METADATA: recorded/split feed metadata; factual context, not visual evidence.\n"
+        "- RESEARCHER ANNOTATION: human research notes/context; do not present it as visible in the video.\n"
+        "- UPSTREAM MODEL / ENRICHMENT CONTEXT: ASR, OCR, frame analysis and other derived fields; "
+        "use as fallible context and resolve conflicts in favor of the primary video evidence.\n"
+        "- Never claim a contextual field was observed in the video unless the video itself supports it.\n\n"
+        + cumulative
     )
-
 
 def build_video_messages(
     local_path: Path,
@@ -932,6 +937,124 @@ def analyze_one_video(
 
 
 # --------------------------------------------------------------------------- #
+# Production durability
+# --------------------------------------------------------------------------- #
+
+def _row_json(row: dict) -> str:
+    """Stable JSON snapshot for the SQLite restart/backup store."""
+    cleaned = {}
+    for key, value in row.items():
+        try:
+            cleaned[str(key)] = "" if pd.isna(value) else value
+        except (TypeError, ValueError):
+            cleaned[str(key)] = value
+    return json.dumps(cleaned, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def write_local_checkpoint(
+    source_df: pd.DataFrame,
+    selected: list[int],
+    results: list[dict],
+    output_csv: Path,
+    sqlite_path: Path,
+    logger: logging.Logger,
+) -> pd.DataFrame:
+    """Atomically checkpoint cumulative CSV and idempotent SQLite row snapshots."""
+    done = selected[: len(results)]
+    out_df = source_df.loc[done].reset_index(drop=True).copy()
+    for column in OUTPUT_COLUMNS:
+        out_df[column] = [result[column] for result in results]
+
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    tmp_csv = output_csv.with_suffix(output_csv.suffix + ".tmp")
+    out_df.to_csv(tmp_csv, index=False, encoding="utf-8")
+    tmp_csv.replace(output_csv)
+
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(sqlite_path) as db:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS step3_video_rows (
+                source_id TEXT PRIMARY KEY,
+                row_json TEXT NOT NULL,
+                model TEXT,
+                prompt_sha256 TEXT,
+                status TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        for _, row in out_df.iterrows():
+            source_id = stable_source_id(row)
+            db.execute(
+                """
+                INSERT INTO step3_video_rows
+                    (source_id, row_json, model, prompt_sha256, status, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_id) DO UPDATE SET
+                    row_json=excluded.row_json,
+                    model=excluded.model,
+                    prompt_sha256=excluded.prompt_sha256,
+                    status=excluded.status,
+                    updated_at=excluded.updated_at
+                """
+                ,(
+                    source_id,
+                    _row_json(row.to_dict()),
+                    str(row.get("vllm_video_model", "")),
+                    str(row.get("vllm_video_prompt_sha256", "")),
+                    str(row.get("vllm_video_status", "")),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+        db.commit()
+    logger.debug("local_checkpoint rows=%d csv=%s sqlite=%s", len(out_df), output_csv, sqlite_path)
+    return out_df
+
+
+def persist_mongo_patch(
+    out_df: pd.DataFrame,
+    *,
+    source_hint: str,
+    model: str,
+    logger: logging.Logger,
+) -> str:
+    """Patch cumulative Step-3 fields into Mongo without replacing unrelated fields."""
+    config = StorageConfig.from_env()
+    if not config.mongo_enabled:
+        logger.info("mongo persistence disabled by LACLAUGPT_MONGO_ENABLED")
+        return "mongo_disabled"
+    storage = MongoStorage(config)
+    collection = storage.db[storage.collection_name("dataframe")]
+    updated = 0
+    try:
+        for _, row in out_df.iterrows():
+            source_id = stable_source_id(row)
+            fields = {}
+            for key, value in row.to_dict().items():
+                try:
+                    fields[str(key)] = None if pd.isna(value) else value
+                except (TypeError, ValueError):
+                    fields[str(key)] = value
+            fields["_provenance.step3_video"] = {
+                "pipeline_stage": "step_3_video",
+                "source": source_hint,
+                "model": model,
+                "prompt_sha256": str(row.get("vllm_video_prompt_sha256", "")),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            collection.update_one(
+                {"_storage_id": source_id},
+                {"$set": fields, "$setOnInsert": {"_storage_id": source_id}},
+                upsert=True,
+            )
+            updated += 1
+        logger.info("mongo persistence complete rows=%d collection=%s", updated, storage.collection_name("dataframe"))
+        return f"mongo_ok:{updated}"
+    finally:
+        storage.close()
+
+# --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
 
@@ -1004,6 +1127,7 @@ def main(argv: list[str] | None = None) -> int:
     output_csv = Path(args.output_csv or (input_csv.with_suffix("").as_posix() + "_vllm_test.csv"))
     log_path = Path(args.log_path or "./logs/vllm_video_test.log")
     download_dir = Path(args.download_dir or "./vllm_video_downloads")
+    sqlite_path = Path(os.environ.get("LACLAUGPT_VLLM_VIDEO_SQLITE", str(output_csv.with_suffix(".sqlite3"))))
 
     logger = setup_logging(log_path)
     log_environment(logger)
@@ -1026,6 +1150,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("=== end configuration ===")
 
     df = load_input_csv(input_csv, logger)
+    before = df.copy(deep=True)
     selected = select_sample(df, args.sample_size, args.seed, logger)
 
     runtime_versions = collect_runtime_versions(logger)
@@ -1072,6 +1197,12 @@ def main(argv: list[str] | None = None) -> int:
                 metadata_key + ":",
                 redact_sensitive(metadata_value[:500]),
             )
+        for field_name, field_value in row.items():
+            logger.debug(
+                "  row_field.%-20s %s",
+                str(field_name) + ":",
+                redact_sensitive(str(field_value)[:2000]),
+            )
 
         record = {column: "" for column in OUTPUT_COLUMNS}
         record["vllm_video_model"] = args.model
@@ -1092,6 +1223,8 @@ def main(argv: list[str] | None = None) -> int:
         record["vllm_video_prompt"] = PROMPT_TEXT
         record["vllm_video_prompt_version"] = PROMPT_VERSION
         record["vllm_video_prompt_sha256"] = PROMPT_SHA256
+        cumulative_context = ep24_metadata_context(row)
+        record["vllm_video_context_sha256"] = hashlib.sha256(cumulative_context.encode("utf-8")).hexdigest()
         record["video_initial_skip_seconds"] = str(VIDEO_INITIAL_SKIP_SECONDS)
         record["SCROLL"] = "FALSE"
         record["SCROLL_SECONDS"] = "[]"
@@ -1222,15 +1355,30 @@ def main(argv: list[str] | None = None) -> int:
                 logger.info("cleanup retained source and analysis files (--keep-downloads)")
 
         results.append(record)
+        record["vllm_video_persistence_status"] = "local_checkpoint"
+        write_local_checkpoint(df, selected, results, output_csv, sqlite_path, logger)
 
     # Build the output from the SELECTED source rows, then append the
     # experimental columns. No original column is renamed, reordered or dropped,
     # and the source CSV on disk is never written to.
-    out_df = df.loc[selected].reset_index(drop=True).copy()
-    for column in OUTPUT_COLUMNS:
-        out_df[column] = [result[column] for result in results]
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
-    out_df.to_csv(output_csv, index=False, encoding="utf-8")
+    out_df = write_local_checkpoint(df, selected, results, output_csv, sqlite_path, logger)
+    assert_source_metadata_preserved(
+        before.loc[selected].reset_index(drop=True),
+        out_df,
+    )
+    try:
+        mongo_status = persist_mongo_patch(
+            out_df, source_hint=str(input_csv), model=args.model, logger=logger
+        )
+    except Exception as exc:
+        mongo_status = f"mongo_error:{type(exc).__name__}"
+        logger.exception(
+            "Mongo persistence failed after local checkpoint; completed model output is safe: %s",
+            redact_sensitive(str(exc)),
+        )
+    for result in results:
+        result["vllm_video_persistence_status"] = mongo_status
+    out_df = write_local_checkpoint(df, selected, results, output_csv, sqlite_path, logger)
 
     logger.info("=== summary ===")
     logger.info("  selected          : %d", len(selected))
