@@ -42,6 +42,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from ep24_models import ollama_model
 from roihu_codebooks import CodebookEntry, identity_key
 
 LOG = logging.getLogger(__name__)
@@ -975,8 +976,7 @@ def resolution_summary(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
 
 def ollama_adjudicator(model: str | None = None) -> Callable[[dict[str, Any]], Any]:
     """Return a conservative Ollama-backed candidate adjudicator."""
-    import os
-    chosen_model = model or os.getenv("LACLAUGPT_ENTITY_ADJUDICATOR_MODEL") or os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b")
+    chosen_model = model or ollama_model(specific_env="LACLAUGPT_ENTITY_ADJUDICATOR_MODEL")
 
     def adjudicate(payload: dict[str, Any]) -> Any:
         import ollama
