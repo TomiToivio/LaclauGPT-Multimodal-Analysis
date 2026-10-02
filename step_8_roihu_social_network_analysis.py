@@ -10,6 +10,7 @@ import json, logging, os
 from pathlib import Path
 import ollama, pandas as pd
 from ep24_pipeline import load_cumulative_csv, metadata_context
+from ep24_entities import fold_key, resolution_lookup
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
@@ -68,7 +69,20 @@ def run_language(lang):
               options={"temperature":0.0,"num_ctx":8192})
             out=SNAResult.model_validate_json(r["message"]["content"])
             df.at[i,"sna_analysis_markdown"]=out.analysis_markdown
-            df.at[i,"sna_edges_json"]=json.dumps([e.model_dump() for e in out.edges],ensure_ascii=False)
+            lookup=resolution_lookup(row.get("ep24_entity_resolution_json"))
+            edges=[]
+            for edge in out.edges:
+                item=edge.model_dump()
+                source=lookup.get(fold_key(edge.source_actor))
+                target=lookup.get(fold_key(edge.target_actor))
+                if source:
+                    item["source_actor_id"]=source["entity_id"]
+                    item["source_actor_canonical_name"]=source["canonical_name"]
+                if target:
+                    item["target_actor_id"]=target["entity_id"]
+                    item["target_actor_canonical_name"]=target["canonical_name"]
+                edges.append(item)
+            df.at[i,"sna_edges_json"]=json.dumps(edges,ensure_ascii=False)
         except Exception:
             LOG.exception("SNA failed row=%s file=%s",i,p)
     df.to_csv(p,index=False)

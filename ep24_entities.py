@@ -493,6 +493,7 @@ class EntityRegistry:
         fuzzy_limit: int = 5,
         embedder: Callable[[str], Sequence[float]] | None = None,
         semantic_threshold: float = 0.80,
+        adjudicator: Callable[[dict[str, Any]], Any] | None = None,
     ) -> dict[str, Any]:
         """Resolve one mention following the documented order.
 
@@ -594,6 +595,19 @@ class EntityRegistry:
             semantic = self._semantic(scoped, normalized, embedder, threshold=semantic_threshold)
 
         candidates = self._merge_candidates(fuzzy, semantic)
+        if candidates and adjudicator is not None:
+            try:
+                verdict = adjudicator({**base, "candidates": candidates})
+            except Exception as exc:
+                LOG.warning("LLM adjudicator failed: %s", exc)
+                verdict = None
+            entity_id = verdict if isinstance(verdict, str) else (
+                str(verdict.get("entity_id") or "") if isinstance(verdict, dict) else ""
+            )
+            allowed = {c["entity_id"] for c in candidates}
+            if entity_id in allowed and entity_id in self._records:
+                return self._accept(base, self._records[entity_id], "llm_adjudicated", 0.85)
+
         if candidates:
             return {
                 **base,
@@ -832,6 +846,7 @@ def resolve_dataframe(
         "entities_seed_provenance",
     ),
     embedder: Callable[[str], Sequence[float]] | None = None,
+    adjudicator: Callable[[dict[str, Any]], Any] | None = None,
 ) -> dict[str, Any]:
     """Append canonical entity fields to a DataFrame, preserving every column.
 
@@ -865,6 +880,7 @@ def resolve_dataframe(
                     language=language,
                     valid_at=valid_at,
                     embedder=embedder,
+                    adjudicator=adjudicator,
                 )
                 result["source_column"] = column
                 row_results.append(result)
@@ -946,3 +962,56 @@ def resolution_summary(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
         "resolved": counts.get("RESOLVED", 0),
         "review_queue": queue,
     }
+
+def ollama_adjudicator(model: str | None = None) -> Callable[[dict[str, Any]], Any]:
+    """Return a conservative Ollama-backed candidate adjudicator."""
+    import os
+    chosen_model = model or os.getenv("LACLAUGPT_ENTITY_ADJUDICATOR_MODEL") or os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b")
+
+    def adjudicate(payload: dict[str, Any]) -> Any:
+        import ollama
+        prompt = {
+            "surface_form": payload.get("surface_form", ""),
+            "normalized_form": payload.get("normalized_form", ""),
+            "language": payload.get("language", ""),
+            "country": payload.get("country", ""),
+            "candidates": payload.get("candidates", []),
+            "instruction": "Choose one supplied entity_id only if unambiguous; otherwise return an empty entity_id. Never invent an id.",
+        }
+        response = ollama.chat(
+            model=chosen_model,
+            messages=[
+                {"role": "system", "content": "Conservative entity-resolution adjudicator. Return JSON only."},
+                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+            ],
+            format="json", options={"temperature": 0.0},
+        )
+        data = json.loads(response["message"]["content"])
+        return {"entity_id": str(data.get("entity_id") or "")}
+
+    return adjudicate
+
+
+def registry_documents(registry: EntityRegistry) -> list[dict[str, Any]]:
+    """Serialize canonical registry records for Mongo persistence."""
+    return [{"_storage_id": r.entity_id, **r.as_dict(), "provenance": dict(r.provenance)} for r in registry.records()]
+
+
+def resolution_lookup(value: Any) -> dict[str, dict[str, str]]:
+    """Build surface/canonical label to stable-id lookup from resolution JSON."""
+    try:
+        rows = json.loads(str(value or ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    lookup: dict[str, dict[str, str]] = {}
+    if not isinstance(rows, list):
+        return lookup
+    for row in rows:
+        if not isinstance(row, dict) or row.get("decision") != "RESOLVED" or not row.get("entity_id"):
+            continue
+        item = {"entity_id": str(row["entity_id"]), "canonical_name": str(row.get("canonical_name") or "")}
+        for label in (row.get("surface_form"), row.get("normalized_form"), row.get("canonical_name")):
+            key = fold_key(label)
+            if key:
+                lookup[key] = item
+    return lookup

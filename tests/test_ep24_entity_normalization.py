@@ -509,3 +509,36 @@ def test_public_party_codebook_seeds_the_registry():
     assert resolved["entity_id"] == first.entity_id
     if first.aliases:
         assert reg.resolve(first.aliases[0], country="SE").get("entity_id") == first.entity_id
+
+
+def test_llm_adjudicator_can_only_select_existing_candidate():
+    reg = fi_registry()
+    chosen = reg.resolve(
+        "Petter! Orpo", country="FI", language="fi",
+        adjudicator=lambda payload: {"entity_id": payload["candidates"][0]["entity_id"]},
+    )
+    assert chosen["decision"] == "RESOLVED"
+    assert chosen["match_method"] == "llm_adjudicated"
+    assert chosen["entity_id"] == "FI-ORPO"
+
+    refused = reg.resolve(
+        "Petter! Orpo", country="FI", language="fi",
+        adjudicator=lambda payload: {"entity_id": "INVENTED-ID"},
+    )
+    assert refused["decision"] == "CANDIDATE"
+    assert "entity_id" not in refused
+
+
+def test_registry_documents_preserve_stable_ids_and_aliases():
+    docs = E.registry_documents(fi_registry())
+    assert len(docs) == 1
+    assert docs[0]["_storage_id"] == "FI-ORPO"
+    assert docs[0]["entity_id"] == "FI-ORPO"
+    assert "Orpo" in docs[0]["aliases"]
+
+
+def test_resolution_lookup_maps_surface_and_canonical_names():
+    result = fi_registry().resolve("Pääministeri Orpo", country="FI", language="fi")
+    lookup = E.resolution_lookup(json.dumps([result], ensure_ascii=False))
+    assert lookup[E.fold_key("Pääministeri Orpo")]["entity_id"] == "FI-ORPO"
+    assert lookup[E.fold_key("Petteri Orpo")]["entity_id"] == "FI-ORPO"

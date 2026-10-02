@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import ast
 import csv
+import json
 import logging
 import os
 import re
@@ -627,7 +628,34 @@ def emit_analysis_lists(
         graph.add(document, f"{LG}hasTopic", topic)
         graph.literal(document, f"{LG}topicDerivation", "model_derived")
 
+    resolved_labels: set[str] = set()
+    try:
+        resolutions = json.loads(str(row.get("ep24_entity_resolution_json") or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        resolutions = []
+    if isinstance(resolutions, list):
+        for resolved in resolutions:
+            if not isinstance(resolved, dict) or resolved.get("decision") != "RESOLVED":
+                continue
+            entity_id = str(resolved.get("entity_id") or "").strip()
+            if not entity_id:
+                continue
+            entity = urn("entity", entity_id)
+            graph.add(entity, f"{RDF_NS}type", f"{LG}Entity")
+            graph.literal(entity, f"{SCHEMA}identifier", entity_id)
+            graph.literal(entity, f"{SKOS}prefLabel", resolved.get("canonical_name"))
+            graph.literal(entity, f"{LG}entityType", resolved.get("entity_type"))
+            graph.literal(entity, f"{LG}entityCountry", resolved.get("entity_country"))
+            graph.add(document, f"{LG}mentionsEntity", entity)
+            graph.literal(document, f"{LG}entityDerivation", "model_derived")
+            for label in (resolved.get("surface_form"), resolved.get("normalized_form"), resolved.get("canonical_name")):
+                if label:
+                    resolved_labels.add(str(label).strip().casefold())
+
+    # Backward-compatible fallback for mentions that have not resolved to a stable id.
     for value in split_list(row.get("entities")):
+        if value.strip().casefold() in resolved_labels:
+            continue
         entity = urn("entity", value)
         graph.add(entity, f"{RDF_NS}type", f"{LG}Entity")
         graph.literal(entity, f"{SKOS}prefLabel", value)

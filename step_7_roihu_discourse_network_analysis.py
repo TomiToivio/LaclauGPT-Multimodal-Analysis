@@ -10,6 +10,7 @@ import json, logging, os
 from pathlib import Path
 import ollama, pandas as pd
 from ep24_pipeline import load_cumulative_csv, metadata_context
+from ep24_entities import fold_key, resolution_lookup
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
@@ -68,7 +69,16 @@ def run_language(lang):
               options={"temperature":0.0,"num_ctx":8192})
             out=DNAResult.model_validate_json(r["message"]["content"])
             df.at[i,"dna_analysis_markdown"]=out.analysis_markdown
-            df.at[i,"dna_statements_json"]=json.dumps([s.model_dump() for s in out.statements],ensure_ascii=False)
+            lookup=resolution_lookup(row.get("ep24_entity_resolution_json"))
+            statements=[]
+            for statement in out.statements:
+                item=statement.model_dump()
+                linked=lookup.get(fold_key(statement.actor_name))
+                if linked:
+                    item["actor_id"]=linked["entity_id"]
+                    item["actor_canonical_name"]=linked["canonical_name"]
+                statements.append(item)
+            df.at[i,"dna_statements_json"]=json.dumps(statements,ensure_ascii=False)
         except Exception:
             LOG.exception("DNA failed row=%s file=%s",i,p)
     df.to_csv(p,index=False)
