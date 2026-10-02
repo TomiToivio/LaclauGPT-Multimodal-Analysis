@@ -191,23 +191,23 @@ def urn(kind: str, *parts: str) -> str:
 
 
 def split_list(value) -> list[str]:
-    """Split a legacy comma-separated list column into clean values.
-
-    The postprocess stage writes ``', '.join(...)``, so a comma is the separator.
-    Values are de-duplicated while preserving order, matching how postprocess
-    itself de-duplicates.
-    """
+    """Parse canonical JSON list fields, preserving commas inside labels."""
     if is_blank(value):
         return []
     text = str(value).strip()
-    raw = [item.strip() for item in text.split(",")]
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = None
+    if isinstance(parsed, list):
+        raw = [str(item).strip() for item in parsed]
+    else:
+        raw = [item.strip() for item in re.split(r"[;|\\n]+", text)]
     seen: list[str] = []
     for item in raw:
-        item = item.strip()
         if item and item not in seen:
             seen.append(item)
     return seen
-
 
 def parse_frame_files(value) -> list[str]:
     """Parse ``frame_files``, which has two historical encodings.
