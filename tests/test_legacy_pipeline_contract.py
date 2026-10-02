@@ -92,9 +92,12 @@ CURRENT_STAGE_FILES = {
 
 
 def _stage_path(name: str) -> Path:
-    """Resolve a documented legacy stage name to the file that now carries it."""
+    """Resolve the frozen historical source before any active Roihu successor."""
+    historical = ROOT / name
+    if historical.is_file():
+        return historical
     current = ROOT / CURRENT_STAGE_FILES.get(name, name)
-    return current if current.is_file() else ROOT / name
+    return current
 
 
 def _source(name: str) -> str:
