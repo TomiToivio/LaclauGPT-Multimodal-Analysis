@@ -261,7 +261,9 @@ def _existing_list(value):
         parsed = None
     if isinstance(parsed, list):
         return [str(item).strip() for item in parsed if str(item).strip()]
-    return [item.strip() for item in text.split(",") if item.strip()]
+    for separator in ("\n", "|"):
+        text = text.replace(separator, ";")
+    return [item.strip() for item in text.split(";") if item.strip()]
 
 
 def analyze_responses(language=None):
@@ -295,7 +297,16 @@ def analyze_responses(language=None):
     df = ensure_video_filename(df)
     ensure_columns(
         df,
-        ("entities", "themes", "positive", "neutral", "negative", "postprocess_summary_md"),
+        (
+            "entities",
+            "themes",
+            "postprocess_entities",
+            "postprocess_themes",
+            "positive",
+            "neutral",
+            "negative",
+            "postprocess_summary_md",
+        ),
     )
 
     from ep24_stage_contract import STAGE_CONTRACT
