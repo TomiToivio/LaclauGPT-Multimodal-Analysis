@@ -11,16 +11,12 @@
     "sequence_number",
     "political_preference",
     "allas_filename",
-    "new_entity",
-    "new_theme",
+    "entities",
+    "themes",
     "video_duration",
-    "researcher_new_persons",
-    "researcher_new_themes",
     "researcher_note"
   ],
   "bootstrap_adds": [
-    "entities",
-    "themes",
     "_storage_id"
   ],
   "derived_context_adds": [
@@ -143,4 +139,4 @@
     "bulgaria",
     "sweden"
   ]
-}
+}\n
