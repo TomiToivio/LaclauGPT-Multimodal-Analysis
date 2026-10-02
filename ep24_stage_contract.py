@@ -79,10 +79,11 @@ def _s(number, name, module, appends=(), gpu=True, notes=""):
 STAGE_CONTRACT: tuple[Stage, ...] = (
     _s(
         1, "preprocess", "roihu_preprocess.py",
-        ("whisperResult", "whisper_transcript", "whisper_language", "whisper_translated",
-         "frame_files", "ocr_1", "ocr_2", "ocr_3", "ocr_4", "ocr_5", "ocr_6",
-         "video_analysis_status", "video_analysis_note", "video_initial_skip_seconds"),
-        notes="Allas video staging happens here; the first 1.0s is skipped before analysis.",
+        ("frame_file", "frame_timestamp_seconds", "ocr_1", "ocr_backend", "ocr_model",
+         "ocr_runtime_ms", "asr_transcript", "asr_language", "asr_translated",
+         "asr_backend", "asr_model", "asr_runtime_ms", "video_duration_seconds",
+         "preprocess_status", "preprocess_note", "preprocess_completed_at"),
+        notes="Allas media is staged here; exactly one frame/OCR is taken at original t=1.0s and full-video ASR is backend-neutral.",
     ),
     _s(
         2, "frame", "roihu_frame.py",
