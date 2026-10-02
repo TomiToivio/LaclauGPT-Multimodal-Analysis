@@ -48,8 +48,7 @@ def load_cumulative_csv(path: str | Path, *, require_canonical: bool = True) -> 
     return df
 
 
-def assert_source_metadata_preserved(before: pd.DataFrame, after: pd.DataFrame) -> None:
-    """Fail if a stage drops, reorders, or mutates any incoming column."""
+def assert_source_metadata_preserved(\n    before: pd.DataFrame,\n    after: pd.DataFrame,\n    *,\n    mutable_columns: Iterable[str] = (),\n) -> None:\n    """Fail if a stage drops or mutates incoming columns except explicit aggregates."""\n    mutable = set(mutable_columns)
     missing = [column for column in before.columns if column not in after.columns]
     if missing:
         raise AssertionError(f"stage dropped incoming columns: {missing}")
@@ -57,21 +56,15 @@ def assert_source_metadata_preserved(before: pd.DataFrame, after: pd.DataFrame) 
         raise AssertionError(
             f"stage changed row count: {len(before)} -> {len(after)}"
         )
-    for column in before.columns:
-        left = before[column].astype(str).tolist()
+    for column in before.columns:\n        if column in mutable:\n            continue\n        left = before[column].astype(str).tolist()
         right = after[column].astype(str).tolist()
         if left != right:
             raise AssertionError(f"stage mutated incoming column: {column}")
 
 
-def write_cumulative_csv(
-    before: pd.DataFrame,
-    after: pd.DataFrame,
-    path: str | Path,
-) -> None:
+def write_cumulative_csv(\n    before: pd.DataFrame,\n    after: pd.DataFrame,\n    path: str | Path,\n    *,\n    mutable_columns: Iterable[str] = (),\n) -> None:
     """Write an additive stage output after verifying the source contract."""
-    assert_source_metadata_preserved(before, after)
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    assert_source_metadata_preserved(before, after, mutable_columns=mutable_columns)\n    Path(path).parent.mkdir(parents=True, exist_ok=True)
     after.to_csv(path, index=False, encoding="utf-8")
 
 
