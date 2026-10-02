@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import defaultdict, deque
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from ep24_schema import stable_source_id, value
 
@@ -151,6 +153,348 @@ def graph_from_edges(
     return list(nodes_by_id.values()), edges
 
 
+def _token_set(text: str) -> set[str]:
+    """Lowercased token set used only for conservative identity matching."""
+    return {token for token in re.split(r"[\s,]+", text.casefold()) if token}
+
+
+#: A token shorter than this may not be used for a subset match. Guards against a
+#: degenerate subset such as "a" ⊂ "Anna Maria Something".
+MIN_SUBSET_TOKEN_LENGTH = 3
+
+
+def _title_stripped(text: str) -> str:
+    """Title-stripped form, using the shared resolver's own vocabulary.
+
+    Imported lazily and defensively: ``ep24_entities`` is a heavy module and this
+    helper must not make ``ep24_sna`` unimportable if it changes shape. The
+    returned type is checked because ``strip_titles`` returns ``(text, titles)``.
+    """
+    try:
+        from ep24_entities import strip_titles
+    except Exception:  # pragma: no cover - defensive
+        return text.casefold().strip()
+    try:
+        result = strip_titles(text)
+    except Exception:  # pragma: no cover - defensive
+        return text.casefold().strip()
+    if isinstance(result, tuple):
+        result = result[0] if result else ""
+    return str(result or "").casefold().strip()
+
+
+def _fold(text: str) -> str:
+    """Comparison fold, delegating to the shared resolver when available."""
+    try:
+        from ep24_entities import fold_key
+    except Exception:  # pragma: no cover - defensive
+        return text.casefold().strip()
+    try:
+        return fold_key(text)
+    except Exception:  # pragma: no cover - defensive
+        return text.casefold().strip()
+
+
+def _merged_into(
+    entity_id: str,
+    canonical_name: str,
+    label: str,
+    *,
+    min_token_length: int = MIN_SUBSET_TOKEN_LENGTH,
+) -> str:
+    """Return the merge reason when this mention provably denotes that entity.
+
+    Three conditions, in decreasing strength, and each is deliberately narrow:
+
+    1. **exact folded equality**;
+    2. **title-stripped equality** — ``Pääministeri Orpo`` ≡ ``Orpo``;
+    3. **one-directional token subset** — ``Orpo`` ⊂ ``Petteri Orpo``.
+
+    Only the subset rule needs a guard: it requires every token of the mention to
+    appear in the candidate's own label/alias tokens, and requires each matched
+    token to be at least ``min_token_length`` long so a stray one- or two-character
+    token cannot subset-match a long name.
+
+    Returns ``""`` when nothing matches, so the caller cannot mistake a miss for a
+    match by truthiness accident.
+    """
+    mention = _text(label)
+    if not mention:
+        return ""
+    candidate_label = _text(canonical_name)
+    mention_folded = _fold(mention)
+    if mention_folded and mention_folded == _fold(candidate_label):
+        return "exact_folded"
+    mention_stripped = _title_stripped(mention)
+    if mention_stripped and mention_stripped == _title_stripped(candidate_label):
+        return "title_stripped"
+    mention_tokens = _token_set(mention_stripped or mention)
+    candidate_tokens = _token_set(_title_stripped(candidate_label) or candidate_label)
+    if not mention_tokens or not candidate_tokens:
+        return ""
+    if not mention_tokens.issubset(candidate_tokens):
+        return ""
+    if any(len(token) < min_token_length for token in mention_tokens):
+        return ""
+    return "token_subset"
+
+
+def reconcile_actor_nodes(
+    nodes: Iterable[Mapping[str, Any]],
+    edges: Iterable[Mapping[str, Any]],
+    row: Mapping[str, Any],
+    *,
+    min_token_length: int = MIN_SUBSET_TOKEN_LENGTH,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Merge unresolved actor nodes into resolved entities — conservatively.
+
+    The defect this fixes: ``node_identity`` prefers the canonical entity id, but
+    Step 8's enrichment only supplies one when the mention matches a record in
+    ``ep24_entity_resolution_json`` *by exact folded label*. A bare surname
+    (``Orpo``), a title-prefixed form (``Pääministeri Orpo``) or an inflected form
+    therefore becomes its own ``actor:<hash>`` node **even though the row contains a
+    RESOLVED record for that person** — splitting one actor and inflating
+    ``node_count``, ``density``, ``degree`` and ``component_count``.
+
+    Policy (issue #197, author-specified): a ``actor:<hash>`` node is merged into a
+    resolved ``entity:<id>`` node **only when exactly one** resolved candidate in
+    the row matches. Zero candidates ⇒ the node stays separate. Two or more ⇒ the
+    node stays separate **and is counted**, because two people can share a surname
+    and guessing between them is the failure this layer exists to prevent.
+
+    Returns ``(nodes, edges, report)``. Every merge is recorded on the surviving
+    node as ``merged_from`` / ``merge_reason`` so it is auditable and reversible,
+    and edges are **rewritten, never dropped**.
+    """
+    node_rows = [dict(node) for node in nodes]
+    edge_rows = [dict(edge) for edge in edges]
+
+    resolved: dict[str, str] = {}
+    canonical_by_id: dict[str, str] = {}
+    try:
+        from ep24_entities import resolution_lookup
+
+        for key, item in resolution_lookup(row.get("ep24_entity_resolution_json")).items():
+            entity_id = _text(item.get("entity_id"))
+            if not entity_id:
+                continue
+            resolved[key] = entity_id
+            # The candidate set is the ROW'S resolved records, not the nodes the
+            # edges happened to create. A row can resolve two people who share a
+            # surname while only one of them is mentioned by an edge; building the
+            # candidates from nodes alone would then see a single candidate and
+            # merge the bare surname into one of them — exactly the false merge the
+            # issue's `exactly one` rule exists to prevent. Measured on a fixture
+            # with two resolved Kowalskas, node-based candidates produced
+            # ambiguous_count == 0 and merged the surname.
+            canonical_by_id[entity_id] = _text(item.get("canonical_name"))
+    except Exception:  # pragma: no cover - defensive
+        resolved = {}
+        canonical_by_id = {}
+
+    # A canonical name may be absent from the lookup item; fall back to the node
+    # label for that entity so matching still has something to compare against.
+    for node in node_rows:
+        node_id = _text(node.get("node_id"))
+        if not node_id.startswith("entity:"):
+            continue
+        entity_id = node_id.split(":", 1)[1]
+        if entity_id not in canonical_by_id or not canonical_by_id[entity_id]:
+            canonical_by_id[entity_id] = _text(node.get("label"))
+    canonical_by_id = {
+        (f"entity:{eid}" if not eid.startswith("entity:") else eid): name
+        for eid, name in canonical_by_id.items()
+    }
+
+    report: dict[str, Any] = {
+        "merged": [],
+        "ambiguous": [],
+        "unresolved": [],
+    }
+
+    # -- decide per unresolved node -----------------------------------------
+    row_item_id = canonical_item_id(row)
+    row_country = value(row, "country")
+    row_platform = _platform(row)
+    row_source_url = _source_url(row)
+    row_timestamp = _timestamp(row)
+    existing_node_ids = {_text(n.get("node_id")) for n in node_rows}
+
+    remap: dict[str, str] = {}
+    for node in node_rows:
+        node_id = _text(node.get("node_id"))
+        if not node_id or node_id.startswith("entity:"):
+            continue
+        label = _text(node.get("label"))
+        matches: list[tuple[str, str]] = []
+        for entity_id, canonical_name in canonical_by_id.items():
+            reason = _merged_into(
+                entity_id, canonical_name, label, min_token_length=min_token_length
+            )
+            if reason:
+                matches.append((entity_id, reason))
+        # de-duplicate by target, keeping the strongest (first-listed) reason
+        by_target: dict[str, str] = {}
+        for entity_id, reason in matches:
+            by_target.setdefault(entity_id, reason)
+        if len(by_target) == 1:
+            target, reason = next(iter(by_target.items()))
+            # The target may come from the row's records while having no node of its
+            # own (the edge never mentioned it directly). A node must exist before an
+            # edge can point at it, so materialise one from the row's canonical name
+            # rather than emitting an edge to a nonexistent endpoint.
+            if target not in existing_node_ids:
+                existing_node_ids.add(target)
+                synthetic = {
+                    "node_id": target,
+                    "node_type": "actor",
+                    "label": canonical_by_id.get(target, ""),
+                    "country": str(row_country),
+                    "platform": str(row_platform),
+                    "source_url": str(row_source_url),
+                    "canonical_item_id": str(row_item_id),
+                    "timestamp": str(row_timestamp),
+                    "provenance_item_ids": [str(row_item_id)] if row_item_id else [],
+                    "merged_from": [],
+                    "merge_reason": [],
+                    "materialised_from": "row_resolution_record",
+                }
+                node_rows.append(synthetic)
+            remap[node_id] = target
+            report["merged"].append({
+                "merged_from": node_id,
+                "merged_into": target,
+                "label": label,
+                "merge_reason": reason,
+            })
+        elif len(by_target) > 1:
+            report["ambiguous"].append({
+                "node_id": node_id,
+                "label": label,
+                "candidates": sorted(by_target),
+            })
+        else:
+            report["unresolved"].append({"node_id": node_id, "label": label})
+
+    # -- apply the remap ----------------------------------------------------
+    # Nodes the remap targets are inserted FIRST so the surviving node is the
+    # canonical one. Otherwise a plain `actor:` node that happens to remap to the
+    # same id can be processed before a materialised target and win the
+    # first-writer-takes-all insert, silently dropping the materialisation marker
+    # and the row's canonical label.
+    ordered: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for node in node_rows:
+        node_id = _text(node.get("node_id"))
+        if node_id in remap:
+            continue
+        ordered.append(node)
+        seen_ids.add(node_id)
+    for node in node_rows:
+        node_id = _text(node.get("node_id"))
+        if node_id in remap and node_id not in seen_ids:
+            ordered.append(node)
+            seen_ids.add(node_id)
+
+    survivors: dict[str, dict[str, Any]] = {}
+    for node in ordered:
+        node_id = _text(node.get("node_id"))
+        target = remap.get(node_id, node_id)
+        existing = survivors.get(target)
+        if existing is None:
+            kept = {**node, "node_id": target}
+            # Copy the provenance list rather than sharing the caller's. Within one
+            # call every node comes from the same row and carries the same item id,
+            # so the dedupe below masks a shared list today -- but the function must
+            # not depend on that, and a shared list would leak a mutation into the
+            # caller's node dicts the moment the ids differ.
+            kept["provenance_item_ids"] = list(node.get("provenance_item_ids") or [])
+            kept.setdefault("merged_from", [])
+            kept.setdefault("merge_reason", [])
+            survivors[target] = kept
+            continue
+        # fold provenance and record the merge on the surviving node
+        for item_id in node.get("provenance_item_ids", []) or []:
+            if item_id and item_id not in existing["provenance_item_ids"]:
+                existing["provenance_item_ids"].append(item_id)
+        if node_id != target:
+            if node_id not in existing["merged_from"]:
+                existing["merged_from"].append(node_id)
+            reason = next(
+                (m["merge_reason"] for m in report["merged"] if m["merged_from"] == node_id),
+                "unknown",
+            )
+            if reason not in existing["merge_reason"]:
+                existing["merge_reason"].append(reason)
+
+    merged_nodes = list(survivors.values())
+
+    # -- rewrite edges onto the surviving nodes (never drop them) -----------
+    rewritten: list[dict[str, Any]] = []
+    for edge in edge_rows:
+        source = remap.get(_text(edge.get("source")), _text(edge.get("source")))
+        target = remap.get(_text(edge.get("target")), _text(edge.get("target")))
+        item = {**edge, "source": source, "target": target}
+        if "source_label" in item and source != _text(edge.get("source")):
+            item["source_label"] = survivors[source].get("label", item.get("source_label"))
+        if "target_label" in item and target != _text(edge.get("target")):
+            item["target_label"] = survivors[target].get("label", item.get("target_label"))
+        provenance = dict(item.get("provenance") or {})
+        if _text(edge.get("source")) != source or _text(edge.get("target")) != target:
+            provenance["reconciled_from"] = {
+                "source": _text(edge.get("source")),
+                "target": _text(edge.get("target")),
+            }
+            item["provenance"] = provenance
+        rewritten.append(item)
+
+    report["merged_count"] = len(report["merged"])
+    report["ambiguous_count"] = len(report["ambiguous"])
+    report["unresolved_count"] = len(report["unresolved"])
+    return merged_nodes, rewritten, report
+
+
+def identity_fragmentation(
+    nodes: Iterable[Mapping[str, Any]],
+    edges: Iterable[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Report how much of the graph is *still* un-resolved identity (#197).
+
+    The reconciliation pass merges what it can prove; whatever it cannot must be
+    **visible in the numbers** rather than silently shaping `node_count`, `density`
+    and `degree`. An unresolved actor is a node that is not backed by a canonical
+    entity id; ambiguous ones were left separate on purpose.
+    """
+    node_rows = list(nodes)
+    unresolved = [
+        {"node_id": _text(node.get("node_id")), "label": _text(node.get("label"))}
+        for node in node_rows
+        if _text(node.get("node_type")) == "actor"
+        and not _text(node.get("node_id")).startswith("entity:")
+    ]
+    return {
+        "unresolved_actor_count": len(unresolved),
+        "unresolved_actors": unresolved,
+    }
+
+
+def apply_reconciliation_metrics(
+    metrics: Mapping[str, Any],
+    report: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Attach the reconciliation and fragmentation counters to a metrics mapping.
+
+    Kept separate from ``basic_metrics`` so the metric values themselves stay a pure
+    function of the graph, and so a caller that never reconciles is unaffected.
+    """
+    updated = dict(metrics)
+    updated["reconciled_actor_count"] = int((report or {}).get("merged_count", 0))
+    updated["ambiguous_actor_count"] = int((report or {}).get("ambiguous_count", 0))
+    updated["unresolved_actor_count"] = int((report or {}).get("unresolved_count", 0))
+    updated["ambiguous_actors"] = list((report or {}).get("ambiguous", []))
+    return updated
+
+
 def basic_metrics(
     nodes: Iterable[Mapping[str, Any]],
     edges: Iterable[Mapping[str, Any]],
@@ -261,6 +605,11 @@ def graph_summary(
             f"edges={metrics.get('edge_count', 0)}",
             f"density={float(metrics.get('density', 0.0)):.6f}",
             f"weak_components={metrics.get('component_count', 0)}",
+            # Issue #197: remaining fragmentation must be visible in the summary, not
+            # silently shaping the counts above.
+            f"reconciled_actors={metrics.get('reconciled_actor_count', 0)}",
+            f"ambiguous_actors={metrics.get('ambiguous_actor_count', 0)}",
+            f"unresolved_actors={metrics.get('unresolved_actor_count', 0)}",
             "most_connected=" + json.dumps(top, ensure_ascii=False),
             "relations:",
             *(relations or ["- <none>"]),
