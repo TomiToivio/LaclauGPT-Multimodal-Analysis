@@ -18,6 +18,36 @@ An English label may be omitted only when the entry contains
 language-neutral identifier that genuinely has no translation. Exemptions are
 counted and remain auditable.
 
+### Entries with no language metadata
+
+An empty `source_languages` means **unknown**, not "English". The `common` layer
+records no `language` at file or entry level, so deciding on `source_languages`
+alone exempted those entries *by omission*: they were neither present, nor
+missing, nor counted as exemptions — 2694 entries per country simply uncounted,
+26 of which are genuinely non-English (`Rassemblement National`, `Sinn Féin`,
+`Moderaterna`).
+
+For an entry with no language metadata the **label decides**:
+
+| case | example | required? |
+|---|---|---|
+| label already English | `Abortion`, `Accessibility` | no — nothing to translate |
+| label non-English | `Rassemblement National`, `Sinn Féin` | **yes** |
+| person name | `Pedro Sánchez` | no — the English form is the same string |
+| handle or URL | `@fundacjawosp`, `https://…` | no — language-neutral |
+| documented exemption | `metadata.english_label_exempt_reason` | no — and auditable |
+
+Organisations are **not** exempted by the person-name shape test: `Les
+Républicains`, `Fianna Fáil` and `Partido Socialista` are two capitalised words
+but do require glosses.
+
+Measured effect: required labels rise from 4654 to **4914** across the ten books
+(+26 per country, exactly the previously invisible common-layer gaps), while 2668
+already-English common labels stay correctly exempt. The heuristic is a review
+signal, not a verifier; residual error is deliberately biased toward
+over-reporting, because a redundant gloss costs one line while a missing
+translation costs silent retrieval failure.
+
 Similar English translations never justify collapsing two distinct local
 entities. Identity remains country/kind/local-label scoped and aliases stay
 attached to the correct canonical entry.
