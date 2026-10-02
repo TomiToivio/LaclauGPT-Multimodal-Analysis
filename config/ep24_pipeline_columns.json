@@ -116,6 +116,7 @@
       "preserve_all": true,
       "known_outputs": [
         "sna_analysis_markdown",
+        "sna_report_markdown",
         "sna_castells_interpretation_markdown",
         "sna_nodes_json",
         "sna_edges_json",
