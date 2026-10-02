@@ -160,12 +160,14 @@ def test_bootstrap_shaped_row_keeps_every_source_column_and_gains_the_merged_one
         assert column in merged
 
 
-def test_country_order_puts_the_demo_countries_first_then_alphabetical():
+def test_country_order_follows_issue128_exact_sequence():
     order = contract.country_order(
-        ["Sweden", "Portugal", "Finland", "Germany", "Poland"]
+        [
+            "Sweden", "Bulgaria", "France", "Croatia", "Hungary",
+            "Spain", "Germany", "Portugal", "Poland", "Finland",
+        ]
     )
-    assert order[:3] == ["Finland", "Poland", "Portugal"]
-    assert order[3:] == ["Germany", "Sweden"]
+    assert order == list(contract.COUNTRY_PROCESSING_ORDER)
 
 
 def test_country_order_never_drops_an_unlisted_country():
