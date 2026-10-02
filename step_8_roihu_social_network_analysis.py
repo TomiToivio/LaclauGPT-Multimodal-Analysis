@@ -170,7 +170,8 @@ def _persist_mongo(df: pd.DataFrame, all_nodes: list[dict], all_edges: list[dict
                 graph_id = str(doc.get(f"{kind}_id") or "")
                 if not graph_id:
                     continue
-                doc["_storage_id"] = f"sna:{kind}:{graph_id}"
+                item_id = str(doc.get("canonical_item_id") or "")
+                doc["_storage_id"] = f"sna:{kind}:{graph_id}:{item_id}" if item_id else f"sna:{kind}:{graph_id}"
                 doc["graph_record_type"] = kind
                 doc["sna_schema_version"] = SNA_SCHEMA_VERSION
                 graph_docs.append(doc)
@@ -194,17 +195,8 @@ def run_language(lang: str) -> Path | None:
         input_path, require_canonical=bool(os.getenv("LACLAUGPT_INPUT_CSV"))
     )
     limit = int(os.getenv("LACLAUGPT_MAX_ROWS", "100") or 100)
-    if limit > 0:
-        if output_path.resolve() == input_path.resolve() and limit < len(original):
-            raise ValueError(
-                "Refusing to truncate the input CSV: when LACLAUGPT_MAX_ROWS is set, "
-                "LACLAUGPT_OUTPUT_CSV must be a different path."
-            )
-        working = original.head(limit).copy()
-    else:
-        working = original.copy()
-
-    df = working.copy()
+    df = original.copy()
+    selected = df.head(limit) if limit > 0 else df
     output_columns = (
         "sna_analysis_markdown",
         "sna_castells_interpretation_markdown",
@@ -227,7 +219,7 @@ def run_language(lang: str) -> Path | None:
     all_nodes: list[dict] = []
     all_edges: list[dict] = []
 
-    for index, row in df.iterrows():
+    for index, row in selected.iterrows():
         evidence = metadata_context(row) + "\n\nANALYTICAL EVIDENCE:\n" + "\n\n".join(
             str(row.get(key, ""))
             for key in (
@@ -286,7 +278,7 @@ def run_language(lang: str) -> Path | None:
             df.at[index, "sna_error"] = f"{type(exc).__name__}: {exc}"
             LOG.exception("SNA failed row=%s file=%s", index, input_path)
 
-    write_cumulative_csv(working, df, output_path)
+    write_cumulative_csv(original, df, output_path)
     _write_graph_exports(output_path, all_nodes, all_edges)
     try:
         _persist_mongo(df, all_nodes, all_edges, output_path, model)
