@@ -31,22 +31,14 @@ from ep24_schema import EP24_REPROCESS_COLUMNS
 # Re-exported here so a stage-contract test needs only one import.
 SOURCE_COLUMNS: tuple[str, ...] = EP24_REPROCESS_COLUMNS
 
-# Columns the bootstrap/import step adds before Step 1 runs (issue #64).
-# `entities` and `themes` are the canonical merged fields; the researcher source
-# columns they merge from are preserved alongside them for provenance.
+# The private country CSVs are canonicalized before analysis. Bootstrap therefore
+# adds only stable pipeline identity; human `entities` and `themes` already exist.
 BOOTSTRAP_ADDED_COLUMNS: tuple[str, ...] = (
-    "record_id",
-    "entities",
-    "themes",
+    "_storage_id",
 )
 
-# The researcher/source columns bootstrap merges from and must NOT consume.
-BOOTSTRAP_PRESERVED_COLUMNS: tuple[str, ...] = (
-    "new_entity",
-    "researcher_new_persons",
-    "new_theme",
-    "researcher_new_themes",
-)
+# Issue #21 removes the four legacy annotation columns before Step 1.
+BOOTSTRAP_PRESERVED_COLUMNS: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
