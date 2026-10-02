@@ -61,11 +61,9 @@ def main() -> int:
     if limit is not None and limit < 0:
         fail("sample limit must be >= 0")
 
-    if os.environ.get("LACLAUGPT_MONGO_ENABLED", "0").lower() in {"1", "true", "yes", "on"}:
-        if not os.environ.get("LACLAUGPT_MONGO_URI"):
-            fail("LACLAUGPT_MONGO_URI is required by the restartable sbatch orchestrator")
-    else:
-        fail("restartable sbatch jobs require LACLAUGPT_MONGO_ENABLED=1")
+    mongo_enabled = os.environ.get("LACLAUGPT_MONGO_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
+    if mongo_enabled and not os.environ.get("LACLAUGPT_MONGO_URI"):
+        fail("LACLAUGPT_MONGO_URI is required when LACLAUGPT_MONGO_ENABLED=1")
 
     if shutil.which("nvidia-smi") is None:
         fail("nvidia-smi not found; submit on Roihu-GPU")
