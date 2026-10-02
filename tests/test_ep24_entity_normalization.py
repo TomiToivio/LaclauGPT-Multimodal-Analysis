@@ -531,7 +531,7 @@ def test_llm_adjudicator_can_only_select_existing_candidate():
 
 def test_registry_documents_preserve_stable_ids_and_aliases():
     docs = E.registry_documents(fi_registry())
-    assert docs == [pytest.helpers.anything] if False else docs
+    assert len(docs) == 1
     assert docs[0]["_storage_id"] == "FI-ORPO"
     assert docs[0]["entity_id"] == "FI-ORPO"
     assert "Orpo" in docs[0]["aliases"]
