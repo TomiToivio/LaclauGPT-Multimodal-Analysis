@@ -27,7 +27,7 @@ import pandas as pd
 from asr_backend import describe_backend, language_hint, load_asr_model
 from ep24_pipeline import local_media_path
 from ep24_schema import value as ep24_value
-from ep24_video import is_too_short
+from ep24_video import is_too_short, prepare_analysis_clip
 from ocr_backend import describe_ocr_backend, load_ocr_backend
 
 FRAME_TIMESTAMP_SECONDS = 1.0
@@ -411,8 +411,18 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                     ocr_text,
                 )
 
+                # ASR must not ingest the known 0-1s feed-scroll artifact.
+                # Use the shared ep24_video rule and a non-destructive derived clip.
+                analysis_clip = prepare_analysis_clip(local_path, "./analysis_clips")
+                LOG.debug(
+                    "asr_analysis_clip country=%s video_id=%s source=%s analysis_clip=%s",
+                    country,
+                    video_id,
+                    local_path,
+                    analysis_clip,
+                )
                 asr_started = time.perf_counter()
-                result = asr.transcribe(local_path, language_hint(country))
+                result = asr.transcribe(str(analysis_clip), language_hint(country))
                 asr_ms = (time.perf_counter() - asr_started) * 1000.0
                 LOG.debug(
                     "asr_complete country=%s video_id=%s backend=%s model=%s runtime_ms=%.1f "
@@ -449,7 +459,7 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                 out.at[index, "preprocess_status"] = "ok"
                 out.at[index, "preprocess_note"] = (
                     "Exactly one OCR call on exactly one original-video frame at t=1.0s; "
-                    "ASR processed the full staged video."
+                    "ASR processed the derived analyzable clip after the mandatory 1.0s skip."
                 )
                 save_cached(conn, key, values)
                 counters["ok"] += 1
