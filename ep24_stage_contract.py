@@ -79,10 +79,11 @@ def _s(number, name, module, appends=(), gpu=True, notes=""):
 STAGE_CONTRACT: tuple[Stage, ...] = (
     _s(
         1, "preprocess", "roihu_preprocess.py",
-        ("whisperResult", "whisper_transcript", "whisper_language", "whisper_translated",
-         "frame_files", "ocr_1", "ocr_2", "ocr_3", "ocr_4", "ocr_5", "ocr_6",
-         "video_analysis_status", "video_analysis_note", "video_initial_skip_seconds"),
-        notes="Allas video staging happens here; the first 1.0s is skipped before analysis.",
+        ("frame_file", "frame_timestamp_seconds", "ocr_1", "ocr_backend", "ocr_model",
+         "ocr_runtime_ms", "asr_transcript", "asr_language", "asr_translated",
+         "asr_backend", "asr_model", "asr_runtime_ms", "video_duration_seconds",
+         "preprocess_status", "preprocess_note", "preprocess_completed_at"),
+        notes="Allas media is staged here; exactly one frame/OCR is taken at original t=1.0s and full-video ASR is backend-neutral.",
     ),
     _s(
         2, "frame", "roihu_frame.py",
@@ -117,6 +118,18 @@ STAGES_BY_NUMBER: dict[int, Stage] = {stage.number: stage for stage in STAGE_CON
 # Country processing priority (issue #64): the first three are required for the
 # demo samples; the remainder follows one deterministic documented order.
 COUNTRY_PRIORITY: tuple[str, ...] = ("Finland", "Poland", "Portugal")
+COUNTRY_PROCESSING_ORDER: tuple[str, ...] = (
+    "Finland",
+    "Poland",
+    "Portugal",
+    "Germany",
+    "Spain",
+    "Hungary",
+    "Croatia",
+    "France",
+    "Bulgaria",
+    "Sweden",
+)
 
 # Lowercase tokens as they appear in the private input filenames
 # (analysis/ep24_reprocess/data/to_reprocess/ep24_<token>.csv).
@@ -144,16 +157,15 @@ def stage(number: int) -> Stage:
 
 
 def country_order(available: list[str]) -> list[str]:
-    """Order the countries present in the input by the documented priority.
+    """Order known EP24 countries exactly as required by issue #128.
 
-    Finland, Poland, Portugal first, in that order, then every remaining country
-    in deterministic (alphabetical) order. Unknown countries are not dropped --
-    they take their place in the alphabetical tail rather than disappearing.
+    Unknown countries are never dropped: they follow the ten known countries in
+    deterministic alphabetical order.
     """
     present = list(dict.fromkeys(available))
-    priority = [c for c in COUNTRY_PRIORITY if c in present]
-    rest = sorted(c for c in present if c not in priority)
-    return priority + rest
+    known = [country for country in COUNTRY_PROCESSING_ORDER if country in present]
+    unknown = sorted(country for country in present if country not in COUNTRY_PROCESSING_ORDER)
+    return known + unknown
 
 
 def all_contracted_columns() -> tuple[str, ...]:

@@ -3,10 +3,10 @@
 
 Production semantics:
 - preserve every incoming CSV field;
-- start media analysis at original t=1.0s after the known feed-scroll artifact;
-- extract exactly one keyframe at t=1.0s;
-- run OCR only on that keyframe;
-- run Whisper/translation on the non-destructive clip from t=1.0s onward;
+- extract exactly one original-video keyframe at t=1.0s;
+- run OCR exactly once on that keyframe;
+- run backend-neutral ASR/translation on the full staged video;
+- record ASR/OCR backend and model provenance;
 - append outputs and pass the cumulative dataframe to Step 2.
 
 Set LACLAUGPT_INPUT_CSV and LACLAUGPT_OUTPUT_CSV for explicit stage chaining.

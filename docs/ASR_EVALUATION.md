@@ -6,7 +6,15 @@ local alternatives."*
 
 This document covers the **transcription** half only. OCR is a separate step.
 
-Status: **evaluation complete on a GPU workstation; Roihu confirmation pending.**
+Status: **historical Whisper-family baseline retained; issue #128 supersedes the production default and requires a new real-EP24 Roihu benchmark.**
+
+> **Issue #128 migration note (2026-10-02):** The measurements below remain useful
+> baseline evidence, but the active Step-1 schema is now backend-neutral
+> (`asr_transcript`, `asr_language`, `asr_translated`, backend/model provenance).
+> Canary v2, Parakeet-TDT v3, Qwen3-ASR and Whisper-family baselines are selectable.
+> The final production backend must be chosen from restricted real EP24 clips on
+> Roihu GH200, at least Finland/Poland/Portugal. Until that run is recorded, this
+> document must not be read as saying Whisper/faster-whisper is the final #128 choice.
 
 ---
 
@@ -25,7 +33,8 @@ whisper_language = result['language']
 
 Three outputs are persisted — `whisper_transcript`, `whisper_language`, and
 `whisper_translated` (English translation, via `deep_translator`, truncated to
-3000 characters). These three fields are part of the EP24 output contract.
+3000 characters). These three fields were part of the historical EP24 output contract. Issue #128
+replaces them in newly generated Step-1 output with generic `asr_*` fields.
 
 Two observations about the legacy call, both relevant to the choice below:
 
@@ -157,7 +166,7 @@ export LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/nvidia/cublas/lib
 
 ---
 
-## 4. Recommendation
+## 4. Historical recommendation (superseded as the production decision by #128)
 
 **Engine: switch to `faster-whisper`.** The measurement supports it without a
 quality trade-off — same weights, 4.1× faster, less memory — and it is MIT
@@ -199,26 +208,26 @@ protects the corpus from a future `openai-whisper` release re-pointing the alias
 
 ---
 
-## 5. What is implemented in this branch
+## 5. Active #128 implementation
 
-- `asr_backend.py` — configurable engine/checkpoint selection.
-- `roihu_preprocess.py` — calls the backend; **legacy behaviour is the default**.
-- `tests/test_asr_backend.py` — contract tests pinning the default, the
-  temperature ladder, loud failure on a bad engine name, and the three legacy
-  output fields.
+- `asr_backend.py` exposes Canary v2, Parakeet-TDT v3, Qwen3-ASR, Whisper and
+  faster-whisper through one backend-neutral result object.
+- `roihu_preprocess.py` writes generic `asr_*` fields and records backend/model
+  provenance. It does not create new `whisper_*` columns.
+- Whisper-family settings remain available as comparison baselines.
+- `docs/EP24_PREPROCESS_SCHEMA_COMPATIBILITY.md` defines the Roihu benchmark gate.
 
-Environment variables:
+Typical selectors:
 
 ```bash
-LACLAUGPT_ASR_ENGINE   whisper (default) | faster-whisper
-LACLAUGPT_ASR_MODEL    large (default) | large-v3 | large-v3-turbo | ...
-LACLAUGPT_ASR_DEVICE   cuda (default) | cpu          # faster-whisper only
-LACLAUGPT_ASR_COMPUTE_TYPE int8_float16 (default)    # faster-whisper only
-LACLAUGPT_ASR_DOWNLOAD_ROOT ./whisper/ (default)     # historical engine only
+LACLAUGPT_ASR_ENGINE=canary
+LACLAUGPT_ASR_ENGINE=parakeet
+LACLAUGPT_ASR_ENGINE=qwen3-asr
+LACLAUGPT_ASR_ENGINE=faster-whisper LACLAUGPT_ASR_MODEL=large-v3-turbo
 ```
 
-With **no variables set**, the pipeline runs exactly the historical call:
-`openai-whisper`, `large`. Switching is explicit and reviewable.
+The no-variable default is currently Canary v2 as the modern all-country
+candidate, not a declaration that its private-data benchmark has already won.
 
 ---
 

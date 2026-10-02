@@ -168,8 +168,7 @@ def analyze_videos(language=None):
     # Historical per-language mode keeps its documented row-drop semantics.
     # Canonical EP24 reprocessing is additive and keeps every source row.
     if not os.getenv('LACLAUGPT_INPUT_CSV'):
-        df = df.dropna(subset=['whisperResult'])
-        df = df.dropna(subset=['frame_files'])
+        df = df.dropna(subset=['frame_file'])
     for column in (
         'frame_analysis_1',
         'frame_analysis_2',
@@ -204,17 +203,14 @@ def analyze_videos(language=None):
                 df.at[index, f'frame_analysis_{old_index}'] = ''
         else:
             try:
-                frame_files = parse_frame_files(row['frame_files'])
-                if not frame_files:
-                    raise ValueError('Step 2 requires the Step 1 keyframe at original t=1.0s')
+                frame_file = str(row.get('frame_file', '')).strip()
+                if not frame_file:
+                    raise ValueError('Step 2 requires Step 1 frame_file at original t=1.0s')
 
                 # Production contract: analyze one and only one still image.
-                # Step 1 guarantees frame_files[0] is extracted at original t=1.0s,
-                # immediately after the known feed-scroll artifact. Temporal coverage
-                # belongs to Step 3 native-video analysis, not repeated still sampling.
-                frame_file = frame_files[0]
+                # Step 1 guarantees this file is extracted at original t=1.0s.
                 frame_response = str(get_analysis(frame_file, metadata_context(row)))
-                seconds = str(VIDEO_INITIAL_SKIP_SECONDS)
+                seconds = str(row.get('frame_timestamp_seconds', VIDEO_INITIAL_SKIP_SECONDS) or VIDEO_INITIAL_SKIP_SECONDS)
                 frame_analysis_1 = f'''### **Frame 1 at original t={seconds} seconds**:
 {frame_response}
 '''

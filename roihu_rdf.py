@@ -74,8 +74,26 @@ LANGUAGES = ["fi", "sv", "pl", "pt", "de", "es", "hu", "hr", "fr", "bg", "en"]
 #: in prose. Anything not listed here is still preserved (see ``emit_raw_legacy``)
 #: so no legacy field can be silently dropped from the graph.
 PREPROCESS_COLUMNS = [
-    "frame_files",
+    "frame_file",
+    "frame_timestamp_seconds",
     "ocr_1",
+    "ocr_backend",
+    "ocr_model",
+    "ocr_runtime_ms",
+    "asr_transcript",
+    "asr_language",
+    "asr_translated",
+    "asr_backend",
+    "asr_model",
+    "asr_runtime_ms",
+    "video_duration_seconds",
+    "preprocess_status",
+    "preprocess_note",
+    "preprocess_completed_at",
+]
+# Read-only compatibility for frozen pre-#128 CSVs. New Step 1 never writes these.
+LEGACY_PREPROCESS_COLUMNS = [
+    "frame_files",
     "ocr_2",
     "ocr_3",
     "ocr_4",
@@ -118,6 +136,7 @@ IDENTITY_COLUMNS = list(EP24_REPROCESS_COLUMNS) + ["video_filename", "language"]
 ALL_KNOWN_COLUMNS = (
     IDENTITY_COLUMNS
     + PREPROCESS_COLUMNS
+    + LEGACY_PREPROCESS_COLUMNS
     + FRAME_COLUMNS
     + SUMMARY_COLUMNS
     + POSTPROCESS_COLUMNS
@@ -479,18 +498,22 @@ def emit_frames(graph: Graph, document: str, row: dict, language: str, prov: Pro
     model-derived, and the two are emitted as separate node types so a reader
     cannot mistake a model's reading of a frame for the frame itself.
     """
-    frames = parse_frame_files(row.get("frame_files"))
+    active_frame = row.get("frame_file")
+    if not is_blank(active_frame):
+        frames = [str(active_frame)]
+    else:
+        frames = parse_frame_files(row.get("frame_files"))
+
     for position, path in enumerate(frames, start=1):
         frame = urn("frame", language, ep24_value(row, "video_id"), str(position))
         graph.add(frame, f"{RDF_NS}type", f"{LG}Frame")
         graph.add(frame, f"{DCTERMS}source", path)
         graph.add(document, f"{LG}hasFrame", frame)
 
-    for position in range(1, 7):
+    positions = (1,) if not is_blank(active_frame) else range(1, 7)
+    for position in positions:
         analysis = row.get(f"frame_analysis_{position}")
-        # Only rows whose frame extraction produced something are emitted; an
-        # empty analysis is absence of evidence, not a finding.
-        if is_blank(analysis) or is_blank(row.get("frame_files")):
+        if is_blank(analysis) or position > len(frames):
             continue
         frame = urn("frame", language, ep24_value(row, "video_id"), str(position))
         node = urn("frameanalysis", language, ep24_value(row, "video_id"), str(position))
@@ -506,7 +529,8 @@ def emit_screen_text(
     graph: Graph, document: str, row: dict, language: str, prov: Provenance
 ) -> None:
     """Emit OCR results as ScreenText nodes (on-screen text observed in frames)."""
-    for position in range(1, 7):
+    positions = (1,) if "frame_file" in row else range(1, 7)
+    for position in positions:
         text = row.get(f"ocr_{position}")
         if is_blank(text):
             continue
@@ -515,37 +539,55 @@ def emit_screen_text(
         graph.add(node, f"{LG}describes", document)
         graph.literal(node, f"{LG}text", text)
         graph.integer(node, f"{LG}position", position)
-        emit_provenance(graph, node, prov, derivation="observed", stage="preprocess")
+        emit_provenance(
+            graph,
+            node,
+            prov,
+            derivation="observed",
+            stage="preprocess",
+            model=row.get("ocr_model") or row.get("ocr_backend"),
+        )
 
 
 def emit_transcript(
     graph: Graph, document: str, row: dict, language: str, prov: Provenance
 ) -> None:
-    """Emit the transcript triad, preserving which of the three fields carried it.
+    """Emit backend-neutral ASR, with read-only fallback for frozen Whisper rows."""
+    original = row.get("asr_transcript")
+    translated = row.get("asr_translated")
+    detected_language = row.get("asr_language")
+    backend = row.get("asr_backend")
+    model = row.get("asr_model")
 
-    ``whisperResult`` is the legacy merged field; ``whisper_transcript`` is the
-    original-language ASR output and ``whisper_translated`` its translation. All
-    three are preserved because the legacy pipeline treats ``whisperResult`` as
-    the downstream value and the other two as its inputs.
-    """
-    merged = row.get("whisperResult")
-    original = row.get("whisper_transcript")
-    translated = row.get("whisper_translated")
-    if is_blank(merged) and is_blank(original) and is_blank(translated):
+    if is_blank(original) and is_blank(translated):
+        # Historical compatibility only. New Step 1 does not generate these.
+        original = row.get("whisper_transcript") or row.get("whisperResult")
+        translated = row.get("whisper_translated")
+        detected_language = row.get("whisper_language")
+        backend = "whisper"
+        model = "legacy-whisper"
+
+    if is_blank(original) and is_blank(translated):
         return
 
     node = urn("transcript", language, ep24_value(row, "video_id"))
     graph.add(node, f"{RDF_NS}type", f"{LG}Transcript")
     graph.add(node, f"{LG}describes", document)
-    graph.literal(node, f"{LG}text", merged)
+    graph.literal(node, f"{LG}text", translated if not is_blank(translated) else original)
     graph.literal(node, f"{LG}originalText", original)
     graph.literal(node, f"{LG}translatedText", translated)
-    graph.literal(node, f"{LG}language", row.get("whisper_language"))
+    graph.literal(node, f"{LG}language", detected_language)
+    graph.literal(node, f"{LG}asrBackend", backend)
+    graph.literal(node, f"{LG}asrModel", model)
     emit_provenance(
-        graph, node, prov, derivation="model_derived", stage="preprocess", model="whisper"
+        graph,
+        node,
+        prov,
+        derivation="model_derived",
+        stage="preprocess",
+        model=model or backend or prov.model,
     )
     graph.add(document, f"{LG}hasTranscript", node)
-
 
 def emit_summary(graph: Graph, document: str, row: dict, language: str, prov: Provenance) -> None:
     """Emit the summary analysis and the legacy metadata block it was built from."""
@@ -683,6 +725,21 @@ def emit_raw_legacy(graph: Graph, row: dict, prov: Provenance) -> None:
         "video_filename",
         "language",
         "scrapedCountry",
+        "frame_file",
+        "frame_timestamp_seconds",
+        "ocr_backend",
+        "ocr_model",
+        "ocr_runtime_ms",
+        "asr_transcript",
+        "asr_language",
+        "asr_translated",
+        "asr_backend",
+        "asr_model",
+        "asr_runtime_ms",
+        "video_duration_seconds",
+        "preprocess_status",
+        "preprocess_note",
+        "preprocess_completed_at",
         "frame_files",
         "whisperResult",
         "whisper_transcript",
@@ -709,7 +766,8 @@ def emit_raw_legacy(graph: Graph, row: dict, prov: Provenance) -> None:
         "formula_of_populism_frontier",
     }
     typed.update(f"frame_analysis_{i}" for i in range(1, 7))
-    typed.update(f"ocr_{i}" for i in range(1, 7))
+    typed.add("ocr_1")
+    typed.update(f"ocr_{i}" for i in range(2, 7))
 
     for column in sorted(row):
         if column in typed or is_blank(row.get(column)):
@@ -808,7 +866,7 @@ def write_summary(
         lines.append(f"- node: `{node}`")
         lines.append(f"- author: {row.get('authorUniqueId') or '(unknown)'}")
         lines.append(
-            f"- transcript: {'present' if not is_blank(row.get('whisperResult')) else 'absent'}"
+            f"- transcript: {'present' if not is_blank(row.get('asr_transcript') or row.get('asr_translated') or row.get('whisperResult')) else 'absent'}"
         )
         lines.append(
             f"- summary: {'present' if not is_blank(row.get('summary_analysis')) else 'absent'}"

@@ -77,13 +77,15 @@ def test_derived_ids_preserve_parent_provenance():
     assert "8.400-17.900s" in child
 
 
-def test_preprocess_applies_rule_to_frames_asr_and_status_columns():
+def test_preprocess_uses_exact_one_second_frame_and_generic_status():
     source = Path("roihu_preprocess.py").read_text(encoding="utf-8")
-    assert "analysis_frame_times(duration)" in source
-    assert "prepare_analysis_clip(video_filename" in source
-    assert "video_initial_skip_seconds" in source
-    assert "video_analysis_status" in source
+    assert "FRAME_TIMESTAMP_SECONDS = 1.0" in source
+    assert "frame_file" in source
+    assert "frame_timestamp_seconds" in source
+    assert "preprocess_status" in source
     assert "too_short" in source
+    # #128 explicitly sends the full staged video to the ASR backend.
+    assert "asr.transcribe(local_path" in source
 
 
 def test_vllm_prompt_and_output_expose_scroll_contract():
@@ -115,26 +117,29 @@ def test_resplit_rows_copy_source_url_and_legacy_metadata():
     assert all(row["resplit_parent_id"] == "alice/123" for row in children)
 
 
-def test_legacy_dataframe_fields_are_not_removed():
+def test_active_preprocess_does_not_regenerate_superseded_six_frame_whisper_schema():
     source = Path("roihu_preprocess.py").read_text(encoding="utf-8")
-    legacy = [
-        "whisperResult",
+    assert "ocr_1" in source
+    for field in (
         "frame_files",
-        "ocr_1",
+        "ocr_2",
+        "ocr_3",
+        "ocr_4",
+        "ocr_5",
         "ocr_6",
+        "whisperResult",
         "whisper_transcript",
         "whisper_language",
         "whisper_translated",
-    ]
-    for field in legacy:
-        assert field in source
+    ):
+        assert field not in source
 
 
 def test_numbered_steps_document_cumulative_one_frame_then_video_contract():
     step1 = Path("step_1_roihu_preprocess.py").read_text(encoding="utf-8")
     step2 = Path("step_2_roihu_frame.py").read_text(encoding="utf-8")
     step3 = Path("step_3_roihu_video.py").read_text(encoding="utf-8")
-    assert "exactly one keyframe" in step1
+    assert "exactly one original-video keyframe" in step1
     assert "t=1.0s" in step2
     assert "complete Step 2 dataframe" in step3
     assert "LACLAUGPT_INPUT_CSV" in step3
@@ -143,16 +148,16 @@ def test_numbered_steps_document_cumulative_one_frame_then_video_contract():
 
 def test_step2_is_strictly_one_frame_at_original_t1():
     source = Path("roihu_frame.py").read_text(encoding="utf-8")
-    assert "frame_file = frame_files[0]" in source
+    assert "frame_file = str(row.get('frame_file', '')).strip()" in source
     assert "for i, frame_file in enumerate" not in source
     assert "frame_analysis_timestamp_seconds" in source
     assert "VIDEO_INITIAL_SKIP_SECONDS" in source
-    assert "Temporal coverage" in source
+    assert "frame_timestamp_seconds" in source
 
 
-def test_readme_documents_frame_video_whisper_division_of_labor():
+def test_readme_documents_frame_video_asr_division_of_labor():
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "exactly one keyframe extracted at original source t=1.0s" in readme
     assert "native whole-video Qwen3-VL/vLLM analysis" in readme
-    assert "Whisper transcript/translation" in readme
+    assert "backend-neutral ASR transcript/translation" in readme
     assert "activate_vllm_video.sh && roihu_vllm_submit" in readme
