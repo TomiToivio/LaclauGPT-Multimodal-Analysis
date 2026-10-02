@@ -202,7 +202,7 @@ def split_list(value) -> list[str]:
     if isinstance(parsed, list):
         raw = [str(item).strip() for item in parsed]
     else:
-        raw = [item.strip() for item in re.split(r"[;|\\n]+", text)]
+        raw = [item.strip() for item in re.split(r"[;|\n]+", text)]
     seen: list[str] = []
     for item in raw:
         if item and item not in seen:
