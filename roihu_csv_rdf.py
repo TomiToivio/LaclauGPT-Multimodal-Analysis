@@ -87,22 +87,38 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
 
     # The legacy contract is one element^affect pair per line. This is a coding
     # assertion, not a claim that an actor really feels or supports something.
+    #
+    # A bare ``element`` line is a valid coding with NO evidenced affect, not a
+    # malformed pair: Step 6 abstains rather than fabricate an emotion when the
+    # source does not evidence one (#180), and THEORY makes abstention a
+    # first-class outcome. Rejecting the line here silently dropped the finding.
+    # ``roihu_rdf.parse_populism_elements`` has always read it this way.
     for column, category in (("formula_of_populism_us", "us"),
                              ("formula_of_populism_frontier", "frontier")):
         for index, entry in enumerate(row.get(column, "").splitlines()):
             if not entry.strip():
                 continue
-            if entry.count("^") != 1 or not all(part.strip() for part in entry.split("^")):
+            if entry.count("^") > 1:
+                # More than one separator cannot be read unambiguously.
                 warnings.append(f"{column} line {index + 1}: malformed pair retained as raw cell")
                 continue
-            element, affect = entry.split("^")
+            element, _, affect = entry.partition("^")
+            element = element.strip()
+            affect = affect.strip()
+            if not element:
+                warnings.append(f"{column} line {index + 1}: malformed pair retained as raw cell")
+                continue
             assertion = uri(base, project, "coding", json.dumps([dataset, row_number, column, index]))
             lines.extend([triple(assertion, RDF_TYPE, NS + "LaclauCoding", resource=True),
                           triple(record, NS + "coding", assertion, resource=True),
                           triple(assertion, NS + "category", category),
-                          triple(assertion, NS + "element", element),
-                          triple(assertion, NS + "affect", affect),
-                          triple(assertion, NS + "assertionKind", "coded-origin-unspecified"),
+                          triple(assertion, NS + "element", element)])
+            # Only assert an affect when one is actually evidenced, so an
+            # abstention is represented as the absence of a claim rather than as
+            # an empty literal that a consumer might read as a value.
+            if affect:
+                lines.append(triple(assertion, NS + "affect", affect))
+            lines.extend([triple(assertion, NS + "assertionKind", "coded-origin-unspecified"),
                           triple(assertion, PROV + "wasDerivedFrom", record, resource=True)])
     return document, record, "".join(lines), warnings
 
