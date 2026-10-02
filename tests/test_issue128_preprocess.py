@@ -50,12 +50,13 @@ def test_real_csv_schema_is_preserved_by_reader(tmp_path):
     columns = [
         "video_id", "country", "author_username", "account_type", "source_type",
         "source_recording", "sequence_number", "political_preference", "allas_filename",
-        "new_entity", "new_theme", "video_duration", "researcher_new_persons",
-        "researcher_new_themes", "researcher_note",
+        "entities", "themes", "video_duration", "researcher_note",
     ]
     pd.DataFrame([{c: f"x-{c}" for c in columns}]).to_csv(p, index=False)
     df = rp.read_materialized_csv(p)
     assert list(df.columns) == columns
+    for legacy in ("new_entity", "researcher_new_persons", "new_theme", "researcher_new_themes"):
+        assert legacy not in df.columns
 
 
 def test_single_keyframe_uses_exact_original_one_second(monkeypatch, tmp_path):
