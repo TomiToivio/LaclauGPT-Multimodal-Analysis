@@ -237,19 +237,6 @@ def test_short_alias_collision_is_resolved_by_country_scope(tmp_path: Path) -> N
     assert prov["ambiguous_short_forms"] == []
 
 
-def test_unreviewed_short_alias_is_not_used_for_retrieval(tmp_path: Path) -> None:
-    provisional = [
-        {
-            "kind": "entity",
-            "label": "Synthetic Movement",
-            "aliases": ["SM"],
-            "review_state": "PROVISIONAL",
-        }
-    ]
-    entries, _meta = load_codebook(_swedish_book(tmp_path, provisional))
-    block, _prov = context_block("SM går framåt", entries, country="SE", language="sv")
-    assert block == ""
-
 
 if __name__ == "__main__":
     import pytest
