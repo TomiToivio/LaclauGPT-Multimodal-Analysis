@@ -128,6 +128,24 @@ def test_german_title_and_surname_and_compound_organisation():
 # The negative cases -- these are the point of the layer
 # --------------------------------------------------------------------------- #
 
+def test_partial_person_name_never_resolves_to_organisation():
+    """Bare surnames/genitives must not be captured by organisation labels."""
+    reg = EntityRegistry()
+    reg.add(EntityRecord(
+        entity_id="FI-PERSON", canonical_name="Petteri Orpo",
+        entity_type="person", country="FI",
+    ))
+    reg.add(EntityRecord(
+        entity_id="FI-GOV", canonical_name="Orpo's government",
+        entity_type="organization", country="FI",
+    ))
+    for form in ("Orpo", "Orpon"):
+        result = reg.resolve(form, country="FI", language="fi")
+        assert result["decision"] == "RESOLVED", (form, result)
+        assert result["entity_id"] == "FI-PERSON", (form, result)
+        assert result["canonical_name"] == "Petteri Orpo"
+
+
 def test_ambiguous_surname_must_not_auto_merge():
     """Two politicians sharing a surname: no context, no merge."""
     reg = EntityRegistry()

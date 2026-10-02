@@ -567,6 +567,14 @@ class EntityRegistry:
                     continue
                 token = tokens[0]
                 for record in scoped:
+                    # Partial personal-name heuristics are meaningful only for people.
+                    # Without this guard a token such as "Orpo" can match the first
+                    # token of an organisation label like "Orpo's government" via
+                    # given_name_unique, silently converting a person mention into an
+                    # organisation. Exact/alias matching above still resolves parties
+                    # and organisations normally.
+                    if record.entity_type.casefold() not in {"person", "politician", "human"}:
+                        continue
                     parts = fold_key(record.canonical_name).split()
                     if len(parts) < 2:
                         continue
