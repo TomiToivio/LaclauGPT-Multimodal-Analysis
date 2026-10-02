@@ -173,3 +173,35 @@ Add independent review findings here. Re-run checks and challenge pass 1 assumpt
 3. Accent-stripped forms should be observed aliases only, never canonical identity normalization.
 4. Portuguese ↔ English labels should improve retrieval without creating duplicate entities.
 5. Country context should be selectively retrieved per analysis step, not injected wholesale.
+
+
+### Pass 2 — independent re-check (#91)
+
+- branch: `portuguese-codfish-second-opinion`
+- focus: challenge pass-1 assumptions with runtime consistency checks, private-data
+  availability checks, and PT-specific executable regressions
+- private material inspected: the Portugal cleaning report is readable and records
+  1,621 source rows, 1,523 reprocessing rows, 82 recut/split worklist rows, and
+  16 explicit researcher deletes. The 800,112-byte
+  `analysis/ep24/codebooks/ep24_pt_private.json` is present, but GitHub exposes
+  only its Git LFS pointer through this connector, so row/entry-level claims about
+  that payload are deliberately not invented here.
+- runtime result: PT is consistently mapped as country `PT`, language `pt`,
+  companion retrieval language `en`, and `ep24_pt_private.json` across the
+  active codebook/enrichment/language-stage configuration inspected.
+- executable improvements: added
+  `tests/test_ep24_portugal_codebook.py` to pin Portuguese diacritic
+  preservation, PT/EN retrieval of one canonical entry, short-acronym token
+  boundaries, coalition-vs-party identity separation, country isolation, and the
+  RAG evidence firewall.
+- shared architectural dependency: short aliases such as `PS`, `AD`, `CH`,
+  `IL` and `BE` still depend on the shared reviewed-short-alias work tracked in
+  #95. This pass does not weaken the identity key or silently promote acronyms.
+- remaining re-check: a checkout with Git LFS objects materialized should still
+  measure real PT alias coverage, coalition/list relations, bilingual labels,
+  recurring researcher corrections and theme duplication directly from the
+  private payload.
+
+Pass 2 therefore strengthens the public regression contract and verifies the
+available private cleaning metadata, while keeping the unresolved LFS content gap
+explicit rather than turning it into unsupported assurance.
