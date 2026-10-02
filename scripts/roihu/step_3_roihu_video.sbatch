@@ -6,25 +6,24 @@
 #SBATCH --partition=gpumedium
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=72
 #SBATCH --gres=gpu:gh200:1
-#SBATCH --time=04:00:00
+#SBATCH --time=36:00:00
 #SBATCH --mail-type=ALL
+
 set -euo pipefail
-PUBLIC_ROOT=${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-/scratch/project_2009497/LaclauGPT-Multimodal-Analysis}
-PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:-/scratch/project_2009497/LaclauGPT-Private/ep24_reprocess}
-VENV=${LACLAUGPT_VLLM_TEST_VENV:-${PRIVATE_ROOT}/.venv-roihu-vllm}
-export LACLAUGPT_MAX_ROWS=${LACLAUGPT_MAX_ROWS:-100}
-export LACLAUGPT_VLLM_TEST_LOG=${LACLAUGPT_VLLM_TEST_LOG:-${PRIVATE_ROOT}/logs/step_3_video_${SLURM_JOB_ID}.log}
-export LACLAUGPT_VLLM_TEST_DOWNLOAD_DIR=${LACLAUGPT_VLLM_TEST_DOWNLOAD_DIR:-${PRIVATE_ROOT}/vllm_video_downloads}
-export HF_HOME=${HF_HOME:-${PRIVATE_ROOT}/.hf_cache}
-mkdir -p /scratch/project_2009497/logs "${PRIVATE_ROOT}"/{csv,logs,vllm_video_downloads,.hf_cache}
-module --force purge
-module load python-vllm
-if [[ -x "${VENV}/bin/python" ]]; then source "${VENV}/bin/activate"; fi
-unset PYTHONPATH
-unset PYTHONHOME
-python3 "${PUBLIC_ROOT}/scripts/roihu/check_ep24_runtime.py"
-cd "${PRIVATE_ROOT}"
-srun --ntasks=1 python3 "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step 3 --script "${PUBLIC_ROOT}/step_3_roihu_video.py" "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/roihu_job_common.sh"
+
+roihu_load_runtime "vllm"
+roihu_diagnostics
+roihu_preflight 3
+
+cd "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
+srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_stage_orchestrator.py" \
+  --step 3 \
+  --script "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_3_roihu_video.py" \
+  "$@"
+
+echo "EP24 Step 3 completed at $(date --iso-8601=seconds)"
