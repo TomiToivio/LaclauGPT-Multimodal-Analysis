@@ -517,7 +517,7 @@ def select_context(query: str, entries: Iterable[CodebookEntry], *, country: str
     selected = [(score, entry) for score, entry in ranked[: max(0, limit)] if score >= threshold]
     return [e for _, e in selected], {
         "country": country.upper(), "language": language.lower(), "limit": limit, "threshold": threshold,
-        "selection_method": "deterministic_lexical_v2_bilingual", "evidence_role": "background_context_not_source_evidence",
+        "selection_method": "deterministic_lexical_v3_short_boundary_bilingual", "evidence_role": "background_context_not_source_evidence",
         "selected": [{"entry_id": e.entry_id, "kind": e.kind, "label": e.label, "english_label": e.english_label, "score": round(score, 6)} for score, e in selected],
     }
 
