@@ -927,7 +927,7 @@ def _split_mentions(value: Any) -> list[str]:
         values = [str(item).strip() for item in decoded if str(item).strip()]
         return list(dict.fromkeys(values))
     out: list[str] = []
-    for chunk in text.replace("\\r", "\\n").split("\\n"):
+    for chunk in text.replace("\r", "\n").split("\n"):
         for part in chunk.replace("|", ";").split(";"):
             candidate = part.strip().strip("\\\"\'").strip()
             if candidate and candidate not in {"[]", "{}"}:
