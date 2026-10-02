@@ -201,7 +201,9 @@ Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Le
    - Also list other visible metadata like hashtags, video title, date, other visible text.
 
 11. **Video problems**    
-   - Note if the frame has problems, for an example it seems like there is no meaningful content in the screen. It may be the video should be deleted or reprocessed. 
+   - Note if the frame has problems, for an example it seems like there is no meaningful content in the screen.
+   - Indicate if you think the video is OK, should be REPROCESSED or DELETED.
+   - Clearly indicate if the video is `OK`, or mark it for `REPROCESS` or `DELETE`.
 
 ### Output
 Produce a detailed structured description under the headings above, and include:
