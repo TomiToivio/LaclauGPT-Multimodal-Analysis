@@ -1,27 +1,154 @@
+import hashlib
 import logging
 import os
 import sqlite3
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
 import ollama
 from ep24_models import ollama_model, ollama_model_source
-from ep24_pipeline import load_cumulative_csv, metadata_context
-from ep24_schema import value as ep24_value
+from ep24_pipeline import load_cumulative_csv, metadata_context, write_cumulative_csv
+from ep24_schema import stable_source_id, value as ep24_value
+from roihu_storage import MongoStorage, StorageConfig
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
 logging.basicConfig(handlers=[RotatingFileHandler('./logs/summary.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# Sqlite3 database connection
-conn = sqlite3.connect('./database/summary.db')
-c = conn.cursor()
-# Create table if not exists
-c.execute('''CREATE TABLE IF NOT EXISTS tiktok_videos
-                (author_username text, 
-                video_id text,
-                summary_analysis text)''')
-conn.commit()
+OUTPUT_COLUMNS = ("metadata", "summary_analysis", "summary_summary_md")
+DB_PATH = Path(os.getenv("LACLAUGPT_SUMMARY_SQLITE", "./database/summary.db"))
+DEDICATED_MODAL_COLUMNS = (
+    "frame_analysis_1",
+    "ocr_1",
+    "asr_transcript",
+    "asr_translated",
+    "whisper_transcript",
+    "whisper_translated",
+    "whisperResult",
+    "vllm_video_analysis",
+    "vllm_video_markdown_analysis",
+)
+
+
+def _open_cache() -> sqlite3.Connection:
+    """Open the Step-4 restart cache. CSV/Mongo remain the cumulative stores."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS summary_cache (
+            source_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            context_sha256 TEXT NOT NULL,
+            summary_analysis TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (source_id, model, context_sha256)
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+
+def _cache_lookup(
+    conn: sqlite3.Connection, source_id: str, model: str, context_sha256: str
+) -> str | None:
+    row = conn.execute(
+        """SELECT summary_analysis FROM summary_cache
+           WHERE source_id=? AND model=? AND context_sha256=?""",
+        (source_id, model, context_sha256),
+    ).fetchone()
+    return None if row is None else str(row[0] or "")
+
+
+def _cache_store(
+    conn: sqlite3.Connection,
+    *,
+    source_id: str,
+    model: str,
+    context_sha256: str,
+    summary_analysis: str,
+) -> None:
+    conn.execute(
+        """INSERT INTO summary_cache
+           (source_id, model, context_sha256, summary_analysis, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(source_id, model, context_sha256) DO UPDATE SET
+             summary_analysis=excluded.summary_analysis,
+             updated_at=excluded.updated_at""",
+        (
+            source_id,
+            model,
+            context_sha256,
+            summary_analysis,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
+
+
+def _metadata_for_prompt(row):
+    """Keep the full cumulative row except evidence already supplied in dedicated blocks."""
+    reduced = row.drop(labels=[c for c in DEDICATED_MODAL_COLUMNS if c in row.index])
+    return metadata_context(reduced, include_model_fields=True)
+
+
+def _evidence_from_row(row) -> tuple[str, str, str, str]:
+    metadata = _metadata_for_prompt(row)
+    transcript = (
+        str(row.get("asr_translated", "")).strip()
+        or str(row.get("asr_transcript", "")).strip()
+        or str(row.get("whisper_translated", "")).strip()
+        or str(row.get("whisper_transcript", "")).strip()
+        or str(row.get("whisperResult", "")).strip()
+    )
+    frame_parts: list[str] = []
+    frame_text = str(row.get("frame_analysis_1", "")).strip()
+    ocr_text = str(row.get("ocr_1", "")).strip()
+    if frame_text:
+        frame_parts.append(frame_text)
+    if ocr_text:
+        frame_parts.append("### OCR at original t=1.0s\n" + ocr_text)
+    frame_analysis = "\n\n".join(frame_parts)
+    video_analysis = (
+        str(row.get("vllm_video_analysis", "")).strip()
+        or str(row.get("vllm_video_markdown_analysis", "")).strip()
+        or str(row.get("vllm_structured_output", "")).strip()
+    )
+    return metadata, transcript, frame_analysis, video_analysis
+
+
+def _prompt_sha256(system_prompt: str, user_prompt: str, model: str) -> str:
+    payload = f"{model}\n{system_prompt}\n{user_prompt}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _persist_mongo_patch(row, *, source_id: str, model: str, context_sha256: str) -> str:
+    config = StorageConfig.from_env()
+    if not config.mongo_enabled:
+        return "mongo_disabled"
+    storage = MongoStorage(config)
+    try:
+        document = {
+            "_storage_id": source_id,
+            "metadata": str(row.get("metadata", "")),
+            "summary_analysis": str(row.get("summary_analysis", "")),
+            "summary_summary_md": str(row.get("summary_summary_md", "")),
+            "_provenance.step4_summary": {
+                "pipeline_stage": "step_4_summary",
+                "model": model,
+                "context_sha256": context_sha256,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+        count = storage.patch_documents("dataframe", [document])
+        return f"mongo_ok:{count}"
+    finally:
+        storage.close()
+
 
 # Note: Only one Frame analysis from now on.
 # Add video analysis
