@@ -18,7 +18,7 @@ from roihu_codebooks import COUNTRY_PROFILES, context_block, load_profile
 from roihu_codebook_sources import load_registry_from_dir
 from ep24_entities import EntityRegistry, ollama_adjudicator, registry_documents, resolve_dataframe
 from roihu_memory import EP24Memory
-from roihu_identity import ENTITY_KINDS, SENTIMENT_KINDS, THEME_KINDS, resolve_many, seed_context_lines
+from roihu_identity import (ENTITY_KINDS, SENTIMENT_KINDS, THEME_KINDS, canonical_labels, resolve_many, seed_context_lines)
 
 EP24_FILES = {
     "FI": ("ep24_fi.csv", "fi"),
@@ -60,6 +60,35 @@ def _abstain_fields(identity: dict[str, Any]) -> dict[str, Any]:
         "decision": identity["decision"],
         "match_method": identity.get("match_method", ""),
         "candidates": identity.get("candidates", []),
+    }
+
+
+def resolve_postprocess_fields(row, entries, *, country: str) -> dict[str, Any]:
+    """Resolve raw Step-5 themes and sentiment targets without mutating surfaces."""
+    theme_results = resolve_many(
+        split_values(row.get("themes")),
+        entries,
+        country=country,
+        kinds=THEME_KINDS,
+    )
+    sentiment_targets: list[dict[str, Any]] = []
+    for polarity in ("positive", "neutral", "negative"):
+        for result in resolve_many(
+            split_values(row.get(polarity)),
+            entries,
+            country=country,
+            kinds=SENTIMENT_KINDS,
+        ):
+            sentiment_targets.append({"polarity": polarity, **result})
+    return {
+        "theme_results": theme_results,
+        "theme_canonical_names": canonical_labels(theme_results),
+        "theme_ids": [
+            str(result.get("entry_id"))
+            for result in theme_results
+            if result.get("decision") == "EXISTING" and result.get("entry_id")
+        ],
+        "sentiment_targets": sentiment_targets,
     }
 
 
@@ -205,7 +234,7 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
             break
     registry = EntityRegistry.from_codebooks([*entries, *workbook_entries])
 
-    frame = pd.read_csv(path)
+    frame = pd.read_csv(path, dtype=str, keep_default_na=False)
     before_columns = list(frame.columns)
     adjudicator = None
     if os.getenv("LACLAUGPT_ENTITY_LLM_ADJUDICATION", "0").casefold() in {"1", "true", "yes", "on"}:
@@ -231,6 +260,9 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         "ep24_codebook_context_json",
         "ep24_memory_entity_ids",
         "ep24_memory_topic_ids",
+        "ep24_memory_theme_ids",
+        "ep24_theme_resolution_json",
+        "ep24_theme_canonical_names",
         "ep24_memory_sentiment_target_ids_json",
         "ep24_memory_unresolved_json",
         "ep24_seed_entities_json",
@@ -264,10 +296,19 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         ]
         entity_seeds = resolve_many(entity_seed_values, entries, country=country, kinds=ENTITY_KINDS)
         theme_seeds = resolve_many(theme_seed_values, entries, country=country, kinds=THEME_KINDS)
-        sentiment_targets = []
-        for polarity in ("positive", "neutral", "negative"):
-            for result in resolve_many(split_values(row.get(polarity)), entries, country=country, kinds=SENTIMENT_KINDS):
-                sentiment_targets.append({"polarity": polarity, **result})
+        # Resolve the actual Step-5 "themes" field and sentiment buckets.
+        # Raw surface forms stay untouched for discourse/provenance.
+        postprocess_resolution = resolve_postprocess_fields(
+            row, entries, country=country
+        )
+        theme_results = postprocess_resolution["theme_results"]
+        sentiment_targets = postprocess_resolution["sentiment_targets"]
+        frame.at[index, "ep24_theme_resolution_json"] = json.dumps(
+            theme_results, ensure_ascii=False, sort_keys=True
+        )
+        frame.at[index, "ep24_theme_canonical_names"] = json.dumps(
+            postprocess_resolution["theme_canonical_names"], ensure_ascii=False
+        )
 
         frame.at[index, "ep24_seed_entities_json"] = json.dumps(entity_seeds, ensure_ascii=False, sort_keys=True)
         frame.at[index, "ep24_seed_themes_json"] = json.dumps(theme_seeds, ensure_ascii=False, sort_keys=True)
@@ -280,11 +321,11 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         frame.at[index, "ep24_human_seed_context"] = "\\n".join(seed_lines)
 
         entity_ids: list[str] = []
-        topic_ids: list[str] = []
+        theme_ids: list[str] = list(postprocess_resolution["theme_ids"])
         sentiment_target_ids: dict[str, list[str]] = {valence: [] for valence in sentiment_columns}
         unresolved: list[dict[str, Any]] = []
         if memory is not None:
-            for kind, column, output in (("entity", "entities", entity_ids), ("topic", "topics", topic_ids)):
+            for kind, column, output in (("entity", "entities", entity_ids), ("topic", "themes", theme_ids)):
                 for label in split_values(row.get(column)):
                     identity = memory.resolve_identity(label, kind, country=country, language=language, accepted_only=True)
                     if identity["decision"] == "EXISTING":
@@ -301,7 +342,10 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
                     else:
                         unresolved.append({"kind": "target", "valence": valence, "raw": label, **_abstain_fields(identity)})
         frame.at[index, "ep24_memory_entity_ids"] = json.dumps(entity_ids, ensure_ascii=False)
-        frame.at[index, "ep24_memory_topic_ids"] = json.dumps(topic_ids, ensure_ascii=False)
+        # Keep the old topic-id field as a compatibility alias, but source it
+        # from the canonical Step-5 "themes" column.
+        frame.at[index, "ep24_memory_theme_ids"] = json.dumps(theme_ids, ensure_ascii=False)
+        frame.at[index, "ep24_memory_topic_ids"] = json.dumps(theme_ids, ensure_ascii=False)
         frame.at[index, "ep24_memory_sentiment_target_ids_json"] = json.dumps(sentiment_target_ids, ensure_ascii=False, sort_keys=True)
         frame.at[index, "ep24_memory_unresolved_json"] = json.dumps(unresolved, ensure_ascii=False, sort_keys=True)
 
