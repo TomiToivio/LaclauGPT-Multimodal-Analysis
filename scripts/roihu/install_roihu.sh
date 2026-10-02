@@ -56,8 +56,29 @@ if [[ ! -x "${OLLAMA_INSTALL_ROOT}/bin/ollama" ]]; then
   tmp="$(mktemp -d)"
   trap 'rm -rf "${tmp}"' EXIT
   mkdir -p "${OLLAMA_INSTALL_ROOT}"
-  curl -fsSL https://ollama.com/download/ollama-linux-arm64.tgz -o "${tmp}/ollama.tgz"
-  tar -xzf "${tmp}/ollama.tgz" -C "${OLLAMA_INSTALL_ROOT}"
+  OLLAMA_ARCHIVE="${tmp}/ollama-linux-arm64.tar.zst"
+  curl -fL --retry 3 --retry-delay 2 \
+    https://ollama.com/download/ollama-linux-arm64.tar.zst \
+    -o "${OLLAMA_ARCHIVE}"
+
+  # Ollama's official manual ARM64 package normally gets extracted to /usr with
+  # sudo. Roihu users do not have sudo, so extract the same archive into project
+  # scratch instead. The archive contains bin/ollama and lib/ollama/.
+  if tar --help 2>/dev/null | grep -q -- '--zstd'; then
+    tar --zstd -xf "${OLLAMA_ARCHIVE}" -C "${OLLAMA_INSTALL_ROOT}"
+  elif command -v unzstd >/dev/null 2>&1; then
+    unzstd -c "${OLLAMA_ARCHIVE}" | tar -xf - -C "${OLLAMA_INSTALL_ROOT}"
+  elif command -v zstd >/dev/null 2>&1; then
+    zstd -dc "${OLLAMA_ARCHIVE}" | tar -xf - -C "${OLLAMA_INSTALL_ROOT}"
+  else
+    echo "Cannot extract Ollama .tar.zst: tar lacks --zstd and no zstd/unzstd command is available." >&2
+    exit 2
+  fi
+
+  [[ -x "${OLLAMA_INSTALL_ROOT}/bin/ollama" ]] || {
+    echo "Ollama extraction completed but bin/ollama was not found under ${OLLAMA_INSTALL_ROOT}" >&2
+    exit 2
+  }
 fi
 
 export PATH="${OLLAMA_INSTALL_ROOT}/bin:${PATH}"
