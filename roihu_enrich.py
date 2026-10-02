@@ -63,6 +63,35 @@ def _abstain_fields(identity: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def resolve_postprocess_fields(row, entries, *, country: str) -> dict[str, Any]:
+    """Resolve raw Step-5 themes and sentiment targets without mutating surfaces."""
+    theme_results = resolve_many(
+        split_values(row.get("themes")),
+        entries,
+        country=country,
+        kinds=THEME_KINDS,
+    )
+    sentiment_targets: list[dict[str, Any]] = []
+    for polarity in ("positive", "neutral", "negative"):
+        for result in resolve_many(
+            split_values(row.get(polarity)),
+            entries,
+            country=country,
+            kinds=SENTIMENT_KINDS,
+        ):
+            sentiment_targets.append({"polarity": polarity, **result})
+    return {
+        "theme_results": theme_results,
+        "theme_canonical_names": canonical_labels(theme_results),
+        "theme_ids": [
+            str(result.get("entry_id"))
+            for result in theme_results
+            if result.get("decision") == "EXISTING" and result.get("entry_id")
+        ],
+        "sentiment_targets": sentiment_targets,
+    }
+
+
 def seed_memory(private_root: Path, memory: EP24Memory) -> dict[str, int]:
     """Single-writer seeding without silently merging ambiguous aliases."""
     seen: set[tuple[str, str]] = set()
@@ -267,26 +296,19 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         ]
         entity_seeds = resolve_many(entity_seed_values, entries, country=country, kinds=ENTITY_KINDS)
         theme_seeds = resolve_many(theme_seed_values, entries, country=country, kinds=THEME_KINDS)
-        # Resolve the actual Step-5 theme output, not the obsolete "topics"
-        # column. Raw surface forms stay in frame["themes"] for discourse
-        # analysis; canonical labels/ids are appended alongside them.
-        theme_results = resolve_many(
-            split_values(row.get("themes")),
-            entries,
-            country=country,
-            kinds=THEME_KINDS,
+        # Resolve the actual Step-5 "themes" field and sentiment buckets.
+        # Raw surface forms stay untouched for discourse/provenance.
+        postprocess_resolution = resolve_postprocess_fields(
+            row, entries, country=country
         )
+        theme_results = postprocess_resolution["theme_results"]
+        sentiment_targets = postprocess_resolution["sentiment_targets"]
         frame.at[index, "ep24_theme_resolution_json"] = json.dumps(
             theme_results, ensure_ascii=False, sort_keys=True
         )
         frame.at[index, "ep24_theme_canonical_names"] = json.dumps(
-            canonical_labels(theme_results), ensure_ascii=False
+            postprocess_resolution["theme_canonical_names"], ensure_ascii=False
         )
-
-        sentiment_targets = []
-        for polarity in ("positive", "neutral", "negative"):
-            for result in resolve_many(split_values(row.get(polarity)), entries, country=country, kinds=SENTIMENT_KINDS):
-                sentiment_targets.append({"polarity": polarity, **result})
 
         frame.at[index, "ep24_seed_entities_json"] = json.dumps(entity_seeds, ensure_ascii=False, sort_keys=True)
         frame.at[index, "ep24_seed_themes_json"] = json.dumps(theme_seeds, ensure_ascii=False, sort_keys=True)
@@ -299,11 +321,7 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         frame.at[index, "ep24_human_seed_context"] = "\\n".join(seed_lines)
 
         entity_ids: list[str] = []
-        theme_ids: list[str] = [
-            str(result.get("entry_id"))
-            for result in theme_results
-            if result.get("decision") == "EXISTING" and result.get("entry_id")
-        ]
+        theme_ids: list[str] = list(postprocess_resolution["theme_ids"])
         sentiment_target_ids: dict[str, list[str]] = {valence: [] for valence in sentiment_columns}
         unresolved: list[dict[str, Any]] = []
         if memory is not None:
