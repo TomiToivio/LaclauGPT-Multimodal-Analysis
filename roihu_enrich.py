@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from roihu_codebooks import COUNTRY_PROFILES, context_block, load_profile
+from roihu_codebook_sources import load_registry_from_dir
+from ep24_entities import EntityRegistry, resolve_dataframe
 from roihu_memory import EP24Memory
 from roihu_identity import ENTITY_KINDS, SENTIMENT_KINDS, THEME_KINDS, resolve_many, seed_context_lines
 
@@ -187,8 +189,31 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
     import pandas as pd
 
     entries, profile = load_profile(private_root, country, language=language)
+
+    # Issue #142: seed the canonical entity registry from both the country JSON
+    # codebooks and the researcher-maintained replacement workbooks. The latter
+    # are the only EP24 source currently carrying PERSON entries.
+    source_dirs = (
+        private_root / "analysis" / "ep24_reprocess" / "codebook_sources",
+        private_root / "codebook_sources",
+    )
+    workbook_entries = []
+    workbook_report: dict[str, Any] = {}
+    for source_dir in source_dirs:
+        if source_dir.exists():
+            workbook_entries, workbook_report = load_registry_from_dir(source_dir)
+            break
+    registry = EntityRegistry.from_codebooks([*entries, *workbook_entries])
+
     frame = pd.read_csv(path)
     before_columns = list(frame.columns)
+    resolution_report = resolve_dataframe(
+        frame,
+        registry,
+        country=country,
+        language=language,
+        mention_columns=("new_entity", "researcher_new_persons", "entities"),
+    )
     new_columns = (
         "ep24_codebook_fingerprint",
         "ep24_codebook_context_json",
@@ -276,6 +301,11 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         "rows": len(frame),
         "legacy_columns_preserved": before_columns == [c for c in frame.columns if c in before_columns],
         "profile": profile,
+        "entity_resolution": resolution_report,
+        "entity_registry": {
+            "records": len(registry),
+            "workbook_source": workbook_report,
+        },
     }
 
 
