@@ -15,7 +15,62 @@ LOG = logging.getLogger(__name__)
 
 DEFAULT_ENGINE = os.getenv("LACLAUGPT_OCR_ENGINE", "paddleocr").strip().lower()
 DEFAULT_PADDLE_VERSION = os.getenv("LACLAUGPT_OCR_MODEL", "PP-OCRv5")
-EASYOCR_LANGS = ["en", "fr", "pl", "sv", "pt", "de", "es", "hu", "hr", "bg"]
+
+#: EasyOCR groups languages by script and refuses a Reader that spans groups.
+#: The single flat list this replaced was
+#:
+#:     ["en", "fr", "pl", "sv", "pt", "de", "es", "hu", "hr", "bg"]
+#:
+#: which mixes Latin and Cyrillic, so `easyocr.Reader(...)` raised before doing any
+#: work at all:
+#:
+#:     ValueError: Cyrillic is only compatible with English, try lang_list=
+#:     ["ru","rs_cyrillic","be","bg","uk","mn","en"]
+#:
+#: `raise ValueError(language.capitalize() + ' is only compatible with English...')`
+#: fires on the *first* group that does not contain every requested language — and
+#: no single group contains all ten EP24 languages. So the EasyOCR adapter was
+#: unusable for the whole EP24 set, and no test caught it because none constructed
+#: a real Reader (the module is imported lazily and tests inject a fake backend).
+#:
+#: Bulgarian is the only Cyrillic-script EP24 language; the other nine are Latin
+#: (Croatian and Hungarian included). The fix is one Reader per script group,
+#: selected from the canonical country, which is also cheaper and more accurate
+#: than asking one reader to cover two scripts.
+EASYOCR_LATIN_LANGS = ["en", "fr", "pl", "sv", "pt", "de", "es", "hu", "hr"]
+EASYOCR_CYRILLIC_LANGS = ["bg", "en"]
+
+#: Script group per EP24 country token, matching `asr_backend.COUNTRY_LANGUAGE_HINTS`.
+EASYOCR_COUNTRY_GROUPS: dict[str, list[str]] = {
+    "bulgaria": EASYOCR_CYRILLIC_LANGS,
+    "finland": EASYOCR_LATIN_LANGS,
+    "poland": EASYOCR_LATIN_LANGS,
+    "portugal": EASYOCR_LATIN_LANGS,
+    "germany": EASYOCR_LATIN_LANGS,
+    "spain": EASYOCR_LATIN_LANGS,
+    "hungary": EASYOCR_LATIN_LANGS,
+    "croatia": EASYOCR_LATIN_LANGS,
+    "france": EASYOCR_LATIN_LANGS,
+    "sweden": EASYOCR_LATIN_LANGS,
+}
+
+
+def easyocr_languages(country: str | None = None) -> list[str]:
+    """EasyOCR language list for one EP24 country, within a single script group.
+
+    Defaults to the Latin group when the country is unknown, since nine of the ten
+    EP24 languages are Latin. Raises for a country that is not in the EP24 set, so
+    a typo cannot silently pick a script.
+    """
+    token = str(country or "").strip().casefold()
+    if not token:
+        return list(EASYOCR_LATIN_LANGS)
+    if token not in EASYOCR_COUNTRY_GROUPS:
+        raise ValueError(
+            f"unknown EP24 country for OCR script selection: {country!r}; "
+            f"expected one of {sorted(EASYOCR_COUNTRY_GROUPS)}"
+        )
+    return list(EASYOCR_COUNTRY_GROUPS[token])
 
 
 @dataclass(frozen=True)
@@ -78,15 +133,19 @@ def load_ocr_backend() -> OCRBackend:
     if engine == "easyocr":
         import easyocr
 
-        LOG.info("Loading OCR backend=easyocr languages=%s", EASYOCR_LANGS)
-        reader = easyocr.Reader(EASYOCR_LANGS)
+        country = os.getenv("LACLAUGPT_COUNTRY", "").strip()
+        languages = easyocr_languages(country)
+        LOG.info(
+            "Loading OCR backend=easyocr country=%s languages=%s", country or "(default)", languages
+        )
+        reader = easyocr.Reader(languages)
 
         def _read(path: str) -> tuple[str, int]:
             results = reader.readtext(path)
             texts = [str(result[1]).strip() for result in results if str(result[1]).strip()]
             return "\n".join(texts), len(texts)
 
-        return OCRBackend("easyocr", "easyocr-runtime", _read)
+        return OCRBackend("easyocr", f"easyocr-runtime:{'+'.join(languages)}", _read)
 
     raise ValueError(
         f"Unknown LACLAUGPT_OCR_ENGINE={engine!r}; expected 'paddleocr' or 'easyocr'"
