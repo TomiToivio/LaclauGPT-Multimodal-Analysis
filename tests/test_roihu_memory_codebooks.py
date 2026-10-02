@@ -149,12 +149,15 @@ def test_seed_memory_does_not_attach_conflicting_alias(tmp_path):
     assert memory.resolve("Taken Alias", "actor", country="FI").obj_id == existing
 
 
-def test_populism_context_hook_is_opt_in_and_explicit():
+def test_populism_uses_shared_context_architecture():
     source = Path("roihu_populism.py").read_text(encoding="utf-8")
-    assert "LACLAUGPT_ENRICHMENT_ENABLED" in source
-    assert "add_codebook_context(country, user_prompt)" in source
-    assert "formula_of_populism_codebook_context_json" in source
-    assert "legacy_cached_result" in source
+    assert "ep24_context import bootstrap_context, enrich_dataframe" in source
+    assert "codebook_context_json" in source
+    assert "memory_context_json" in source
+    assert "rag_context_json" in source
+    assert "normalization_context_not_source_evidence" in source
+    assert "prior_analysis_context_not_source_evidence" in source
+    assert "formula_of_populism.db" not in source
 
 
 def test_memory_schema_migration_creates_backup_and_temporal_columns(tmp_path):
