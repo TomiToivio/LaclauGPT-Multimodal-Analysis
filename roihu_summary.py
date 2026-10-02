@@ -4,7 +4,6 @@ import sqlite3
 from logging.handlers import RotatingFileHandler
 
 import ollama
-import pandas as pd
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_schema import value as ep24_value
 logger = logging.getLogger(__name__)
