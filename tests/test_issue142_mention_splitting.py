@@ -1,19 +1,25 @@
-"""Regression guard: mention splitting must match the other layers (#142).
+"""Regression guards for canonical mention splitting (#142 / #21).
 
-``ep24_entities._split_mentions`` split only on newlines and semicolons, but the
-authoritative splitter -- ``roihu_enrich.split_values`` and
-``roihu_rdf.split_list`` -- treats a comma as a separator, because the
-postprocess stage writes the cell with ``', '.join(...)``.
+The #21 migration made the input annotation cells **JSON lists** written by
+``analysis/ep24_reprocess/scripts/canonicalize_input_schema.py`` (in the private
+repo), so the authoritative splitter parses JSON first and only then falls back
+to plain delimiters. These tests pin that behaviour, plus two defects found along
+the way:
 
-Consequence on real data: a cell such as ``"Sanna Marin, Petteri Orpo"`` was
-resolved as a **single** mention, so it matched nothing and *both* actors were
-lost to the unresolved queue -- precisely the fragmentation the layer exists to
-prevent. The downstream RDF projection then has no stable IDs to key on and
-falls back to surface-string nodes, which is the duplicate-node outcome #142's
-acceptance criterion forbids.
+1. ``_split_mentions`` once split only on newlines and semicolons while
+   ``roihu_enrich.split_values`` / ``roihu_rdf.split_list`` used a comma,
+   because the postprocess stage wrote ``', '.join(...)``. Then a cell such as
+   ``"Sanna Marin, Petteri Orpo"`` was resolved as ONE mention and both actors
+   were lost to the unresolved queue. That is no longer reachable for canonical
+   input because the cell is now a JSON list, and a comma must NOT be an
+   implicit delimiter anyway -- the canonical theme list contains eight names
+   that carry a comma as part of the name (``war, conflict and military``,
+   ``populism, peopleism``, ...).
 
-Measured on the private corpus: 2,375 of the Finland ``entities`` cells and
-3,496 of the Hungary cells carry commas.
+2. The JSON-first rewrite wrote the newline escapes doubled
+   (``text.replace("\\\\r", "\\\\n").split("\\\\n")``), which matches the two
+   character sequences backslash-r / backslash-n rather than an actual newline.
+   A cell containing a real newline therefore stopped splitting. Pinned below.
 
 Synthetic fixtures only: no private research data.
 """
@@ -54,60 +60,70 @@ def fi_registry() -> E.EntityRegistry:
     return registry
 
 
-def test_split_mentions_matches_the_authoritative_separator_set():
-    """A comma-separated cell must yield one mention per actor, as enrich/RDF do."""
-    from roihu_enrich import split_values
-    from roihu_rdf import split_list
+# --------------------------------------------------------------------------- #
+# canonical (JSON list) cells
+# --------------------------------------------------------------------------- #
 
-    cell = "Sanna Marin, Petteri Orpo"
-    assert E._split_mentions(cell) == split_list(cell) == split_values(cell)
-    assert E._split_mentions(cell) == ["Sanna Marin", "Petteri Orpo"]
+def test_json_list_cell_yields_every_annotation():
+    """The canonical input format: one JSON list per cell."""
+    assert E._split_mentions('["Sanna Marin", "Petteri Orpo"]') == [
+        "Sanna Marin",
+        "Petteri Orpo",
+    ]
 
 
-def test_comma_separated_cell_resolves_every_actor_not_one_mention():
-    """The regression: the whole cell used to become one UNRESOLVED mention."""
+def test_comma_inside_a_label_is_never_a_delimiter():
+    """Eight canonical themes contain a comma as part of the name."""
+    cell = json.dumps(["war, conflict and military", "populism, peopleism"])
+    assert E._split_mentions(cell) == ["war, conflict and military", "populism, peopleism"]
+    # ...and in the plain-text fallback a comma is still not a delimiter.
+    assert E._split_mentions("war, conflict and military") == ["war, conflict and military"]
+
+
+def test_json_cell_resolves_every_actor():
     pd = pytest.importorskip("pandas")
     frame = pd.DataFrame(
-        [{"country": "FI", "new_entity": "Sanna Marin, Petteri Orpo"}]
+        [{"country": "FI", "entities": json.dumps(["Sanna Marin", "Petteri Orpo"])}]
     )
     summary = E.resolve_dataframe(
-        frame,
-        fi_registry(),
-        country="FI",
-        language="fi",
-        mention_columns=("new_entity",),
+        frame, fi_registry(), country="FI", language="fi", mention_columns=("entities",)
     )
-
     assert summary["total"] == 2, f"expected 2 mentions, got {summary['total']}"
     assert summary["decisions"].get("RESOLVED") == 2
-    assert "UNRESOLVED" not in summary["decisions"]
-
-    ids = json.loads(frame.iloc[0]["ep24_entity_ids"])
-    assert ids == ["CB-marin", "CB-orpo"], ids
+    assert json.loads(frame.iloc[0]["ep24_entity_ids"]) == ["CB-marin", "CB-orpo"]
     # the original wording is untouched -- the issue's central requirement
-    assert frame.iloc[0]["new_entity"] == "Sanna Marin, Petteri Orpo"
+    assert frame.iloc[0]["entities"] == json.dumps(["Sanna Marin", "Petteri Orpo"])
 
 
-def test_pipe_and_semicolon_cells_keep_working():
-    """The new comma handling must not break the separators that already worked."""
+def test_json_duplicates_collapse_and_blank_members_drop():
+    assert E._split_mentions('["Orpo", "Orpo"]') == ["Orpo"]
+    assert E._split_mentions('["Orpo", ""]') == ["Orpo"]
+    assert E._split_mentions("[]") == []
+
+
+# --------------------------------------------------------------------------- #
+# plain-text fallback (older hand-authored fixtures)
+# --------------------------------------------------------------------------- #
+
+def test_plain_delimiters_still_work():
     assert E._split_mentions("Orpo; Kokoomus") == ["Orpo", "Kokoomus"]
     assert E._split_mentions("Orpo|Kokoomus") == ["Orpo", "Kokoomus"]
-    assert E._split_mentions("A\nB") == ["A", "B"]
     assert E._split_mentions("Orpo; Orpo") == ["Orpo"]
-
-
-def test_acronym_containing_commas_is_not_an_actor_cell():
-    """A lone token must survive intact; splitting is for list cells only."""
     assert E._split_mentions("Petteri Orpo") == ["Petteri Orpo"]
-    assert E._split_mentions("[]") == []
     assert E._split_mentions("") == []
 
 
-def test_entities_column_commas_resolve_every_actor():
-    """The real column name from the corpus, not just the synthetic alias."""
+def test_real_newlines_split_the_plain_text_fallback():
+    """Regression: the escapes were doubled, so a real newline stopped splitting."""
+    assert E._split_mentions("A\nB") == ["A", "B"]
+    assert E._split_mentions("A\r\nB") == ["A", "B"]
+    assert E._split_mentions("A\nB\nC") == ["A", "B", "C"]
+
+
+def test_entities_column_json_resolves_every_actor():
     pd = pytest.importorskip("pandas")
     frame = pd.DataFrame(
-        [{"country": "FI", "entities": "Sanna Marin, Petteri Orpo"}]
+        [{"country": "FI", "entities": '["Sanna Marin", "Petteri Orpo"]'}]
     )
     summary = E.resolve_dataframe(
         frame, fi_registry(), country="FI", language="fi", mention_columns=("entities",)
