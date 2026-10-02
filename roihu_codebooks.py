@@ -57,8 +57,104 @@ def identity_key(text: Any) -> str:
 
     This normalizes the KEY, never the stored label: the original text is kept
     verbatim in the entry.
+
+    This function is also the **id seed** (``_entry_id``) and
+    ``roihu_memory.stable_id``, so its output must not change: doing so would
+    move every stored id. See ``elision_key`` for the lossy fold that is applied
+    where a lossy comparison is safe (merge/dedupe) but an id must not move.
     """
     return " ".join(unicodedata.normalize("NFC", str(text or "")).strip().casefold().split())
+
+
+#: Apostrophe-family characters that all mark the SAME French/Italian elision.
+#: The difference between them is which keyboard or publishing pipeline produced
+#: the text, not what the text means. Source of truth is
+#: ``scripts/ep24/apostrophe_hygiene.py::SAFE_ELISION``; this mirror exists so the
+#: identity layer does not have to import a script module at runtime.
+ELISION_APOSTROPHES = frozenset({"\u0027", "\u2019", "\u2018", "\u02bc"})
+
+#: The apostrophe this project writes into its own labels (ASCII), matching
+#: ``scripts/ep24/apostrophe_hygiene.py::PROJECT_APOSTROPHE``.
+PROJECT_APOSTROPHE = "\u0027"
+
+#: Explicitly NOT folded. Kept as a named constant so both the fold and the
+#: tests can assert the boundary rather than relying on the loop's default.
+NOT_ELISION: frozenset = frozenset(
+    {
+        "\u2032",  # PRIME — minutes/feet, not an apostrophe
+        "\u2033",  # DOUBLE PRIME
+        "\u0060",  # GRAVE ACCENT — not an apostrophe at all
+        "\u201c", "\u201d",  # left/right double quotation marks
+        "\u002d", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212",  # dash family
+        "\u2026",  # ellipsis
+    }
+)
+
+
+def elision_key(text: Any) -> str:
+    """Identity key with apostrophe-elision variants folded. **Lossy, by design.**
+
+    ``identity_key`` preserves punctuation, correctly — an apostrophe is
+    analytically meaningful and stripping punctuation was the false-merge defect
+    that ``tests/test_identity_normalization.py`` pins against. But French and
+    Italian elision is written with either the ASCII apostrophe (keyboards, ASR)
+    or U+2019 (word processors, iOS autocorrect, much news web output), and the
+    two are canonically unrelated (``Po`` vs ``Pf``), so NFC cannot unify them:
+
+        identity_key("Besoin d'Europe") != identity_key("Besoin d\u2019Europe")
+
+    That makes one entity two identities — two ``CB-`` ids, two memory objects,
+    both CANONICAL. See ``docs/ep24_country_audits/FR.md`` Finding 4 and #102.
+
+    **Where this may be used:** comparison only — merge/dedupe keys, duplicate
+    detection, and "are these two labels the same entity". Folding here can only
+    ever merge two entries that already share an ``identity_key`` apart from the
+    apostrophe.
+
+    **Where it may NOT be used:** anywhere the result is stored or hashed into an
+    id. ``identity_key`` is the id seed, so folding inside it would move every
+    existing entry id whose label carries a typographic apostrophe. That is the
+    migration problem #102 asks to solve deliberately, not a side effect to
+    introduce.
+
+    The fold is narrow on purpose. Only the elision family is folded; primes,
+    grave accents, the dash family and quotation marks are left untouched,
+    because unifying those would be a semantic change rather than a
+    normalisation (``Most`` vs ``Most`` is a party; a prime is minutes).
+    """
+    return identity_key("".join(PROJECT_APOSTROPHE if c in ELISION_APOSTROPHES else c for c in str(text or "")))
+
+
+def elision_merged(a: str, b: str) -> bool:
+    """True when two labels are one entity *only because* of the elision fold.
+
+    This is the crosswalk predicate: ``True`` means ``identity_key`` keeps them
+    apart while ``elision_key`` unifies them, i.e. exactly the class of
+    apostrophe-only split this change resolves. Used to record merged pairs
+    explicitly rather than merging them silently.
+    """
+    return identity_key(a) != identity_key(b) and elision_key(a) == elision_key(b)
+
+
+def _elision_record(kept: CodebookEntry, folded: CodebookEntry) -> dict[str, Any]:
+    """Crosswalk row for one apostrophe-only merge (#102).
+
+    Records both the labels AND the ids, because ids are what the migration
+    question is about: ``kept_id`` survives, ``folded_id`` was the id that the
+    other spelling would have produced. A run against a live book therefore
+    yields the exact list of ids that will stop being generated, which is what
+    the acceptance criterion "migration/compatibility behavior for existing IDs
+    is documented and tested" needs to be checkable rather than described.
+    """
+    return {
+        "kept": kept.label,
+        "folded": folded.label,
+        "kept_id": kept.entry_id,
+        "folded_id": folded.entry_id,
+        "kept_layer": kept.layer,
+        "folded_layer": folded.layer,
+        "reason": "elision_apostrophe",
+    }
 
 
 def _tokens(text: str) -> set[str]:
@@ -454,25 +550,39 @@ def load_profile(root: str | Path, country: str, *, language: str = "", strict_e
         raise FileNotFoundError(f"no private EP24 codebooks found for {country} under {Path(root) / 'codebooks'}")
     merged: dict[tuple[str, str, str], CodebookEntry] = {}
     conflicts: list[dict[str, Any]] = []
+    # Crosswalk for #102: pairs that merged ONLY because of the elision fold.
+    # `identity_key` still keeps them apart (so no id moves), but the merge is
+    # the place where a lossy comparison is safe, so the two spellings collapse
+    # to one entry here instead of becoming two canonical objects. Recorded
+    # explicitly so the merge is auditable rather than silent.
+    elision_merges: list[dict[str, Any]] = []
     for entries, _meta, _layer in loaded:
         for entry in entries:
-            key = (entry.kind, identity_key(entry.label), entry.country or country.upper())
+            key = (entry.kind, elision_key(entry.label), entry.country or country.upper())
             old = merged.get(key)
             if old is None:
                 merged[key] = entry
                 continue
             if old.locked and not entry.locked:
                 conflicts.append({"kept": old.entry_id, "rejected": entry.entry_id, "reason": "human_lock"})
+                if elision_merged(old.label, entry.label):
+                    elision_merges.append(_elision_record(old, entry))
                 continue
             if entry.locked and not old.locked:
                 conflicts.append({"kept": entry.entry_id, "rejected": old.entry_id, "reason": "human_lock"})
+                if elision_merged(old.label, entry.label):
+                    elision_merges.append(_elision_record(entry, old))
                 merged[key] = entry
                 continue
             if old.locked and entry.locked and asdict(old) != asdict(entry):
                 conflicts.append({"kept": old.entry_id, "rejected": entry.entry_id, "reason": "locked_conflict_needs_review"})
                 continue
             if LAYER_ORDER.get(entry.layer, 0) >= LAYER_ORDER.get(old.layer, 0):
+                if elision_merged(old.label, entry.label):
+                    elision_merges.append(_elision_record(entry, old))
                 merged[key] = entry
+            elif elision_merged(old.label, entry.label):
+                elision_merges.append(_elision_record(old, entry))
     entries = list(merged.values())
     aliases: dict[tuple[str, str], set[str]] = {}
     for entry in entries:
@@ -521,6 +631,10 @@ def load_profile(root: str | Path, country: str, *, language: str = "", strict_e
         "missing_english_count": len(missing_english), "english_label_coverage": english_qa,
         "qa_state": english_qa["state"], "sourced_entry_count": len(sourced),
         "source_languages": source_languages,
+        # #102: apostrophe-only merges, recorded so the fold is auditable rather
+        # than silent. Empty when no label carries a typographic apostrophe.
+        "elision_merges": sorted(elision_merges, key=lambda m: (m["kept"], m["folded"])),
+        "elision_merge_count": len({(m["kept"], m["folded"]) for m in elision_merges}),
         "evidence_role": "background_context_not_source_evidence",
     }
 

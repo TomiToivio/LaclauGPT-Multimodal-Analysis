@@ -35,6 +35,33 @@ def surface_key(text: str) -> str:
     return " ".join(unicodedata.normalize("NFC", str(text or "")).strip().casefold().split())
 
 
+#: Apostrophe-family characters that all mark the SAME elision (#102). Mirrors
+#: ``roihu_codebooks.ELISION_APOSTROPHES``; repeated rather than imported because
+#: this module deliberately has no dependency on the codebook layer, and the two
+#: are pinned equal by ``tests/test_ep24_elision_identity.py``.
+ELISION_APOSTROPHES = frozenset({"\u0027", "\u2019", "\u2018", "\u02bc"})
+
+#: The apostrophe this project writes into its own labels (ASCII).
+PROJECT_APOSTROPHE = "\u0027"
+
+
+def elision_surface_key(text: str) -> str:
+    """``surface_key`` with apostrophe-elision variants folded. **Lossy.**
+
+    French/Italian elision is written with either the ASCII apostrophe or U+2019,
+    and the two are canonically unrelated, so NFC cannot unify them and
+    ``surface_key`` — correctly, since it preserves punctuation — keeps them
+    apart. See ``roihu_codebooks.elision_key`` and #102.
+
+    Used only to RECOGNISE that a second spelling is the same entity, never to
+    derive an id: ``stable_id`` keeps using ``surface_key``, so no stored id
+    moves. Only the elision family is folded; primes, grave accents, quotation
+    marks and dashes are left alone.
+    """
+    folded = "".join(PROJECT_APOSTROPHE if c in ELISION_APOSTROPHES else c for c in str(text or ""))
+    return surface_key(folded)
+
+
 def upstream_legacy_key(text: str) -> str:
     """Compatibility key matching the older accent/qualifier-stripping ID logic."""
     value = unicodedata.normalize("NFD", str(text or "").strip()).casefold()
@@ -209,6 +236,24 @@ class EP24Memory:
         ts = now_iso()
         with self.connect() as db:
             existing = db.execute("SELECT * FROM objects WHERE obj_id=?", (obj_id,)).fetchone()
+            if existing is None:
+                # #102: before creating a new object, check whether this spelling is
+                # the SAME entity as one already stored, differing only by the elision
+                # apostrophe. If so, the variant is attached as an alias of the
+                # existing object and THAT id is returned, so one entity stays one
+                # object instead of becoming two CANONICAL ones (the outcome the FR
+                # audit measured). No id is recomputed -- `stable_id` still uses the
+                # un-folded `surface_key` -- so nothing already stored moves; this
+                # only refuses to mint a duplicate. Recorded in the crosswalk under an
+                # `elision:` prefix (schema stays v3) so it is auditable, not silent.
+                twin = self._find_elision_twin(db, kind, canonical, obj_id, country=country, language=language)
+                if twin:
+                    self._add_alias_db(db, twin, canonical, country=country, language=language, provenance="elision_apostrophe(#102)")
+                    db.execute(
+                        "INSERT OR IGNORE INTO id_crosswalk VALUES(?,?,?)",
+                        (f"elision:{elision_surface_key(canonical)}", twin, "elision apostrophe variant"),
+                    )
+                    return twin
             if existing:
                 if int(existing["locked"]):
                     return obj_id
@@ -292,6 +337,39 @@ class EP24Memory:
             ),
         )
 
+    def _find_elision_twin(self, db: sqlite3.Connection, kind: str, label: str, obj_id: str, *, country: str = "", language: str = "") -> str:
+        """An existing object that is the same entity but for the elision apostrophe.
+
+        Returns the other object's id, or ``""``. This is the ONLY thing the fold
+        does to memory: recognise a variant spelling so it can be attached as an
+        alias. It never recomputes or rewrites an id (``stable_id`` still uses the
+        un-folded ``surface_key``), so no stored identity moves.
+
+        Scoped by kind and country exactly as ``resolve`` is, so the fold cannot
+        breach country isolation — the same folded label in two countries stays
+        two objects.
+        """
+        folded = elision_surface_key(label)
+        if not folded or not any(c in ELISION_APOSTROPHES for c in label):
+            # No apostrophe in the label: nothing to recognise. (Guarding on the
+            # apostrophe rather than on "folded != surface_key" matters here too —
+            # the earlier form silently skipped the reverse direction, where the
+            # stored label is typographic and the new one is ASCII.)
+            return ""
+        rows = db.execute(
+            "SELECT obj_id, canonical_label, country, language FROM objects WHERE kind=? AND obj_id!=?",
+            (kind, obj_id),
+        ).fetchall()
+        for row in rows:
+            if elision_surface_key(row["canonical_label"]) != folded:
+                continue
+            if country and row["country"] not in ("", country.upper()):
+                continue
+            if language and row["language"] not in ("", language.lower()):
+                continue
+            return row["obj_id"]
+        return ""
+
     def _add_alias_db(self, db: sqlite3.Connection, obj_id: str, alias: str, *, country: str = "", language: str = "", provenance: str = "") -> None:
         key = surface_key(alias)
         if not key:
@@ -326,7 +404,61 @@ class EP24Memory:
             return Resolution(raw, kind, "EXISTING", row["obj_id"], row["canonical_label"], "alias")
         if len(rows) > 1:
             return Resolution(raw, kind, "AMBIGUOUS", matched_via="alias")
+        # #102: exact alias lookup missed. If this spelling differs from a stored
+        # object ONLY by the elision apostrophe, it is the same entity — return it
+        # as an elision match rather than NEW, so an apostrophe variant does not
+        # spawn a second object. Kept as a separate `matched_via` so a caller can
+        # see the match was made through the (lossy) fold rather than exactly.
+        elided = self._resolve_by_elision(raw, kind, country=country, language=language, accepted_only=accepted_only)
+        if elided is not None:
+            return elided
         return Resolution(raw, kind, "NEW")
+
+    def _resolve_by_elision(self, raw: str, kind: str, *, country: str = "", language: str = "", accepted_only: bool = True) -> Resolution | None:
+        """Resolve ``raw`` against a stored object that differs only by elision.
+
+        Returns ``None`` when there is no such object, so the caller can fall
+        through to NEW. Mirrors ``resolve``'s scoping (kind, country, language,
+        accepted states) so the lossy fold cannot breach isolation or resurrect a
+        deprecated object.
+        """
+        folded = elision_surface_key(raw)
+        if not folded:
+            return None
+        # Cheap and provably safe guard: a fold match requires the two keys to
+        # differ ONLY by an apostrophe character. If the query contains no elision
+        # apostrophe at all, its folded key equals its surface key, and a stored
+        # label can only reach that key if it also contains no apostrophe — which
+        # would have been found by the exact-alias lookup that already missed. So
+        # no fold match is possible and the scan can be skipped.
+        if not any(c in ELISION_APOSTROPHES for c in raw):
+            return None
+        states = ("CANONICAL",) if accepted_only else ("CANONICAL", "PROVISIONAL", "DEPRECATED")
+        qs = ",".join("?" for _ in states)
+        with self.connect() as db:
+            rows = list(
+                db.execute(
+                    f"SELECT * FROM objects WHERE kind=? AND state IN ({qs})",
+                    (kind, *states),
+                )
+            )
+        matches = []
+        for row in rows:
+            if elision_surface_key(row["canonical_label"]) != folded:
+                continue
+            if country and row["country"] not in ("", country.upper()):
+                continue
+            if language and row["language"] not in ("", language.lower()):
+                continue
+            matches.append(row)
+        if len(matches) == 1:
+            row = matches[0]
+            return Resolution(raw, kind, "EXISTING", row["obj_id"], row["canonical_label"], "elision_fold")
+        if len(matches) > 1:
+            # Two stored objects differ from the query only by apostrophe style.
+            # That is genuine ambiguity and must be surfaced, not guessed.
+            return Resolution(raw, kind, "AMBIGUOUS", matched_via="elision_fold")
+        return None
 
     def fuzzy_candidates(
         self,
@@ -620,6 +752,43 @@ class EP24Memory:
             "obj_ids": obj_ids,
             "ambiguous": len(obj_ids) > 1,
         }
+
+    def elision_alias_merges(self) -> list[dict[str, Any]]:
+        """Apostrophe-elision alias convergences recorded since #102.
+
+        Each row is one recognition: a second spelling of an entity that differs
+        only by the elision apostrophe was attached as an alias of an existing
+        object instead of becoming a second CANONICAL object. Read back from the
+        `id_crosswalk` table under the `elision:` prefix, so no schema change was
+        needed and no stored id moved.
+
+        Rows are ordered for stable output so a report can be diffed.
+        """
+        with self.connect() as db:
+            exists = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='id_crosswalk'"
+            ).fetchone()
+            if not exists:
+                return []
+            rows = db.execute(
+                "SELECT upstream_id, ep24_id, reason FROM id_crosswalk "
+                "WHERE upstream_id LIKE 'elision:%' ORDER BY upstream_id, ep24_id"
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        with self.connect() as db:
+            for row in rows:
+                label_row = db.execute(
+                    "SELECT canonical_label FROM objects WHERE obj_id=?", (row["ep24_id"],)
+                ).fetchone()
+                out.append(
+                    {
+                        "match_key": row["upstream_id"].removeprefix("elision:"),
+                        "kept_id": row["ep24_id"],
+                        "kept_label": label_row["canonical_label"] if label_row else "",
+                        "reason": row["reason"],
+                    }
+                )
+        return out
 
     def crosswalk_collisions(self) -> list[dict[str, Any]]:
         """Every recorded upstream-id collision, for audit and operator review."""
