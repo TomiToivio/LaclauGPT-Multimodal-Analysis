@@ -111,45 +111,112 @@ def test_step4_preserves_every_incoming_field_and_needs_no_legacy_whisper(
     assert "whisperResult" not in incoming.columns
 
 
-def test_mongo_patch_only_sends_step4_fields(monkeypatch):
+def test_mongo_patch_preserves_complete_cumulative_row():
     captured = {}
 
-    class Config:
-        mongo_enabled = True
-
     class FakeStorage:
-        def __init__(self, config):
-            captured["config"] = config
-
         def patch_documents(self, purpose, documents):
             captured["purpose"] = purpose
-            captured["documents"] = documents
+            captured["documents"] = list(documents)
             return 1
-
-        def close(self):
-            captured["closed"] = True
-
-    monkeypatch.setattr(summary.StorageConfig, "from_env", classmethod(lambda cls: Config()))
-    monkeypatch.setattr(summary, "MongoStorage", FakeStorage)
 
     row = pd.Series(
         {
+            "_storage_id": "FI|video-1",
             "metadata": "meta",
             "summary_analysis": "summary",
             "summary_summary_md": "summary",
-            "upstream_secret_field": "must not be rewritten by Step 4",
+            "upstream_field": "must survive in Mongo",
+            "entities": "Petteri Orpo",
+            "themes": "EU politics",
         }
     )
-    status = summary._persist_mongo_patch(
+    count = summary._persist_mongo_row(
+        FakeStorage(),
         row,
         source_id="FI|video-1",
         model="qwen3.8:27b",
         context_sha256="abc",
     )
-    assert status == "mongo_ok:1"
+    assert count == 1
     assert captured["purpose"] == "dataframe"
     doc = captured["documents"][0]
     assert doc["_storage_id"] == "FI|video-1"
-    assert "upstream_secret_field" not in doc
-    assert doc["summary_analysis"] == "summary"
-    assert captured["closed"] is True
+    assert doc["upstream_field"] == "must survive in Mongo"
+    assert doc["entities"] == "Petteri Orpo"
+    assert doc["themes"] == "EU politics"
+    assert doc["step4_summary_provenance"]["context_sha256"] == "abc"
+
+
+def test_mongo_resume_requires_matching_model_and_context():
+    class FakeStorage:
+        def __init__(self, document):
+            self.document = document
+
+        def find(self, purpose, query, limit=0):
+            assert purpose == "dataframe"
+            assert query == {"_storage_id": "FI|video-1"}
+            return [self.document]
+
+    doc = {
+        "_storage_id": "FI|video-1",
+        "summary_analysis": "durable summary",
+        "step4_summary_provenance": {
+            "model": "model-a",
+            "context_sha256": "ctx-a",
+        },
+    }
+    storage = FakeStorage(doc)
+    assert summary._mongo_resume_summary(
+        storage, "FI|video-1", model="model-a", context_sha256="ctx-a"
+    ) == "durable summary"
+    assert summary._mongo_resume_summary(
+        storage, "FI|video-1", model="model-b", context_sha256="ctx-a"
+    ) is None
+    assert summary._mongo_resume_summary(
+        storage, "FI|video-1", model="model-a", context_sha256="ctx-b"
+    ) is None
+
+
+def test_prompt_keeps_memory_and_rag_separate_from_source_evidence():
+    prompt = summary.get_llama_summary_user_prompt(
+        "source metadata",
+        "spoken words",
+        "frame evidence",
+        "video evidence",
+        "entity: Petteri Orpo [role=normalization_context_not_source_evidence]",
+        "prior summary [prior_analysis_context_not_source_evidence]",
+    )
+    assert "Researcher memory / normalization context (NOT source evidence)" in prompt
+    assert "Retrieved prior-corpus context (NOT source evidence)" in prompt
+    assert "normalization_context_not_source_evidence" in prompt
+    assert "prior_analysis_context_not_source_evidence" in prompt
+
+
+def test_memory_and_rag_formatters_preserve_evidence_roles():
+    memory = summary._format_memory_context([
+        {
+            "kind": "entity",
+            "label": "Petteri Orpo",
+            "evidence_role": "normalization_context_not_source_evidence",
+        }
+    ])
+    rag = summary._format_rag_context([
+        {
+            "stage": "frame",
+            "source_record_id": "other",
+            "text": "Prior derived analysis",
+        }
+    ])
+    assert "Petteri Orpo" in memory
+    assert "normalization_context_not_source_evidence" in memory
+    assert "Do not treat them as direct evidence" in rag
+
+
+def test_storage_id_prefers_pipeline_storage_id():
+    row = pd.Series({
+        "_storage_id": "stable-mongo-id",
+        "video_id": "video-1",
+        "allas_filename": "TikTok/video-1.mp4",
+    })
+    assert summary._row_storage_id(row) == "stable-mongo-id"

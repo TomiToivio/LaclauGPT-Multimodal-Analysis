@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 import pandas as pd
@@ -37,3 +38,22 @@ def seed_researcher_memory(storage, df: pd.DataFrame, *, country: str) -> int:
                 }
     storage.upsert_documents("memory", docs.values())
     return len(docs)
+
+
+def retrieve_researcher_memory(storage, text: str, *, limit: int = 12) -> list[dict]:
+    """Retrieve relevant researcher-seeded memory as normalization context only.
+
+    This intentionally uses a portable lexical fallback so Roihu does not require
+    a vector index. Returned records are context, never evidence for the current
+    document.
+    """
+    terms = {t.casefold() for t in re.findall(r"\w+", str(text)) if len(t) > 2}
+    candidates = storage.find("memory", {"review_state": "RESEARCHER_SEED"}, limit=500)
+    scored: list[tuple[int, dict]] = []
+    for item in candidates:
+        haystack = " ".join(str(item.get(k, "")) for k in ("label", "kind")).casefold()
+        score = sum(term in haystack for term in terms)
+        if score:
+            scored.append((score, item))
+    scored.sort(key=lambda pair: (-pair[0], str(pair[1].get("label", ""))))
+    return [item for _, item in scored[:limit]]
