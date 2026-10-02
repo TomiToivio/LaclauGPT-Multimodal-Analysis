@@ -229,3 +229,66 @@ Verified empirically against a synthetic two-entry book:
 So the runtime's `len >= 3` substring rule plus the `< 3` word-boundary rule is *exactly* the safe behaviour the build guard was trying to guarantee — and it is strictly better, because it still matches `PP` as a word while refusing the substring. The build-time `>= 5` threshold therefore buys nothing and costs every party acronym in the corpus.
 
 **Fix direction (for whoever picks it up):** remove (or lower to 2–3) the min-length guard in both places, and instead let the runtime's existing length-aware matcher do the work — while keeping the *country/kind scoping* that prevents `PP`/`PSOE`/`DP` from leaking across countries. The alias must survive, scoped; it must not be deleted. A regression test should assert both halves: `PP` matches as a word in ES and does **not** match inside an unrelated word.
+
+### Pass 3 (independent re-check)
+
+- agent branch: `croatian-cormorant-recounts-the-count`
+- focus: independent recount of the pass-1/pass-2 measurement claims, and the acronym-recovery prescription
+- material available: **public only.** This pass did *not* have `LaclauGPT-Private`, so **no private count above was re-derived.** What follows is what is checkable from the public tree and the official electoral record.
+
+Pass 3 drew Croatia at random out of the ten (executed, not asserted: `random.choice(['FI','SE','PL','PT','DE','ES','HU','HR','FR','BG']) -> 'HR'`) and deliberately chose the country whose numbers had already been corrected once by hand. Two of the three findings below are corrections to this document's own reasoning, not new measurements.
+
+#### C1. `SDSS` did **not** match `Republika Srpska` — the cited example does not reproduce
+
+Both this file and `docs/EP24_CODEBOOK_AUDIT_HR.md` justify the "substring matching produces confident wrong numbers" lesson with two examples. Only one of them is real:
+
+| cited pair | reproduces? |
+|---|---|
+| `Možemo` matched `Mozemohr` | **yes** — via the auditor's fold, which strips diacritics (`možemo`→`mozemo` ⊂ `mozemohr`) |
+| `SDSS` matched `Republika Srpska` | **no** — under no matcher, folded or not |
+
+Measured across every matching rule in the tree (raw substring both directions, `fold_fixed` both directions, word-boundary regex, shared-token overlap, initials):
+
+```text
+score_entry("SDSS", <entry Republika Srpska>)          = 0.0
+boundary_matches("SDSS", "Republika Srpska")           = False
+"sdss" in "republika srpska"                           = False
+fold_fixed("SDSS") in fold_fixed("Republika Srpska")   = False
+```
+
+What *does* reproduce is a weaker version worth naming precisely: the **full name** `Samostalna demokratska srpska stranka` token-overlaps the entry `Republika Srpska` at `score_entry = 0.5`, because they share the tokens `srpska`/`demokratska`. That is a plausible origin for the wrong example — the acronym was quoted where the full name was the real trigger.
+
+This matters because the lesson is attached to the wrong mechanism. The real Croatian hazards are `Most` ⊂ `Mostar` and `HDZ` ⊂ `HDZx`; those reproduce cleanly and should be the cited pair. **`Možemo`/`Mozemohr` is real but belongs to the auditor's fold path, not the runtime matcher** — the runtime does not strip diacritics, so it does not reproduce the false positive at all.
+
+#### C2. The "country-scoped acronym" prescription is insufficient for HR — `PiP` collides *inside* Croatia
+
+The pass-2 fix direction above says to recover acronyms as "country/kind-scoped exact-match aliases". Country scoping removes cross-country leakage (`PP`/`DP`/`PSOE`), but it does not resolve a collision that exists within one country's own ballot.
+
+Croatia 2024 has exactly that. On the official DIP results for the 9 June 2024 EP election, **two different actors carry the abbreviation `PiP`**:
+
+1. `PRAVO I PRAVDA` — the party, ballot abbreviation `PiP`, led by Mislav Kolakušić (0 seats).
+2. `... ISTARSKA STRANKA UMIROVLJENIKA – PARTITO ISTRIANO DEI PENSIONATI – ISU – PIP` — an abbreviation inside the *name* of a partner on the IDS-led "Fair Play List 9" (0 seats).
+
+Both strings appear verbatim in the DIP list of candidate lists. Scoped to `HR`, a `PiP` alias attaches to two entries, and the retrieval path returns both at `score_entry = 1.0`. That is the correct conservative outcome for *background* context (two candidates shown, neither asserted), but it means `PiP` can never be resolved to one actor by country scoping alone.
+
+Pinned in `tests/test_ep24_hr_acronym_collision.py` (6 tests, public fixtures): retrieval surfaces **both**; `roihu_identity.resolve_surface` returns `AMBIGUOUS`; the evidence firewall still reports `background_context_not_source_evidence`.
+
+**Consequence for #95:** that issue's criteria say "scope them by country, entity kind, and where appropriate language/election; do not silently resolve ambiguous one-letter forms". Croatia's `PiP` is a **two**-actor collision, not a one-letter ambiguity, so the "do not silently resolve ambiguous one-letter forms" clause does not cover it. Either #95's scope widens to "ambiguous forms of any length that collide within a country", or HR needs a ballot-level disambiguator (list number, election, or candidate) that no test currently exercises.
+
+#### C3. `PiP` is not a seat-winner, and `Fokus` did not contest — two claims in `EP24_CODEBOOK_AUDIT_HR.md` D4 are wrong
+
+D4 lists the absent 2024 actors and annotates `PiP` as "(2 seats, Non-Inscrits)" and `Fokus` as "(minor list)". Checked against the official DIP results:
+
+- **`PiP` won 0 seats in 2024**, at 22,214 votes (2.99%, 8th). It won **2 seats in 2019** — that was the *Independent list of Mislav Kolakušić*, a different vehicle. The "2 seats, Non-Inscrits" figure is the **2019** result carried into a **2024** table. (The 2 Non-Inscrits in the 2024 delegation were Kolakušić and Ivan Vilibor Sinčić, both elected in 2019.)
+- **`Fokus` does not appear in the DIP results at all** — the party did not contest the 2024 EP election in Croatia. It appears in Wikipedia's EP2024 table as a *leading candidate's party* for the Independent list of Ladislav Ilčić, which is a different thing from "a minor list".
+
+Neither error changes the structural finding (the codebook is missing actors who contested) — but both are wrong about *which* actors and *how* they matter:
+
+- D4 calls `PiP` "the sharpest case: a seat-winning party with no codebook entry". It is not seat-winning, so the argument from urgency weakens. The genuine seat-winners are HDZ (6), SDP-led (4), DP (1), Možemo! (1) — and the audit's `PiP` claim implies a codebook gap in a party with representation, which 2024 does not support.
+- `Fokus` belongs in the coverage diff as a *non-contender*, not as a missing minor list — and the 4.03% "Gen Z" list (Nina Skočak) does not appear in D4's 20-actor set at all.
+
+#### What pass 3 could not do
+
+**No private count was re-derived.** The 1,376 rows, the 849 distinct entity strings, the 87%/80% alias figures, the D1–D6 counts and the cross-country table all remain **as-reported, unverified by this pass** — this environment has no `LaclauGPT-Private` and no Git LFS, so there is nothing to recount against. That is a limit of the environment, not a statement that the numbers are wrong. A pass with the private material should recount C1's lesson properly: the coverage diff must be re-derived mechanically with the strict matcher rather than by hand, since the manual correction is the only part of the audit that has never been reproduced.
+
+Per the parent issue's closure rule, **#91 and #72 stay open.**
