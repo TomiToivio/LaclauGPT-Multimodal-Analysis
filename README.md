@@ -74,8 +74,10 @@ EP24 visual analysis has a mandatory collection-quality rule: the contextual sti
 5. `step_5_roihu_postprocess.py` - legacy-compatible structured entities/topics/sentiment-target post-processing.
 6. `step_6_roihu_discourse_analysis.py` - Laclau/Palonen discourse analysis; canonical new name for the historical `roihu_populism.py`.
 7. `step_7_roihu_discourse_network_analysis.py` - Phase 2 DNA statement extraction: actor + concept/proposition + stance/agreement + evidence + uncertainty.
-8. `step_8_roihu_social_network_analysis.py` - Phase 2 SNA relation extraction with evidence-supported actor-to-actor edges.
-9. `step_9_roihu_rdf.py` - deterministic RDF export after analytical stages. This is CPU-only; it does not need Ollama or a GPU.
+8. `step_8_roihu_social_network_analysis.py` - basic Phase 2 SNA: evidence-supported relation extraction plus a deterministic **Node – Edge – Node** graph, a small set of interpretable metrics (degree, in/out-degree, weighted degree, weakly-connected components, density) and a human-readable Markdown report. The report includes a clearly separated **Castells-informed interpretation** (*Communication Power* / network society) which reads the computed graph summary and cannot add topology. Aggregate tables and the report are written under `sna/` as `sna_nodes_<language>.csv`, `sna_edges_<language>.csv`, `sna_network_<language>.json` and `sna_report_<language>.md`.
+9. `step_9_roihu_rdf.py` - deterministic RDF export after analytical stages, consuming the accumulated pipeline result including the Step 8 SNA node/edge tables. This is CPU-only; it does not need Ollama or a GPU.
+
+**Steps 7-9 remain optional/experimental Phase 2 extensions for now.** SNA is deliberately modest — advanced network science (community detection, temporal or multiplex networks) is a later issue, once EP24 runs end-to-end on Roihu. See [docs/EP24_SNA.md](docs/EP24_SNA.md).
 
 Each stage has its own matching batch file under `scripts/roihu/step_N_*.sbatch`. Submit one stage at a time, inspect its CSV/log output, then submit the next. See [docs/ROIHU_NUMBERED_PIPELINE.md](docs/ROIHU_NUMBERED_PIPELINE.md).
 
