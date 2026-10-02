@@ -357,11 +357,11 @@ def label_looks_english(label: str) -> bool:
 # Organisation markers used only by the translation-work metric. They prevent
 # capitalised organisation labels from being mistaken for personal names.
 _ORG_MARKERS = re.compile(
-    r"\\b(partia|partido|partei|parti|stranka|puolue|koalicja|koalicija|frente|blok|"
+    r"\b(partia|partido|partei|parti|stranka|puolue|koalicja|koalicija|frente|blok|"
     r"front|alliance|allianssi|rassemblement|party|parties|movement|union|liga|liitto|"
     r"ryhmä|verdes|grüne|zieloni|zielone|moderaterna|socialdemokraterna|"
     r"sverigedemokraterna|vänsterpartiet|miljöpartiet|liberalerna|fianna|sinn|fine|"
-    r"les|républicains|republikaner|sozialdemokraten)\\b",
+    r"les|républicains|republikaner|sozialdemokraten)\b",
     re.IGNORECASE,
 )
 
