@@ -7,10 +7,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
+from ep24_db import country_storage
+from ep24_memory import retrieve_researcher_memory
 from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import load_cumulative_csv, metadata_context, write_cumulative_csv
+from ep24_rag import retrieve_stage_rag, upsert_stage_rag
+from ep24_redis import RedisCoordinator
 from ep24_schema import stable_source_id, value as ep24_value
-from roihu_storage import MongoStorage, StorageConfig
+from roihu_storage import StorageConfig
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
@@ -128,36 +132,81 @@ def _prompt_sha256(system_prompt: str, user_prompt: str, model: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _persist_mongo_patch(row, *, source_id: str, model: str, context_sha256: str) -> str:
-    config = StorageConfig.from_env()
-    if not config.mongo_enabled:
-        return "mongo_disabled"
-    storage = MongoStorage(config)
-    try:
-        document = {
-            "_storage_id": source_id,
-            "metadata": str(row.get("metadata", "")),
-            "summary_analysis": str(row.get("summary_analysis", "")),
-            "summary_summary_md": str(row.get("summary_summary_md", "")),
-            "_provenance.step4_summary": {
-                "pipeline_stage": "step_4_summary",
-                "model": model,
-                "context_sha256": context_sha256,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            },
-        }
-        count = storage.patch_documents("dataframe", [document])
-        return f"mongo_ok:{count}"
-    finally:
-        storage.close()
+def _row_storage_id(row) -> str:
+    return str(row.get("_storage_id", "")).strip() or stable_source_id(row)
+
+
+def _format_memory_context(items: list[dict]) -> str:
+    if not items:
+        return ""
+    lines = [
+        "These are researcher-seeded canonical labels for normalization only.",
+        "Do not treat them as evidence that the current video contains the concept.",
+    ]
+    for item in items:
+        lines.append(
+            f"- {item.get('kind', 'item')}: {item.get('label', '')} "
+            f"[role={item.get('evidence_role', 'normalization_context_not_source_evidence')}]"
+        )
+    return "\n".join(lines)
+
+
+def _format_rag_context(items: list[dict]) -> str:
+    if not items:
+        return ""
+    lines = [
+        "These are retrieved prior-analysis records for comparison/context only.",
+        "Do not treat them as direct evidence about the current video.",
+    ]
+    for item in items:
+        excerpt = str(item.get("text", "")).replace("\n", " ")[:800]
+        lines.append(
+            f"- stage={item.get('stage', '')} source_record_id={item.get('source_record_id', '')}: {excerpt}"
+        )
+    return "\n".join(lines)
+
+
+def _persist_mongo_row(storage, row, *, source_id: str, model: str, context_sha256: str) -> int:
+    """Patch the complete cumulative row without replacing prior Mongo fields."""
+    document = {str(k): v for k, v in row.to_dict().items() if str(k) != "_storage_id"}
+    document["_storage_id"] = source_id
+    document["step4_summary_provenance"] = {
+        "pipeline_stage": "step_4_summary",
+        "model": model,
+        "context_sha256": context_sha256,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    return storage.patch_documents("dataframe", [document])
+
+
+def _mongo_resume_summary(storage, source_id: str, *, model: str, context_sha256: str) -> str | None:
+    """Use Mongo as durable resume state only when prompt/model provenance matches."""
+    rows = storage.find("dataframe", {"_storage_id": source_id}, limit=1)
+    if not rows:
+        return None
+    doc = rows[0]
+    provenance = doc.get("step4_summary_provenance") or {}
+    if not isinstance(provenance, dict):
+        return None
+    if provenance.get("model") != model or provenance.get("context_sha256") != context_sha256:
+        return None
+    value = str(doc.get("summary_analysis", "")).strip()
+    return value or None
 
 
 # Note: Only one Frame analysis from now on.
 # Add video analysis
 # Transcript is good to be here
 # Put the rest of the dataframe columns in metadata. I mean every field the pipeline has produced so far. 
-def get_llama_summary_user_prompt(metadata, transcript, frame_analysis, video_analysis):
-    """Construct the user prompt for social-semiotic multimodal pre-analysis."""
+def get_llama_summary_user_prompt(
+    metadata,
+    transcript,
+    frame_analysis,
+    video_analysis,
+    memory_context="",
+    rag_context="",
+):
+    """Construct the user prompt with explicit source/context evidence boundaries."""
     user_message = f'''### User Prompt
 
 ### Input data
@@ -180,6 +229,16 @@ def get_llama_summary_user_prompt(metadata, transcript, frame_analysis, video_an
 4. **Speech / transcript**
 ```
 {transcript}
+```
+
+5. **Researcher memory / normalization context (NOT source evidence)**
+```
+{memory_context or "<none>"}
+```
+
+6. **Retrieved prior-corpus context (NOT source evidence)**
+```
+{rag_context or "<none>"}
 ```
 
 ### Task
@@ -422,21 +481,58 @@ def analyze_videos(language=None):
     if missing_prior:
         logger.warning("upstream_contract_missing=%s", missing_prior)
 
-    stats = {"processed": 0, "failed": 0, "cache_hits": 0, "mongo_writes": 0}
+    stats = {
+        "processed": 0,
+        "failed": 0,
+        "cache_hits": 0,
+        "mongo_resume_hits": 0,
+        "mongo_writes": 0,
+        "rag_writes": 0,
+        "lock_skips": 0,
+    }
     connection = _open_cache()
+    storage_cm = country_storage(config.country) if config.mongo_enabled else None
+    storage = storage_cm.__enter__() if storage_cm is not None else None
+    redis = RedisCoordinator(config.country, 4)
     try:
         total = len(df)
         for ordinal, (index, row) in enumerate(df.iterrows(), start=1):
-            source_id = stable_source_id(row)
+            source_id = _row_storage_id(row)
             author_username = ep24_value(row, "author_username")
             video_id = ep24_value(row, "video_id")
             metadata, transcript, frame_analysis, video_analysis = _evidence_from_row(row)
+            retrieval_query = "\n".join(
+                value for value in (
+                    str(row.get("entities", "")).strip(),
+                    str(row.get("themes", "")).strip(),
+                    transcript[:4000],
+                    frame_analysis[:2000],
+                    video_analysis[:4000],
+                ) if value
+            )
+            memory_items = []
+            rag_items = []
+            if storage is not None:
+                try:
+                    memory_items = retrieve_researcher_memory(storage, retrieval_query, limit=12)
+                    rag_items = retrieve_stage_rag(
+                        storage,
+                        retrieval_query,
+                        exclude_source_record_id=source_id,
+                        limit=6,
+                    )
+                except Exception:
+                    logger.exception("context_retrieval_failed source_id=%s", source_id)
+            memory_context = _format_memory_context(memory_items)
+            rag_context = _format_rag_context(rag_items)
             system_prompt = get_llama_summary_system_prompt()
             user_prompt = get_llama_summary_user_prompt(
                 metadata,
                 transcript,
                 frame_analysis,
                 video_analysis,
+                memory_context,
+                rag_context,
             )
             context_sha256 = _prompt_sha256(system_prompt, user_prompt, model)
 
@@ -456,68 +552,119 @@ def analyze_videos(language=None):
             )
             logger.debug(
                 "row_context source_id=%s metadata_chars=%d transcript_chars=%d "
-                "frame_chars=%d video_chars=%d user_prompt_chars=%d context_sha256=%s",
+                "frame_chars=%d video_chars=%d memory_items=%d rag_items=%d "
+                "user_prompt_chars=%d context_sha256=%s",
                 source_id,
                 len(metadata),
                 len(transcript),
                 len(frame_analysis),
                 len(video_analysis),
+                len(memory_items),
+                len(rag_items),
                 len(user_prompt),
                 context_sha256,
             )
 
             try:
-                cached = _cache_lookup(connection, source_id, model, context_sha256)
-                if cached is not None:
-                    summary_analysis = cached
-                    stats["cache_hits"] += 1
-                    logger.info("cache_hit source_id=%s response_chars=%d", source_id, len(cached))
-                else:
-                    summary_analysis = get_llama_summary_response(
-                        system_prompt,
-                        user_prompt,
-                        model=model,
-                    )
-                    _cache_store(
-                        connection,
-                        source_id=source_id,
-                        model=model,
-                        context_sha256=context_sha256,
-                        summary_analysis=summary_analysis,
-                    )
-                    logger.debug("cache_store source_id=%s", source_id)
+                with redis.lock(source_id) as acquired:
+                    if not acquired:
+                        stats["lock_skips"] += 1
+                        redis.mark(source_id, "skipped_locked")
+                        logger.info("redis_lock_skip source_id=%s", source_id)
+                        continue
 
-                df.at[index, "metadata"] = metadata
-                df.at[index, "summary_analysis"] = summary_analysis
-                df.at[index, "summary_summary_md"] = summary_analysis
-                stats["processed"] += 1
-
-                # Local cumulative CSV is the first durability boundary.
-                write_cumulative_csv(before, df, output)
-                logger.info(
-                    "local_checkpoint source_id=%s output=%s fields=%s",
-                    source_id,
-                    output,
-                    OUTPUT_COLUMNS,
-                )
-
-                try:
-                    status = _persist_mongo_patch(
-                        df.loc[index],
-                        source_id=source_id,
-                        model=model,
-                        context_sha256=context_sha256,
+                    redis.mark(source_id, "running")
+                    durable = (
+                        _mongo_resume_summary(
+                            storage, source_id, model=model, context_sha256=context_sha256
+                        )
+                        if storage is not None
+                        else None
                     )
-                    if status.startswith("mongo_ok:"):
-                        stats["mongo_writes"] += int(status.split(":", 1)[1])
-                    logger.info("mongo_status source_id=%s status=%s", source_id, status)
-                except Exception:
-                    logger.exception(
-                        "mongo_patch_failed source_id=%s local_checkpoint_is_safe=true",
+                    cached = durable or _cache_lookup(connection, source_id, model, context_sha256)
+                    if durable is not None:
+                        stats["mongo_resume_hits"] += 1
+                        logger.info(
+                            "mongo_resume_hit source_id=%s response_chars=%d",
+                            source_id,
+                            len(durable),
+                        )
+
+                    if cached is not None:
+                        summary_analysis = cached
+                        stats["cache_hits"] += 1
+                        logger.info(
+                            "cache_hit source_id=%s response_chars=%d",
+                            source_id,
+                            len(cached),
+                        )
+                    else:
+                        summary_analysis = get_llama_summary_response(
+                            system_prompt,
+                            user_prompt,
+                            model=model,
+                        )
+                        if not summary_analysis.strip():
+                            raise ValueError("summary model returned an empty response")
+                        _cache_store(
+                            connection,
+                            source_id=source_id,
+                            model=model,
+                            context_sha256=context_sha256,
+                            summary_analysis=summary_analysis,
+                        )
+                        logger.debug("cache_store source_id=%s", source_id)
+
+                    df.at[index, "metadata"] = metadata
+                    df.at[index, "summary_analysis"] = summary_analysis
+                    df.at[index, "summary_summary_md"] = summary_analysis
+                    stats["processed"] += 1
+
+                    # CSV remains the cumulative interchange/checkpoint artifact.
+                    write_cumulative_csv(before, df, output)
+                    logger.info(
+                        "local_checkpoint source_id=%s output=%s fields=%s",
                         source_id,
+                        output,
+                        OUTPUT_COLUMNS,
                     )
+
+                    if storage is not None:
+                        try:
+                            count = _persist_mongo_row(
+                                storage,
+                                df.loc[index],
+                                source_id=source_id,
+                                model=model,
+                                context_sha256=context_sha256,
+                            )
+                            stats["mongo_writes"] += count
+                            rag_count = upsert_stage_rag(
+                                storage,
+                                df.loc[[index]].assign(_storage_id=source_id),
+                                stage="summary",
+                            )
+                            stats["rag_writes"] += rag_count
+                            logger.info(
+                                "mongo_status source_id=%s dataframe_writes=%d rag_writes=%d",
+                                source_id,
+                                count,
+                                rag_count,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "mongo_persist_failed source_id=%s local_checkpoint_is_safe=true",
+                                source_id,
+                            )
+                            # MongoDB is the durable shared source of truth. The
+                            # already-written CSV/cache make retry safe, but the
+                            # record must not be reported completed until Mongo
+                            # persistence succeeds.
+                            raise
+                    redis.mark(source_id, "completed")
             except Exception as exc:
                 stats["failed"] += 1
+                redis.mark(source_id, "failed")
                 logger.exception(
                     "row_failed index=%s source_id=%s video_id=%s error=%s",
                     index,
@@ -531,14 +678,20 @@ def analyze_videos(language=None):
     finally:
         connection.close()
         logger.debug("sqlite_closed path=%s", DB_PATH)
+        if storage_cm is not None:
+            storage_cm.__exit__(None, None, None)
+            logger.debug("mongo_closed country=%s", config.country)
 
     logger.info(
-        "complete step=4 processed=%d failed=%d cache_hits=%d mongo_writes=%d "
-        "output=%s elapsed_seconds=%.3f",
+        "complete step=4 processed=%d failed=%d cache_hits=%d mongo_resume_hits=%d "
+        "mongo_writes=%d rag_writes=%d lock_skips=%d output=%s elapsed_seconds=%.3f",
         stats["processed"],
         stats["failed"],
         stats["cache_hits"],
+        stats["mongo_resume_hits"],
         stats["mongo_writes"],
+        stats["rag_writes"],
+        stats["lock_skips"],
         output,
         time.monotonic() - started,
     )
@@ -556,5 +709,3 @@ if __name__ == "__main__":
     else:
         for language in languages:
             analyze_videos(language)
-
-
