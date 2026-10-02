@@ -44,7 +44,7 @@ Active reprocessing uses the researcher-feed 15-column schema and an additive da
 
 ## Restartable MongoDB orchestration
 
-The numbered Roihu steps now have an additive restartable orchestration layer: bootstrap merges researcher entity/theme fields **before Step 1**, MongoDB tracks per-record stage state, Redis provides optional coordination/cache, and CSV + SQLite cumulative checkpoints are written after every durable batch. Countries run Finland -> Poland -> Portugal -> remaining countries. See [docs/EP24_RESTARTABLE_PIPELINE.md](docs/EP24_RESTARTABLE_PIPELINE.md) and [config/ep24_pipeline_columns.json](config/ep24_pipeline_columns.json).
+The numbered Roihu steps now have an additive restartable orchestration layer: bootstrap merges researcher entity/theme fields **before Step 1**, MongoDB tracks per-record stage state, Redis provides optional coordination/cache, and CSV + SQLite cumulative checkpoints are written after every durable batch. Countries run Finland -> Poland -> Portugal -> Germany -> Spain -> Hungary -> Croatia -> France -> Bulgaria -> Sweden. See [docs/EP24_RESTARTABLE_PIPELINE.md](docs/EP24_RESTARTABLE_PIPELINE.md) and [config/ep24_pipeline_columns.json](config/ep24_pipeline_columns.json).
 
 Typical operation:
 
@@ -65,12 +65,12 @@ For the native-video Step 3 path, after Roihu reconnects the tested one-command 
 source /scratch/project_2009497/LaclauGPT-Multimodal-Analysis/scripts/roihu/activate_vllm_video.sh && roihu_vllm_submit
 ```
 
-EP24 video handling has a mandatory collection-quality rule: all media analysis excludes the first 1.0 second of every split clip, and whole-video VLM analysis reports additional feed-scroll failures. See [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
+EP24 visual analysis has a mandatory collection-quality rule: the contextual still is taken at original t=1.0s and the whole-video VLM starts after the known initial feed-scroll artifact. Step 1 ASR consumes the full staged video under issue #128 so speech is not silently truncated. See [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
 
-1. `step_1_roihu_preprocess.py` - ASR/Whisper transcript + translation, OCR, and exactly one keyframe extracted at original source t=1.0s.
+1. `step_1_roihu_preprocess.py` - backend-neutral full-video ASR transcript + translation, exactly one OCR result, and exactly one keyframe extracted at original source t=1.0s.
 2. `step_2_roihu_frame.py` - deep multimodal social-semiotic analysis of exactly that one t=1.0s frame. It concentrates on fine visual detail, rendered text, platform UI, symbols, composition and scene inventory.
 3. `step_3_roihu_video.py` - native whole-video Qwen3-VL/vLLM analysis from t=1.0s onward. It supplies temporal narrative, ordered events, scene changes and failed feed-scroll detection.
-4. `step_4_roihu_summary.py` - evidence-preserving fusion of the complementary evidence streams: deep one-frame analysis + native-video narrative + Whisper transcript/translation + OCR/source metadata.
+4. `step_4_roihu_summary.py` - evidence-preserving fusion of the complementary evidence streams: deep one-frame analysis + native-video narrative + backend-neutral ASR transcript/translation + OCR/source metadata.
 5. `step_5_roihu_postprocess.py` - legacy-compatible structured entities/topics/sentiment-target post-processing.
 6. `step_6_roihu_discourse_analysis.py` - Laclau/Palonen discourse analysis; canonical new name for the historical `roihu_populism.py`.
 7. `step_7_roihu_discourse_network_analysis.py` - Phase 2 DNA statement extraction: actor + concept/proposition + stance/agreement + evidence + uncertainty.
@@ -83,7 +83,7 @@ The historical `roihu_preprocess.py`, `roihu_frame.py`, `roihu_summary.py`, `roi
 
 ### Video analysis rules
 
-The EP24 clips were split from continuous GrapheneOS screen recordings, so **the first 1.0 second of every clip is the scroll transition from the previous feed item** and is excluded from media analysis. The canonical implementation is `ep24_video.py`, which also normalizes later `SCROLL` / `SCROLL_SECONDS` detections and provides deterministic, provenance-preserving re-split planning.
+The EP24 clips were split from continuous GrapheneOS screen recordings, so **the first 1.0 second of every clip contains the scroll transition from the previous feed item**. Visual analysis treats original t=1.0s as its boundary; Step 1 ASR is deliberately full-video under issue #128. The canonical implementation is `ep24_video.py`, which also normalizes later `SCROLL` / `SCROLL_SECONDS` detections and provides deterministic, provenance-preserving re-split planning.
 
 See [docs/EP24_VIDEO_HANDLING.md](docs/EP24_VIDEO_HANDLING.md) and [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
 
