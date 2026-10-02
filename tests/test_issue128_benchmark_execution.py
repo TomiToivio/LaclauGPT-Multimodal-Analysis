@@ -7,6 +7,7 @@ appear in a file.
 """
 from __future__ import annotations
 
+import csv
 import importlib.util
 import subprocess
 import sys
@@ -144,3 +145,96 @@ def test_every_ep24_language_belongs_to_a_declared_script_group():
         lang for members in ocr_backend.EASYOCR_SCRIPT_GROUPS.values() for lang in members
     }
     assert set(ocr_backend.EASYOCR_LANGS) <= declared
+
+
+def _write_manifest(path: Path, rows: list[dict[str, str]]) -> None:
+    fieldnames = [
+        "sample_id",
+        "country",
+        "video_path",
+        "reference_transcript",
+        "reference_transcript_provenance",
+        "reference_ocr",
+        "reference_ocr_provenance",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def test_manifest_rejects_model_generated_reference_text(tmp_path):
+    harness = _load_harness()
+    manifest = tmp_path / "manifest.csv"
+    common = {
+        "video_path": "/private/not-read-by-manifest-validation.mp4",
+        "reference_ocr": "",
+        "reference_ocr_provenance": "",
+    }
+    _write_manifest(
+        manifest,
+        [
+            {
+                **common,
+                "sample_id": "fi-1",
+                "country": "Finland",
+                "reference_transcript": "old whisper transcript",
+                "reference_transcript_provenance": "openai-whisper",
+            },
+            {
+                **common,
+                "sample_id": "pl-1",
+                "country": "Poland",
+                "reference_transcript": "",
+                "reference_transcript_provenance": "",
+            },
+            {
+                **common,
+                "sample_id": "pt-1",
+                "country": "Portugal",
+                "reference_transcript": "",
+                "reference_transcript_provenance": "",
+            },
+        ],
+    )
+    with pytest.raises(ValueError, match="human-verified"):
+        harness.read_manifest(manifest)
+
+
+def test_manifest_accepts_human_verified_references_and_empty_unscored_rows(tmp_path):
+    harness = _load_harness()
+    manifest = tmp_path / "manifest.csv"
+    _write_manifest(
+        manifest,
+        [
+            {
+                "sample_id": "fi-1",
+                "country": "Finland",
+                "video_path": "/private/fi.mp4",
+                "reference_transcript": "ihmisen tarkistama puhe",
+                "reference_transcript_provenance": "human_verified:tomi",
+                "reference_ocr": "teksti",
+                "reference_ocr_provenance": "researcher_verified",
+            },
+            {
+                "sample_id": "pl-1",
+                "country": "Poland",
+                "video_path": "/private/pl.mp4",
+                "reference_transcript": "",
+                "reference_transcript_provenance": "",
+                "reference_ocr": "",
+                "reference_ocr_provenance": "",
+            },
+            {
+                "sample_id": "pt-1",
+                "country": "Portugal",
+                "video_path": "/private/pt.mp4",
+                "reference_transcript": "fala verificada",
+                "reference_transcript_provenance": "manual",
+                "reference_ocr": "",
+                "reference_ocr_provenance": "",
+            },
+        ],
+    )
+    rows = harness.read_manifest(manifest)
+    assert [row["country"] for row in rows] == ["Finland", "Poland", "Portugal"]
