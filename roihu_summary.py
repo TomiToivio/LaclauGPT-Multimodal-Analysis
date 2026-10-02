@@ -4,6 +4,7 @@ import sqlite3
 from logging.handlers import RotatingFileHandler
 
 import ollama
+from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_schema import value as ep24_value
 logger = logging.getLogger(__name__)
@@ -197,9 +198,10 @@ def get_llama_summary_response(system_prompt, user_prompt):
                "min_p": 0.0,
                "temperature": 0.0,
                "num_predict": 2048}
+    logger.info("model=%s model_source=%s", ollama_model(), ollama_model_source())
     logger.debug(f"System prompt: {system_prompt}")
     logger.debug(f"User prompt: {user_prompt}")
-    response = ollama.chat(model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"), messages=[
+    response = ollama.chat(model=ollama_model(), messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
     ], options=options)

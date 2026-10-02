@@ -25,7 +25,7 @@ def test_doc_exists_and_covers_every_step():
 
 
 def test_ollama_steps_share_the_documented_default_model():
-    """Steps 2 and 4-8 all default to gemma4:12b via LACLAUGPT_MULTIMODAL_MODEL."""
+    """Steps 2 and 4-8 share the centralized qwen3.8:27b Ollama default."""
     for relative in (
         "roihu_frame.py",
         "roihu_summary.py",
@@ -35,9 +35,11 @@ def test_ollama_steps_share_the_documented_default_model():
         "step_8_roihu_social_network_analysis.py",
     ):
         text = _text(relative)
-        assert "LACLAUGPT_MULTIMODAL_MODEL" in text, relative
-        assert "gemma4:12b" in text, relative
-    assert "gemma4:12b" in DOC.read_text(encoding="utf-8")
+        assert "ollama_model" in text, relative
+    models = _text("ep24_models.py")
+    assert 'DEFAULT_OLLAMA_MODEL = "qwen3.8:27b"' in models
+    assert "LACLAUGPT_MULTIMODAL_MODEL" in models
+    assert "qwen3.8:27b" in DOC.read_text(encoding="utf-8")
 
 
 def test_step3_uses_vllm_with_the_documented_baseline_model():

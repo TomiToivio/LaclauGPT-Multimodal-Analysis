@@ -23,6 +23,7 @@ import cv2
 import ollama
 import pandas as pd
 
+from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import (
     assert_source_metadata_preserved,
     load_cumulative_csv,
@@ -211,7 +212,8 @@ Produce a detailed structured description under the headings above, and include:
 
     user_prompt = f'''
 Analyze the provided frame using the social-semiotic pre-analysis categories above. Stay descriptive and modality-aware. Do not perform discourse or political analysis, and do not infer ideology, persuasion, populism, sentiment, or political alignment.\n\nCUMULATIVE EP24 CONTEXT:\n{row_context}\n'''
-    model = os.getenv('LACLAUGPT_MULTIMODAL_MODEL', 'gemma4:12b')
+    model = ollama_model()
+    logger.info("model=%s model_source=%s", model, ollama_model_source())
     logger.debug("model=%s frame_file=%s cumulative_context_chars=%d", model, frame_file, len(row_context))
     logger.debug("cumulative_context=\n%s", _preview(row_context, max(LOG_PREVIEW_CHARS, 10000)))
     frame_analysis = ''
@@ -317,7 +319,7 @@ def analyze_videos(language=None):
         "startup input=%s output=%s model=%s sqlite=%s expected_timestamp=%.1f",
         filename,
         output,
-        os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"),
+        ollama_model(),
         DB_PATH,
         FRAME_TIMESTAMP_SECONDS,
     )
@@ -347,7 +349,7 @@ def analyze_videos(language=None):
             video_id = ep24_value(row, "video_id")
             author_username = ep24_value(row, "author_username")
             platform = _detect_platform(row)
-            model = os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b")
+            model = ollama_model()
 
             logger.debug(
                 "row_start index=%s source_id=%s platform=%s author=%s video_id=%s incoming_fields=%d",
