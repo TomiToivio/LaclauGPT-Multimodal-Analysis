@@ -117,15 +117,48 @@ def _writes_column(source: str, column: str) -> bool:
     return any(re.search(form, source) for form in forms)
 
 
+def _stage_sources(stage) -> list[str]:
+    """All source files a stage's columns may be written in.
+
+    A contracted stage is sometimes a thin wrapper (``step_3_roihu_video.py``)
+    that delegates to an implementation module (``experiments/vllm_video_test.py``).
+    Checking only the wrapper would report every column as missing even though the
+    stage genuinely writes them, so follow simple ``from X import ...`` /
+    ``import X`` delegation one level deep and include the target's source.
+
+    This is deliberately shallow: a chain of wrappers is not something the
+    pipeline actually uses, and guessing further would make the check dishonest
+    about which file a column lives in.
+    """
+    module_path = ROOT / stage.module
+    sources = [module_path.read_text(encoding="utf-8")]
+    for line in sources[0].splitlines():
+        match = re.match(r"\s*from\s+([\w\.]+)\s+import\s+", line) or re.match(r"\s*import\s+([\w\.]+)", line)
+        if not match:
+            continue
+        target = ROOT.joinpath(*match.group(1).split("."))
+        for candidate in (target.with_suffix(".py"), target / "__init__.py"):
+            if candidate.is_file():
+                sources.append(candidate.read_text(encoding="utf-8"))
+                break
+    return sources
+
+
 def test_every_contracted_append_is_written_by_the_module_it_credits():
-    """A contract column that is no longer written means a stage silently shrank."""
+    """A contract column that is no longer written means a stage silently shrank.
+
+    Note the wrapper case: `step_3_roihu_video.py` delegates to
+    `experiments/vllm_video_test.py`, where the columns are actually written, so
+    the check reads the delegated implementation too rather than failing on a
+    correct contract.
+    """
     failures = []
     for stage in contract.STAGE_CONTRACT:
         if not stage.appends:
             continue
-        source = (ROOT / stage.module).read_text(encoding="utf-8")
+        sources = _stage_sources(stage)
         for column in stage.appends:
-            if not _writes_column(source, column):
+            if not any(_writes_column(source, column) for source in sources):
                 failures.append(f"{stage.module} no longer writes {column!r}")
     assert not failures, "contracted columns are no longer written:\n  " + "\n  ".join(failures)
 
