@@ -21,7 +21,7 @@ mkdir -p "${PRIVATE_ROOT}"/{csv,Allas,Keyframes,database,logs,whisper,.ollama/mo
 
 module --force purge
 module load python-pytorch
-module load ffmpeg
+module load gcc/14.3.0 ffmpeg
 unset PYTHONPATH
 unset PYTHONHOME
 
