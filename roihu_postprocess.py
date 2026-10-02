@@ -11,6 +11,14 @@ from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import ensure_columns, load_cumulative_csv, metadata_context, write_cumulative_csv
 from ep24_schema import stable_source_id, value as ep24_value
 from roihu_storage import MongoStorage, StorageConfig
+from laclaugpt_quality import (
+    QUALITY_COLUMNS,
+    delete_audit_output_path,
+    merge_status,
+    normalize_status,
+    reprocess_output_path,
+    safe_delete_local_paths,
+)
 
 os.makedirs('./logs', exist_ok=True)
 
@@ -37,6 +45,7 @@ OUTPUT_COLUMNS = (
     "negative",
     "postprocess_summary_md",
     "video_status",
+    *QUALITY_COLUMNS,
 )
 ENRICHMENT_COLUMNS = (
     "ep24_entity_resolution_json",
@@ -310,8 +319,11 @@ def analyze_responses(language=None):
             "neutral",
             "negative",
             "postprocess_summary_md",
+            "processing_status",
+            "processing_status_reason",
         ),
     )
+    df["processing_status"] = df["processing_status"].map(lambda value: normalize_status(value or "OK"))
 
     from ep24_stage_contract import STAGE_CONTRACT
 
@@ -378,6 +390,27 @@ def analyze_responses(language=None):
             stats["parse_failures"] += 1
             continue
 
+        prior_status = row.get("processing_status", "OK")
+        prior_reason = row.get("processing_status_reason", "")
+        model_status = normalize_status(response.video_status or "OK")
+        merged_status, merged_reason = merge_status(
+            prior_status,
+            model_status,
+            current_reason=prior_reason,
+            new_reason=(
+                "postprocess quality review marked source for deletion"
+                if model_status == "DELETE"
+                else "postprocess quality review requested reprocessing"
+                if model_status == "REPROCESS"
+                else "postprocess quality review found usable content"
+            ),
+        )
+        df.at[index, "video_status"] = model_status
+        df.at[index, "processing_status"] = merged_status
+        df.at[index, "processing_status_reason"] = merged_reason
+        if normalize_status(prior_status or "OK") != merged_status:
+            logger.info("[QUALITY] %s %s -> %s: %s", source_id, normalize_status(prior_status or "OK"), merged_status, merged_reason)
+
         # Issue #21: entities/themes are authoritative human annotations.
         # Machine extraction is additive and must never overwrite or extend them.
         machine_values = {
@@ -412,8 +445,37 @@ def analyze_responses(language=None):
             len(response.negative),
         )
 
-    # First durability boundary: raw extraction plus every upstream field.
-    write_cumulative_csv(before, df, output)
+    # Step 5 is the authoritative routing gate. Only OK rows reach Step 6.
+    status_series = df["processing_status"].map(lambda value: normalize_status(value or "OK"))
+    ok_df = df.loc[status_series == "OK"].copy()
+    reprocess_df = df.loc[status_series == "REPROCESS"].copy()
+    delete_df = df.loc[status_series == "DELETE"].copy()
+
+    reprocess_path = reprocess_output_path(output)
+    delete_audit_path = delete_audit_output_path(output)
+    reprocess_path.parent.mkdir(parents=True, exist_ok=True)
+    delete_audit_path.parent.mkdir(parents=True, exist_ok=True)
+    reprocess_df.to_csv(reprocess_path, index=False, encoding="utf-8")
+    delete_df.to_csv(delete_audit_path, index=False, encoding="utf-8")
+
+    deleted_local_files = 0
+    for _, delete_row in delete_df.iterrows():
+        deleted = safe_delete_local_paths(delete_row)
+        deleted_local_files += len(deleted)
+        logger.info(
+            "[QUALITY] DELETE source_id=%s reason=%s local_files_deleted=%s",
+            stable_source_id(delete_row),
+            delete_row.get("processing_status_reason", ""),
+            deleted,
+        )
+
+    ok_before = before.loc[ok_df.index].copy()
+    write_cumulative_csv(ok_before, ok_df, output)
+    df = ok_df
+    logger.info(
+        "[QUALITY] routing OK=%d REPROCESS=%d DELETE=%d reprocess=%s delete_audit=%s local_files_deleted=%d",
+        len(ok_df), len(reprocess_df), len(delete_df), reprocess_path, delete_audit_path, deleted_local_files,
+    )
     logger.info("local_checkpoint output=%s rows=%d", output, len(df))
 
     try:
