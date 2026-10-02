@@ -460,17 +460,15 @@ def entity_type_distribution(entries: Iterable[CodebookEntry]) -> dict[str, int]
 
 
 def _short_form_matches(form: str, query: str) -> bool:
-    """Boundary-aware match for short codebook forms.
-
-    Treat every form up to four characters as a token/boundary match; longer
-    forms keep the historical substring behavior needed for inflected languages.
-    """
+    """Boundary-aware match for codebook forms shorter than five characters."""
     normalized = form.casefold().strip()
-    return bool(normalized) and len(normalized) <= 4 and boundary_matches(normalized, query)
+    return bool(normalized) and len(normalized) < 5 and boundary_matches(normalized, query)
 
 
 def _matching_short_forms(query: str, entry: CodebookEntry) -> set[str]:
-    """Return short forms from an entry that match query by boundaries."""
+    """Return reviewed short forms from an entry that match by boundaries."""
+    if entry.review_state.upper() != "CANONICAL":
+        return set()
     return {
         identity_key(form)
         for form in entry.forms
@@ -478,43 +476,42 @@ def _matching_short_forms(query: str, entry: CodebookEntry) -> set[str]:
     }
 
 
-def score_entry(query: str, entry: CodebookEntry) -> float:
-    """Lexical retrieval score: recall-oriented, but short forms are strict.
+def score_entry(
+    query: str,
+    entry: CodebookEntry,
+    *,
+    blocked_short_forms: set[str] | frozenset[str] = frozenset(),
+) -> float:
+    """Lexical retrieval score with safe reviewed short-form handling.
 
-    Retrieval and identity are different questions, and they need opposite
-    biases:
-
-    - **Retrieval** (this function) feeds background context, which is advisory.
-      A miss costs context; the EP24 languages are heavily inflective, so
-      ``ilmasto`` must retrieve for ``ilmastosta`` and a substring match is what
-      buys that. Over-matching is a quality problem, bounded by the selection
-      limit and by the evidence firewall, not a correctness one.
-    - **Identity** (``roihu_identity.resolve_surface``) decides what an actor
-      *is*. A false positive there silently attributes a statement to the wrong
-      party. That path uses exact ``identity_key`` matching only, and abstains
-      otherwise. ``boundary_matches`` belongs to that side and to coverage
-      counting.
-
-    The substring behaviour here is therefore deliberate and load-bearing, not
-    an oversight: ``test_private_profile_merge_keeps_locked_human_entry_and_bilingual_context``
-    depends on the Finnish inflection case.
+    Reviewed forms shorter than five characters use whole-token matching only.
+    Unreviewed short forms are ignored. Forms of five characters or more retain
+    substring matching for inflection-friendly recall.
     """
     q = query.casefold()
     if not q.strip():
         return 0.0
+    reviewed = entry.review_state.upper() == "CANONICAL"
     for form in entry.forms:
         normalized = form.casefold().strip()
         if not normalized:
             continue
-        if len(normalized) <= 4:
-            if entry.review_state == "CANONICAL" and boundary_matches(normalized, q):
+        if len(normalized) < 5:
+            if not reviewed or identity_key(normalized) in blocked_short_forms:
+                continue
+            if boundary_matches(normalized, q):
                 return 1.0
             continue
         if normalized in q:
             return 1.0
     q_tokens = _tokens(query)
     entry_tokens = set()
-    for value in [*entry.forms, entry.definition, entry.english_definition]:
+    # Short forms must never sneak back in through token overlap after failing
+    # the reviewed/boundary gate above.
+    for form in entry.forms:
+        if len(form.casefold().strip()) >= 5:
+            entry_tokens.update(_tokens(form))
+    for value in [entry.definition, entry.english_definition]:
         entry_tokens.update(_tokens(value))
     return len(q_tokens & entry_tokens) / max(1, len(entry_tokens))
 
@@ -529,37 +526,28 @@ def select_context(query: str, entries: Iterable[CodebookEntry], *, country: str
     ambiguous_short_forms = {
         form for form, entry_ids in short_matches.items() if len(entry_ids) > 1
     }
+    # One-letter political abbreviations are too weak to return several actors
+    # from one country. Multi-character collisions (e.g. HR PiP) stay visible
+    # as multiple advisory candidates.
     ambiguous_one_letter_forms = {
         form for form in ambiguous_short_forms if len(form) == 1
     }
 
-    def safe_score(entry: CodebookEntry) -> float:
-        matched_short = _matching_short_forms(query, entry)
-        if matched_short & ambiguous_one_letter_forms:
-            kept = [
-                form for form in entry.forms
-                if identity_key(form) not in ambiguous_one_letter_forms
-            ]
-            shadow = CodebookEntry(
-                **{
-                    **asdict(entry),
-                    "label": kept[0] if kept else "",
-                    "english_label": kept[1] if len(kept) > 1 else "",
-                    "aliases": kept[2:] if len(kept) > 2 else [],
-                }
-            )
-            return score_entry(query, shadow)
-        return score_entry(query, entry)
-
-    ranked = sorted(((safe_score(e), e) for e in scoped), key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()))
+    ranked = sorted(
+        (
+            (score_entry(query, entry, blocked_short_forms=ambiguous_one_letter_forms), entry)
+            for entry in scoped
+        ),
+        key=lambda pair: (-pair[0], pair[1].kind, pair[1].label.casefold()),
+    )
     selected = [(score, entry) for score, entry in ranked[: max(0, limit)] if score >= threshold]
     return [e for _, e in selected], {
         "country": country.upper(), "language": language.lower(), "limit": limit, "threshold": threshold,
-        "selection_method": "deterministic_lexical_v3_short_alias_safe", "evidence_role": "background_context_not_source_evidence",
+        "selection_method": "deterministic_lexical_v4_reviewed_short_boundary_bilingual",
+        "evidence_role": "background_context_not_source_evidence",
         "ambiguous_short_forms": sorted(ambiguous_short_forms),
         "selected": [{"entry_id": e.entry_id, "kind": e.kind, "label": e.label, "english_label": e.english_label, "score": round(score, 6)} for score, e in selected],
     }
-
 
 def context_block(query: str, entries: Iterable[CodebookEntry], *, country: str, language: str = "", limit: int = 8, threshold: float = 0.15) -> tuple[str, dict[str, Any]]:
     selected, provenance = select_context(query, entries, country=country, language=language, limit=limit, threshold=threshold)
