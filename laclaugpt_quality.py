@@ -173,6 +173,21 @@ def summary_quality_decision(
     )
 
 
+def partition_by_status(frame):
+    """Return (OK, REPROCESS, DELETE) dataframe partitions without mutating input."""
+    if "processing_status" not in frame.columns:
+        working = frame.copy()
+        working["processing_status"] = "OK"
+    else:
+        working = frame.copy()
+    statuses = working["processing_status"].map(lambda value: normalize_status(value or "OK"))
+    return (
+        working.loc[statuses == "OK"].copy(),
+        working.loc[statuses == "REPROCESS"].copy(),
+        working.loc[statuses == "DELETE"].copy(),
+    )
+
+
 def reprocess_output_path(output: str | Path) -> Path:
     path = Path(output)
     name = path.name
