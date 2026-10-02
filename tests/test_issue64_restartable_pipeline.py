@@ -2,30 +2,38 @@ from pathlib import Path
 
 import pandas as pd
 
-from ep24_bootstrap import merged_field, ordered_country_files, prepare_dataframe
+from ep24_bootstrap import ordered_country_files, prepare_dataframe
 from ep24_stage_orchestrator import PRIORITY, eligible_query
 
 
-def test_bootstrap_merges_researcher_fields_before_step1_without_dropping_originals():
+def test_bootstrap_accepts_only_pre_migrated_canonical_annotations():
     source = pd.DataFrame([{
         "video_id": "v1",
         "allas_filename": "clip.mp4",
-        "new_entity": "Alice",
-        "researcher_new_persons": "['Bob', 'Alice']",
-        "new_theme": "Democracy",
-        "researcher_new_themes": "['EU', 'Democracy']",
+        "entities": '["Alice", "Bob"]',
+        "themes": '["Democracy", "EU"]',
         "researcher_note": "keep me",
     }])
     out = prepare_dataframe(source, country="finland")
-    assert out.loc[0, "new_entity"] == "Alice"
-    assert out.loc[0, "researcher_new_persons"] == "['Bob', 'Alice']"
-    assert out.loc[0, "new_theme"] == "Democracy"
-    assert out.loc[0, "researcher_new_themes"] == "['EU', 'Democracy']"
-    assert merged_field("Alice", "['Bob', 'Alice']") == '["Alice", "Bob"]'
     assert out.loc[0, "entities"] == '["Alice", "Bob"]'
     assert out.loc[0, "themes"] == '["Democracy", "EU"]'
     assert out.loc[0, "researcher_note"] == "keep me"
     assert out.loc[0, "_storage_id"]
+    for legacy in ("new_entity", "researcher_new_persons", "new_theme", "researcher_new_themes"):
+        assert legacy not in out.columns
+
+
+def test_bootstrap_rejects_unmigrated_legacy_annotations():
+    source = pd.DataFrame([{
+        "video_id": "v1",
+        "allas_filename": "clip.mp4",
+        "entities": "[]",
+        "themes": "[]",
+        "new_entity": "Alice",
+    }])
+    import pytest
+    with pytest.raises(ValueError, match="legacy annotation columns"):
+        prepare_dataframe(source, country="finland")
 
 
 def test_country_order_prioritizes_finland_poland_portugal(tmp_path):
