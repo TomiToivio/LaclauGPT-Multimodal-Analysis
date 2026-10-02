@@ -33,7 +33,7 @@ def test_canonical_input_columns_are_defined_here():
     because the pipeline reads rows dynamically.
     """
     assert isinstance(EP24_REPROCESS_COLUMNS, tuple)
-    assert len(EP24_REPROCESS_COLUMNS) == 15, "the researcher-feed keep-schema is 15 columns"
+    assert len(EP24_REPROCESS_COLUMNS) == 13, "the canonical issue #21 keep-schema is 13 columns"
     for column in ("country", "author_username", "allas_filename", "video_id"):
         assert column in EP24_REPROCESS_COLUMNS
 
