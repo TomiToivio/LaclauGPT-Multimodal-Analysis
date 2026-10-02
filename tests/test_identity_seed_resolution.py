@@ -5,8 +5,7 @@ Covers:
 * ambiguous surnames still abstain even when a fuzzy candidate exists;
 * party-abbreviation / politician-title alias resolution through the shared
   identity layer;
-* researcher-note seed extraction (``new_entity``/``researcher_new_persons``/
-  ``new_theme``/``researcher_new_themes``) as PROVISIONAL codebook entries;
+* researcher-note seed extraction from canonical ``entities``/``themes`` as PROVISIONAL codebook entries;
 * sentiment-target (positive/neutral/negative) resolution through the same
   identity layer as entities/topics, additive to legacy CSV columns.
 
@@ -109,17 +108,13 @@ def test_research_note_seeds_build_provisional_unlocked_entries():
     rows = [
         {
             "country": "FI",
-            "new_entity": "Example Movement; Example Youth Wing",
-            "researcher_new_persons": "Minister Example",
-            "new_theme": "synthetic cost-of-living grievance",
-            "researcher_new_themes": "",
+            "entities": '["Example Movement", "Example Youth Wing", "Minister Example"]',
+            "themes": '["synthetic cost-of-living grievance"]',
         },
         {
             "country": "FI",
-            "new_entity": "",
-            "researcher_new_persons": "Minister Example",  # duplicate across rows
-            "new_theme": "synthetic EU sovereignty debate",
-            "researcher_new_themes": "synthetic trust in institutions",
+            "entities": '["Minister Example"]',  # duplicate across rows
+            "themes": '["synthetic EU sovereignty debate", "synthetic trust in institutions"]',
         },
     ]
     entries = seed_entries_from_research_notes(rows, country="FI", language="fi")
@@ -142,10 +137,10 @@ def test_research_note_seeds_build_provisional_unlocked_entries():
 
 
 def test_research_note_seed_metadata_preserves_source_field_provenance():
-    rows = [{"new_entity": "Example Movement"}]
+    rows = [{"entities": '["Example Movement"]'}]
     entries = seed_entries_from_research_notes(rows, country="FI")
     assert len(entries) == 1
-    assert entries[0].metadata["source_field"] == "new_entity"
+    assert entries[0].metadata["source_field"] == "entities"
     assert entries[0].metadata["source_row_index"] == 0
 
 
