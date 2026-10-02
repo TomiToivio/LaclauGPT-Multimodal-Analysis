@@ -37,13 +37,18 @@ export LACLAUGPT_ASR_ENGINE="${LACLAUGPT_ASR_ENGINE:-canary}"
 
 mkdir -p   "/scratch/${CSC_PROJECT}/logs"   "${LACLAUGPT_EP24_OUTPUT_ROOT}"   "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/"{logs,database,Keyframes,Allas}   "${HF_HOME}" "${TORCH_HOME}"
 
+roihu_load_ffmpeg() {
+  # Roihu's ffmpeg module requires an explicit GCC toolchain.
+  module load gcc/14.3.0 ffmpeg
+}
+
 roihu_load_runtime() {
   local runtime="${1:?runtime required: pytorch or vllm}"
   module --force purge
   case "${runtime}" in
     pytorch)
       module load python-pytorch
-      module load ffmpeg
+      roihu_load_ffmpeg
       unset PYTHONPATH PYTHONHOME
       [[ -x "${LACLAUGPT_MULTIMODAL_VENV}/bin/python" ]] || {
         echo "Missing Roihu ARM64 venv: ${LACLAUGPT_MULTIMODAL_VENV}" >&2
@@ -55,7 +60,7 @@ roihu_load_runtime() {
       ;;
     vllm)
       module load python-vllm
-      module load ffmpeg
+      roihu_load_ffmpeg
       unset PYTHONPATH PYTHONHOME
       if [[ -x "${LACLAUGPT_VLLM_TEST_VENV}/bin/python" ]]; then
         # shellcheck disable=SC1091
