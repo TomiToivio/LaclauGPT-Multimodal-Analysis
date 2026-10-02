@@ -438,6 +438,67 @@ def profile_paths(root: str | Path, country: str) -> list[tuple[Path, str]]:
     ]
 
 
+def _has_language_metadata(entry: CodebookEntry) -> bool:
+    """Whether the entry states any language at all.
+
+    The ``common`` codebook layer records no ``language`` at file or entry level,
+    so its entries arrive with an empty ``source_languages``. Treating that as
+    "nothing to translate" is how 2694 entries per country became invisible.
+    """
+    return any(lang for lang in entry.source_languages)
+
+
+_NON_ENGLISH_MARKERS = re.compile(
+    r"\b(partia|partido|partei|parti|stranka|puolue|koalicja|koalicija|frente|blok|"
+    r"allianssi|rassemblement|democracia|demokratie|demokratia|zieloni|zielone|"
+    r"verdes|gr[uü]ne|obywatelska|solidarna|suwerenna|moderaterna|"
+    r"socialdemokraterna|sverigedemokraterna|v[aä]nsterpartiet|milj[oö]partiet|"
+    r"liberalerna|vasemmistoliitto|kokoomus|keskusta|perussuomalaiset|fidesz|"
+    r"rassemblement|r[eé]publicains|fianna|sinn|fein|partidos?|coalici[oó]n)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_person_name(label: str) -> bool:
+    """A plain personal name: 2–4 capitalised words.
+
+    Exempt from the English requirement because the English form is normally the
+    same string (``Pedro Sánchez``); demanding a separate label there manufactures
+    work. Organisation words are excluded by the caller so that ``Les
+    Républicains`` and ``Fianna Fáil`` are still required.
+    """
+    text = _clean(label)
+    if not text or any(ch.isdigit() for ch in text):
+        return False
+    words = [w for w in text.split() if w]
+    if not (2 <= len(words) <= 4):
+        return False
+    return all(w[0].isupper() for w in words if w[:1].isalpha())
+
+
+def _looks_like_identifier(label: str) -> bool:
+    """Handles and URLs: language-neutral identifiers needing no gloss."""
+    text = _clean(label)
+    return text.startswith(("@", "http://", "https://"))
+
+
+def label_looks_english(label: str) -> bool:
+    """Whether a canonical label is plausibly already English.
+
+    Conservative: diacritics or a recognisable non-English political word mark
+    a label as *not* English. Over-reporting costs one redundant gloss;
+    under-reporting costs a silently missing translation, so the bias is
+    deliberate. Known limitations are documented in
+    ``docs/EP24_BILINGUAL_CODEBOOK_POLICY.md``.
+    """
+    text = _clean(label)
+    if not text:
+        return True
+    if any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", text)):
+        return False
+    return not _NON_ENGLISH_MARKERS.search(text)
+
+
 def english_label_required(entry: CodebookEntry) -> bool:
     """Whether an entry must carry an explicit English label.
 
@@ -445,11 +506,29 @@ def english_label_required(entry: CodebookEntry) -> bool:
     If the English form is identical (for example a person's name), store the
     identical string explicitly. Omission is allowed only with a non-empty
     metadata["english_label_exempt_reason"] so the exception is auditable.
+
+    Entries with **no language metadata** are decided on their label instead of
+    being skipped. The ``common`` layer carries no ``language``, so an empty
+    ``source_languages`` means "unknown" — and treating unknown as "already
+    English" exempted 2694 entries per country *by omission*: not present, not
+    absent, not exempt, simply uncounted. An entry with an unknown language is
+    required when its label is not already English, so the gap is visible:
+
+    * already-English label (``Abortion``) -> not required, nothing to translate;
+    * non-English label (``Rassemblement National``) -> required;
+    * person name (``Pedro Sánchez``) -> not required, the form is identical;
+    * handle or URL -> not required, language-neutral.
     """
-    langs = [lang for lang in entry.source_languages if lang]
-    if not langs or not any(lang != "en" for lang in langs):
+    if _clean(entry.metadata.get("english_label_exempt_reason")):
         return False
-    return not bool(_clean(entry.metadata.get("english_label_exempt_reason")))
+    if not _has_language_metadata(entry):
+        label = _clean(entry.label)
+        if not label or _looks_like_identifier(label):
+            return False
+        if _looks_like_person_name(label) and not _NON_ENGLISH_MARKERS.search(label):
+            return False
+        return not label_looks_english(label)
+    return any(lang != "en" for lang in entry.source_languages if lang)
 
 
 def english_label_coverage(entries: Iterable[CodebookEntry]) -> dict[str, Any]:
