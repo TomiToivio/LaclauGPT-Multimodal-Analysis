@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pandas as pd
 
@@ -22,14 +23,42 @@ def _entry(entry_id, kind, label, *, aliases=(), country="FI"):
     )
 
 
+def _prompt_declared_keys() -> set[str]:
+    """The keys the system prompt tells the model to emit.
+
+    Read them from the authoritative "Use exactly these keys" line rather than by
+    substring-searching the whole prompt: `video_status` also appears on the
+    following "Value of ..." line, so a naive ``in`` check passes even when the key
+    has been dropped from the contract. That near-miss is exactly how the schema and
+    the prompt drifted apart before #204.
+    """
+    for line in post.get_system_prompt().splitlines():
+        if "Use exactly these keys" in line:
+            return set(re.findall(r"`([^`]+)`", line))
+    raise AssertionError("system prompt has no 'Use exactly these keys' contract line")
+
+
 def test_structured_schema_matches_prompt_contract_exactly():
     model = post._result_model()
+    # Issue #204 made Step 5 the quality routing gate, so the system prompt now asks
+    # the model for `video_status` alongside the extraction fields. The contract this
+    # test protects is not a frozen field list: it is that the Pydantic schema and the
+    # prompt agree exactly. Assert that agreement rather than pinning literals, or the
+    # two drift apart silently the way they did before #204, where the prompt and
+    # OUTPUT_COLUMNS carried `video_status` while the result model dropped it.
+    declared = _prompt_declared_keys()
+    assert declared == set(model.model_fields), (
+        "structured-output schema and the prompt's declared keys disagree: "
+        f"only in prompt {sorted(declared - set(model.model_fields))}, "
+        f"only in schema {sorted(set(model.model_fields) - declared)}"
+    )
     assert set(model.model_fields) == {
         "entities",
         "themes",
         "positive",
         "neutral",
         "negative",
+        "video_status",
     }
     parsed = model.model_validate_json(
         json.dumps(
@@ -39,11 +68,13 @@ def test_structured_schema_matches_prompt_contract_exactly():
                 "positive": ["Person A"],
                 "neutral": [],
                 "negative": ["climate policy"],
+                "video_status": "OK",
             }
         )
     )
     assert parsed.entities == ["Person A"]
     assert parsed.themes == ["climate policy"]
+    assert parsed.video_status == "OK"
 
 
 def test_postprocess_context_defaults_to_32k_and_is_overridable(monkeypatch):
