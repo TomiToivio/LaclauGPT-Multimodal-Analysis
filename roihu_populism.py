@@ -1,467 +1,552 @@
-from os import name, system
-import pandas as pd
-import os
-import ollama
+from __future__ import annotations
+
+import hashlib
 import json
 import logging
-import sqlite3
-from datetime import datetime
-from pydantic import BaseModel
-from logging.handlers import RotatingFileHandler
+import os
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Literal
+
+import pandas as pd
+from pydantic import BaseModel, Field
+
 from ep24_models import ollama_model, ollama_model_source
-from ep24_pipeline import ensure_columns, load_cumulative_csv, metadata_context
-from ep24_schema import stable_source_id, value as ep24_value
+from ep24_pipeline import ensure_columns, load_cumulative_csv, write_cumulative_csv
+from ep24_schema import stable_source_id
+from ep24_redis import RedisCoordinator
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(handlers=[RotatingFileHandler('formula.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+LOG = logging.getLogger("ep24.step6")
 
-# Sqlite3 database connection
-conn = sqlite3.connect('formula_of_populism.db')
-c = conn.cursor()
-# Create table if not exists
-c.execute('''CREATE TABLE IF NOT EXISTS populism 
-                (video_file text UNIQUE,
-                formula_of_populism text,
-                formula_of_populism_us text,
-                formula_of_populism_frontier text)''')
-conn.commit()
+PROMPT_VERSION = "ep24-laclau-palonen-v2"
+DEFAULT_MAX_CONTEXT_CHARS = 28000
+DEFAULT_NUM_CTX = 16384
+DEFAULT_NUM_PREDICT = 4096
 
-DATASET_COUNTRY = {
-    "fi": ("FI", "fi"), "sv": ("SE", "sv"), "pl": ("PL", "pl"),
-    "pt": ("PT", "pt"), "de": ("DE", "de"), "es": ("ES", "es"),
-    "hu": ("HU", "hu"), "hr": ("HR", "hr"), "fr": ("FR", "fr"),
-    "bg": ("BG", "bg"),
+STEP6_COLUMNS = (
+    "formula_of_populism_analysis",
+    "formula_of_populism_us",
+    "formula_of_populism_frontier",
+    "laclau_summary_md",
+    "laclau_structured_json",
+    "laclau_formula_conditions_met",
+    "laclau_abstention_reason",
+    "laclau_prompt_version",
+    "laclau_model_metadata_json",
+    "laclau_generated_at",
+    "laclau_context_sha256",
+    "laclau_context_truncated",
+    "laclau_codebook_fingerprint",
+    "laclau_codebook_context_json",
+    "laclau_memory_context_json",
+    "laclau_rag_context_json",
+    "laclau_raw_response",
+    "laclau_status",
+    "laclau_error",
+    "laclau_runtime_seconds",
+    "laclau_persistence_status",
+)
+
+COUNTRY_ALIASES = {
+    "fi": "finland", "finland": "finland",
+    "pl": "poland", "poland": "poland",
+    "pt": "portugal", "portugal": "portugal",
+    "de": "germany", "germany": "germany",
+    "es": "spain", "spain": "spain",
+    "hu": "hungary", "hungary": "hungary",
+    "hr": "croatia", "croatia": "croatia",
+    "fr": "france", "france": "france",
+    "bg": "bulgaria", "bulgaria": "bulgaria",
+    "sv": "sweden", "se": "sweden", "sweden": "sweden",
 }
-_CODEBOOK_CACHE = {}
 
 
-def codebook_context_enabled():
-    return os.getenv("LACLAUGPT_ENRICHMENT_ENABLED", "0").casefold() in {"1", "true", "yes", "on"}
-
-
-def add_codebook_context(dataset_code, source_text):
-    """Append opt-in bilingual background context without changing source evidence."""
-    if not codebook_context_enabled():
-        return str(source_text), "", ""
-    try:
-        from roihu_codebooks import context_block, load_profile
-
-        country, language = DATASET_COUNTRY[dataset_code]
-        private_root = os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", ".")
-        cache_key = (private_root, country, language)
-        if cache_key not in _CODEBOOK_CACHE:
-            _CODEBOOK_CACHE[cache_key] = load_profile(private_root, country, language=language)
-        entries, profile = _CODEBOOK_CACHE[cache_key]
-        block, selection = context_block(
-            str(source_text), entries, country=country, language=language
-        )
-        if not block:
-            return str(source_text), json.dumps(selection, ensure_ascii=False, sort_keys=True), profile["fingerprint"]
-        return (
-            str(source_text) + "\n\n" + block,
-            json.dumps(selection, ensure_ascii=False, sort_keys=True),
-            profile["fingerprint"],
-        )
-    except Exception as exc:
-        logger.warning("Codebook context unavailable for %s: %s", dataset_code, exc)
-        return str(source_text), "", ""
-
-
-
-system_prompt = """
-### **System Prompt**
-
-# Role: Political Scientist Analyzing Populism in Political Videos
-
-You are a political scientist working for the University of Helsinki. You are given a previously generated structured political analysis of a TikTok or Instagram video. The videos are related to the 2024 European Parliament elections. Then you will need to re-analyze the previously generated analysis through the lens of **Ernesto Laclau’s theory of populism** and **Emilia Palonen’s formula of populism**. The output must have three parts: (1) a list of political themes, (2) a detailed textual analysis of the formula of populism, and (3) a simplified machine readable JSON version of the formula of populism. Answer following the specified JSON schema. The JSON schema is provided below.
-
----
-
-## Theoretical Background For Analysis of European Parliament Elections 2024
-
-* **Laclau’s Populism (chains of equivalence & antagonism):** Populism constructs an *“us vs. them”* divide.  Diverse social demands (e.g. jobs, security, fairness) become linked through **chains of equivalence** by pointing against a common enemy (the *“power beyond the frontier”*). No single demand inherently unites the group; rather, unity comes from a shared antagonism.  One demand may even become an **“empty signifier”** that symbolizes the whole chain. Thus “the people” (Us) are discursively formed against an elite or enemy (Them) in a dialectical logic.
-* **Palonen’s Formula of Populism:**  Palonen formalizes Laclau’s logic as a formula:
-
-```
-Populism = Us (Demand ≡ Demand ≡ …) Affects₁ + Frontier (Other ≡ Other ≡ …) Affects₂
-```
-
-Here **Us** is the collective *“we”* (the people) created by linking together various demands (chains of equivalence).  **Frontier** (or *“them”*) is the symbolic opposing boundary or enemy (e.g. corrupt elite, globalization).  **Affects₁** and **Affects₂** are the emotional/symbolic charges (e.g. pride, fear, anger) that amplify the appeals of each side.  In other words, Palonen’s formula says: people=some set of demands + positive emotions, while the frontier=some set of negatives + negative emotions.
-
----
-
-## Task 1: In-Depth Theoretical Analysis of Populism (Laclau & Palonen)
-
-Your task is to perform a **detailed populism analysis** of the provided political content using the theoretical frameworks of:
-
-* **Ernesto Laclau’s theory of populism** (chains of equivalence and antagonism)
-* **Emilia Palonen’s formula of populism** (discursive frontier and affective polarization)
-
-The goal is to identify how the narrative constructs a **populist discourse**, mapping its symbolic structure and emotional logic. Return your response as **markdown-formatted text** in the `populism_analysis` field of the JSON-formatted output.
-
----
-
-### ✅ What to Analyze
-
-### 1. **Us (the People)**
-
-* Identify the collective subject constructed as “the people,” “we,” or “citizens.”
-* List the **demands**, **values**, or **identities** forming the “Us” side.
-* Describe how these demands are connected via **chains of equivalence** (e.g., *job security ≡ family ≡ sovereignty*).
-* Identify the **positive affects** (e.g., pride, anger, hope) that motivate this unity.
-
----
-
-### 2. **Frontier (Them)**
-
-* Identify the **antagonistic other**: elites, institutions, abstract enemies.
-* List negative signifiers forming a **chain of equivalence** (e.g., *Brussels ≡ corrupt elites ≡ media*).
-* Identify **negative affects** (e.g., fear, resentment, disgust) directed at the frontier.
-
----
-
-### 3. **Discursive Structure**
-
-Use theoretical vocabulary to explain the structure of the populist discourse:
-
-* Chains of equivalence
-* Antagonism and the frontier
-* Empty signifiers
-* Emotional (affective) polarization
-* Multimodal cues (rhetoric, visuals, tone, etc.)
-
-Support claims with references to cues from transcript, metadata, or multimodal descriptions.
-
----
-
-### 4. **Formula Restatement**
-
-Explicitly restate the populist discourse using **Palonen’s formula**:
-
-```
-Populism = Us (Demand ≡ Demand ≡ …) [Positive Affects] + Frontier (Other ≡ Other ≡ …) [Negative Affects]
-```
-
-Example:
-
-```
-Populism = Us (family ≡ patriotism ≡ sovereignty) [pride, anger] + Frontier (Brussels ≡ liberal elites ≡ media) [fear, resentment]
-```
-
----
-
-### ✅ Instructions for Writing
-
-* The analysis may exceed 500 words if needed.
-* Use an **academic tone** and **clear structure** with markdown headings and lists.
-* Be precise in using Laclau and Palonen’s concepts.
-* Avoid simplification or generalizations.
-* Use bullet points, subheadings, and clear paragraph structure.
-* Focus on **interpretive depth**, **symbolic meaning**, and **emotional logic**.
-
----
-
-### Task 3: Create Machine-Readable JSON Representation of Populist Formula
-
-Your task is to **translate the detailed textual analysis of populism** into a **simplified, structured JSON object** that captures the symbolic logic of the discourse according to **Palonen’s formula**.
-
-The output must contain two fields:
-
-* `populism_us`: a list of symbolic demands and positive emotions constructing the *Us* side
-* `populism_frontier`: a list of symbolic enemies and negative emotions constructing the *Frontier (Them)* side
-
----
-
-### ✅ Instructions
-
-Each list must include **objects** of the following structure:
-
-```json
-{
-  "populism_element": "symbolic demand or enemy",
-  "populism_affect": "emotion associated with it"
-}
-```
-
-* Use **simplified, generalized categories** (e.g., `"economic justice"`, `"national identity"`, `"EU elite"`, `"mainstream media"`)
-* **Group synonyms** under the same `populism_element` label if they refer to the same symbolic figure or demand
-* Use lowercase or lowercase-title format (e.g., `"job security"`, not `"Job Security"`)
-* Affects must be **single-word emotional labels** (e.g., `"anger"`, `"hope"`, `"resentment"`, `"pride"`)
-* Only include elements and affects explicitly supported by the detailed analysis
-
----
-
-### ✅ Required Output Format
-
-```json
-{
-  "populism_us": [
-    {"populism_element": "economic justice", "populism_affect": "pride"},
-    {"populism_element": "national identity", "populism_affect": "anger"}
-  ],
-  "populism_frontier": [
-    {"populism_element": "eu elite", "populism_affect": "resentment"},
-    {"populism_element": "mainstream media", "populism_affect": "fear"}
-  ]
-}
-```
-
----
-
-### ✅ Additional Guidelines
-
-* Do **not** include any fields other than `populism_us` and `populism_frontier`
-* The output **must be valid JSON**
-* Use only values that appear in or are clearly inferred from the preceding detailed analysis
-* **Do not invent new elements or emotions** not grounded in the analysis
-
----
-
-### 📘 Pydantic Output Model Specification
-
-The final output must be a **valid JSON object** that conforms to the following schema. Each field is strictly defined and must be filled according to prior instructions and content analysis using the theories of **Ernesto Laclau** and **Emilia Palonen**.
-
-#### 📦 Top-Level Model: `FormulaOfPopulism`
-
-```python
-class FormulaOfPopulism(BaseModel):
-    populism_analysis: str
-    populism_us: list[PopulismElement]
-    populism_frontier: list[PopulismElement]
-```
-
----
-
-### 🔹 Field Descriptions
-
-* **`populism_analysis`**:
-  A **detailed, markdown-formatted textual explanation** of the populist discourse using **Palonen’s formula** and **Laclau’s theory**.
-  → Type: `str`
-  → Should identify “Us”, “Frontier”, emotional affects, and chains of equivalence.
-
-* **`populism_us`** and **`populism_frontier`**:
-  These are structured lists of simplified symbolic components of populist discourse. Each list contains objects of type `PopulismElement`.
-
----
-
-### 🔹 Nested Model: `PopulismElement`
-
-```python
-class PopulismElement(BaseModel):
-    populism_element: str
-    populism_affect: str
-```
-
-Each object in `populism_us` or `populism_frontier` must include:
-
-* `populism_element`:
-  A **generalized symbolic demand or enemy** (e.g. `"economic justice"`, `"EU elite"`)
-  → Format: lowercase string
-  → Avoid duplication by grouping synonymous phrases.
-
-* `populism_affect`:
-  A single-word **emotional label** representing how the element is emotionally charged in the discourse.
-  → Examples: `"pride"`, `"anger"`, `"hope"`, `"fear"`, `"resentment"`
-  → Must be explicitly supported by the analysis.
-
----
-
-### ✅ Final Output
-
-All fields are **required**. Output must be **clean, valid JSON** strictly adhering to this schema.
-
----
-
-## ✅ JSON Output Format
-
-You must return a **strictly valid JSON object** that conforms to the required schema. The JSON should be **minimal, clean, and machine-readable**—only include the keys defined in the schema. Do **not add extra fields, comments, or metadata**.
-
----
-
-### 🗂 Required Top-Level Keys:
-
-* `"populism_analysis"` – A **markdown-formatted string** containing a detailed, structured analysis based on Laclau and Palonen.
-* `"populism_us"` – List of simplified demands or identifiers and their emotional charge (see `PopulismElement` format).
-* `"populism_frontier"` – List of generalized opponents or symbolic enemies and their emotional charge (see `PopulismElement` format).
-
----
-
-### 🧱 Data Types & Rules
-
-* All lists must use **valid JSON array syntax**: `["value1", "value2"]`.
-* `populism_us` and `populism_frontier` must contain dictionaries with two string fields: `populism_element` and `populism_affect`.
-* Use lowercase or title case consistently for elements and affects.
-
----
-
-### 📌 Example
-
-```json
-{
-  "populism_analysis": "The video constructs a populist narrative where everyday Finns (us) are unified by demands for cultural protection, security, and sovereignty (≡). These are emotionally tied to pride and frustration. The enemy (them) is framed as corrupt EU bureaucrats and local elites, charged with resentment and fear.",
-  "populism_us": [
-    {"populism_element": "national identity", "populism_affect": "pride"},
-    {"populism_element": "cultural security", "populism_affect": "anger"}
-  ],
-  "populism_frontier": [
-    {"populism_element": "EU elite", "populism_affect": "resentment"},
-    {"populism_element": "political establishment", "populism_affect": "fear"}
-  ]
-}
-```
-
----
-
-### ⚠️ Validation Warnings
-
-* ❌ Do **not** output explanations or formatting outside of JSON.
-* ✅ Always return a **single, valid JSON object** exactly matching the schema.
+class Step6ParseError(ValueError):
+    def __init__(self, message: str, *, raw_response: str):
+        super().__init__(message)
+        self.raw_response = raw_response
+
+
+class EvidenceCandidate(BaseModel):
+    label: str
+    text_span: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    provenance: str = "current_source"
+    uncertainty_notes: list[str] = Field(default_factory=list)
+    counter_evidence: list[str] = Field(default_factory=list)
+
+
+class UsConstruct(EvidenceCandidate):
+    demands: list[str] = Field(default_factory=list)
+    identities: list[str] = Field(default_factory=list)
+
+
+class FrontierConstruct(EvidenceCandidate):
+    us_side: str | None = None
+    them_side: str
+    relation: Literal[
+        "opposition",
+        "criticism",
+        "blame",
+        "threat_construction",
+        "exclusion",
+        "boundary_construction",
+        "antagonistic_frontier",
+    ]
+
+
+class AffectObservation(EvidenceCandidate):
+    affect: str
+    target: str | None = None
+
+
+class ChainRelation(BaseModel):
+    relation_type: Literal["equivalence", "difference"]
+    members: list[str] = Field(default_factory=list)
+    text_span: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    uncertainty_notes: list[str] = Field(default_factory=list)
+
+
+class SignifierCandidate(EvidenceCandidate):
+    candidate_type: Literal["nodal", "floating", "empty"]
+    document_level_only: bool = True
+
+
+class RhetoricalPerformance(BaseModel):
+    action: Literal[
+        "connects_demands",
+        "constructs_collective_subject",
+        "redefines_frontier",
+        "represents_wider_chain",
+        "reframes_political_possibility",
+        "other",
+    ]
+    description: str
+    text_span: str
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class EP24DiscourseAnalysis(BaseModel):
+    analysis_md: str
+    us_constructs: list[UsConstruct] = Field(default_factory=list)
+    frontier_constructs: list[FrontierConstruct] = Field(default_factory=list)
+    affects: list[AffectObservation] = Field(default_factory=list)
+    chains: list[ChainRelation] = Field(default_factory=list)
+    signifier_candidates: list[SignifierCandidate] = Field(default_factory=list)
+    rhetorical_performances: list[RhetoricalPerformance] = Field(default_factory=list)
+    palonen_dynamic_evidence: list[str] = Field(default_factory=list)
+    formula_minimum_conditions_met: bool = False
+    formula_abstention_reason: str | None = None
+    counter_evidence: list[str] = Field(default_factory=list)
+    uncertainty_notes: list[str] = Field(default_factory=list)
+    corpus_level_cautions: list[str] = Field(default_factory=list)
+
+
+SYSTEM_PROMPT = """You are LaclauGPT, a social scientist at the University of Helsinki analysing
+2024 European Parliament election TikTok/Instagram material using the generic
+Laclau, Mouffe and Palonen framework.
+
+Return JSON only and conform exactly to the supplied schema.
+
+EVIDENCE DISCIPLINE
+- Analyse the current document evidence first. Never force an Us, Frontier, affect,
+  chain, nodal/floating/empty signifier or populist formula.
+- Empty lists are valid and preferred when evidence is absent.
+- Researcher/codebook memory, prior-stage model analysis and retrieved corpus
+  context are context for normalization/comparison only. They are NOT evidence
+  that a feature exists in the current document.
+- Human entities/themes are authoritative canonical seeds and must not be silently
+  renamed in your interpretation.
+- Preserve uncertainty and counter-evidence.
+
+THEORY
+- Populism is a political logic, not a permanent party/actor label.
+- A politically meaningful Us is a collective subject produced through articulation;
+  a plural pronoun alone is insufficient.
+- Criticism, disagreement, negative sentiment or opponent mention are not by
+  themselves an antagonistic frontier. Use the relation labels precisely.
+- Affect means affective investment/expression, not detachable sentiment. Never map
+  Us mechanically to positive affect or Frontier to negative affect.
+- Co-occurrence is not a chain of equivalence. Record difference where relevant.
+- Frequency/prominence alone is not a nodal point.
+- Polysemy alone is not floating signification.
+- One heterogeneous use is not enough to establish an empty signifier.
+- Hegemony and bipolar/hegemonic polarisation are corpus-level/dynamic claims and
+  MUST NOT be inferred from a single video.
+- Palonen fringe/mainstream/competing populist dynamics may be noted only as
+  provisional evidence, never as permanent party labels.
+- Rhetorical analysis should focus on what articulation performs: connecting demands,
+  constructing a collective subject, redefining a frontier, making one signifier
+  represent a wider chain, or reframing political possibility.
+
+FORMULA / ABSTENTION
+- Extract components independently.
+- formula_minimum_conditions_met may be true only when BOTH a politically meaningful
+  collective Us and an antagonistic_frontier are supported by current-source evidence.
+- If minimum conditions are not met, set it false and explain briefly in
+  formula_abstention_reason.
+- Never output a populism score.
+- Never infer a permanent populist identity for an actor or party.
+
+EVIDENCE SPANS
+- Every candidate must contain a concise text_span or source cue grounded in the
+  CURRENT SOURCE EVIDENCE section. Do not cite memory/RAG/codebook text as the span.
 """
 
-logger.info("Starting populism analysis...")
-logger.info(system_prompt)
 
-print(system_prompt)
-
-class PopulismElement(BaseModel):
-    populism_element: str
-    populism_affect: str
-
-class FormulaOfPopulism(BaseModel):
-    populism_analysis: str
-    populism_us: list[PopulismElement]
-    populism_frontier: list[PopulismElement]
-
-def get_response(user_prompt, system_prompt):
-    llama_response = {}
-    options = {"repeat_last_n": 64,
-               "repeat_penalty": 1.1,
-               "num_ctx": 8192,
-               "top_p": 0.9,
-               "top_k": 40,
-               "min_p": 0.0,
-               "temperature": 0.0,
-               "num_predict": 2048}
-    try:
-        logger.info('model=%s model_source=%s', ollama_model(), ollama_model_source())
-        # Model remains environment-overridable; qwen3.8:27b is the active repository default.
-        response = ollama.chat(model=ollama_model(), messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ], options=options, format=FormulaOfPopulism.model_json_schema())
-        llama_response = response['message']['content']
-        print(llama_response)
-        logger.debug(llama_response)
-        llama_response = FormulaOfPopulism.model_validate_json(llama_response)
-        print(llama_response)
-        #llama_response = json.loads(llama_response)
-        print(llama_response)
-    except Exception as e:
-        print(f"Error: {e}")
-        logger.error(f"Error: {e}")
-    return llama_response
-
-def get_formula_of_populism(country=None):
-    global system_prompt
-    filenames = [os.getenv('LACLAUGPT_INPUT_CSV') or f'ep24_{country}.csv']
-    for filename in filenames:
-        df = load_cumulative_csv(filename, require_canonical=bool(os.getenv('LACLAUGPT_INPUT_CSV')))
-        max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
-        if max_rows > 0:
-            df = df.head(max_rows).copy()
-            logger.info("Demo row limit active: processing first %s rows", max_rows)
-        ensure_columns(df, (
-            "formula_of_populism_analysis",
-            "formula_of_populism_us",
-            "formula_of_populism_frontier",
-            "laclau_summary_md",
-        ))
-        if codebook_context_enabled():
-            df["formula_of_populism_codebook_context_json"] = ""
-            df["formula_of_populism_codebook_fingerprint"] = ""
-        for index, row in df.iterrows():
-          logger.info(f"Processing row {index} of {filename}")
-          video_file = str(row.get('video_filename', '')).strip() or ep24_value(row, 'allas_filename') or stable_source_id(row)
-          try:
-            c.execute("SELECT * FROM populism WHERE video_file=?", (video_file,))
-            if c.fetchone() is None:
-              formula_of_populism = ""
-              formula_of_populism_us_text = ""
-              formula_of_populism_frontier_text = ""
-              user_prompt = metadata_context(row) + '\n\nSUMMARY EVIDENCE:\n' + str(row.get('summary_analysis', ''))
-              user_prompt, codebook_context_json, codebook_fingerprint = add_codebook_context(country, user_prompt)
-              if codebook_context_enabled():
-                df.at[index, 'formula_of_populism_codebook_context_json'] = codebook_context_json
-                df.at[index, 'formula_of_populism_codebook_fingerprint'] = codebook_fingerprint
-              logger.debug(user_prompt) 
-              response = get_response(user_prompt, system_prompt)
-              # Print response
-              print(response)
-              # Get the entities, topics, us, them, positive, neutral, negative from Sentiment object
-              formula_of_populism_analysis = response.populism_analysis
-              formula_of_populism_us_elements = response.populism_us
-              formula_of_populism_frontier_elements = response.populism_frontier
-              # Convert the us and frontier elements to a string
-              for element in formula_of_populism_us_elements:
-                formula_of_populism_us_text += f"{element.populism_element}^{element.populism_affect}\n"
-              print(formula_of_populism_us_text)
-              logger.debug(formula_of_populism_us_text)
-              # Add the us elements to the dataframe
-              df.at[index, 'formula_of_populism_us'] = str(formula_of_populism_us_text)
-              # Convert the frontier elements to a string
-              for element in formula_of_populism_frontier_elements:
-                formula_of_populism_frontier_text += f"{element.populism_element}^{element.populism_affect}\n"
-              print(formula_of_populism_frontier_text)
-              logger.debug(formula_of_populism_frontier_text)
-              df.at[index, 'formula_of_populism_frontier'] = str(formula_of_populism_frontier_text)
-              # Print the analysis
-              print(formula_of_populism_analysis)
-              logger.debug(formula_of_populism_analysis)
-              # Add the analysis to the dataframe
-              df.at[index, 'formula_of_populism_analysis'] = str(formula_of_populism_analysis)
-              df.at[index, 'laclau_summary_md'] = str(formula_of_populism_analysis)
-              # Save the dataframe to csv
-              df.to_csv(os.getenv('LACLAUGPT_OUTPUT_CSV') or filename, index=False)
-              # Save to the database
-              c.execute("INSERT INTO populism (video_file, formula_of_populism, formula_of_populism_us, formula_of_populism_frontier) VALUES (?, ?, ?, ?)",(video_file, formula_of_populism_analysis, formula_of_populism_us_text, formula_of_populism_frontier_text))
-              conn.commit()
-            else:
-              print(f"Row {index} already exists in the database")
-              logger.info(f"Row {index} already exists in the database")
-              # Get the data from the database
-              c.execute("SELECT * FROM populism WHERE video_file=?", (video_file,))
-              database_row = c.fetchone()
-              # Get the data from the database
-              formula_of_populism_analysis = database_row[1]
-              formula_of_populism_us_text = database_row[2]
-              formula_of_populism_frontier_text = database_row[3]
-              # Add the data to the dataframe
-              df.at[index, 'formula_of_populism_analysis'] = str(formula_of_populism_analysis)
-              df.at[index, 'formula_of_populism_us'] = str(formula_of_populism_us_text)
-              df.at[index, 'formula_of_populism_frontier'] = str(formula_of_populism_frontier_text)
-              if codebook_context_enabled():
-                df.at[index, 'formula_of_populism_codebook_context_json'] = json.dumps({'cache_status': 'legacy_cached_result', 'context_applied': False}, sort_keys=True)
-                df.at[index, 'formula_of_populism_codebook_fingerprint'] = ''
-              new_filename = os.getenv('LACLAUGPT_OUTPUT_CSV') or filename
-              df.to_csv(new_filename, index=False)
-          except Exception as e:
-            print(f'Error processing row {index}: {e}')
-            logger.error(f'Error processing row {index}: {e}')
-
-# All EP2024 TikTok countries for this stage (module level: the documented
-# stage contract reads it without importing or executing the stage).
-countries = ['fi', 'sv', 'pl', 'pt', 'de', 'es', 'hu', 'hr', 'fr', 'bg']
+def _json_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return "" if text.casefold() == "nan" else text
 
 
-if __name__ == '__main__':
-    try:
-        if os.getenv('LACLAUGPT_INPUT_CSV'):
-            get_formula_of_populism(None)
+def _bounded(value: str, limit: int) -> tuple[str, bool]:
+    if len(value) <= limit:
+        return value, False
+    return value[:limit], True
+
+
+def _external_context(row: pd.Series, column: str, heading: str, role: str) -> str:
+    value = _json_text(row.get(column, ""))
+    return f"{heading}\nROLE: {role}\n{value or '[]'}"
+
+
+def _render_fields(row: pd.Series, names: list[str]) -> str:
+    lines = []
+    for name in names:
+        value = _json_text(row.get(name, ""))
+        if value:
+            lines.append(f"- {name}: {value}")
+    return "\n".join(lines) if lines else "- <none>"
+
+
+def build_prompt_context(row: pd.Series, *, max_chars: int | None = None) -> tuple[str, bool]:
+    """Build deterministic context while keeping evidence classes inspectable."""
+    max_chars = max_chars or int(os.getenv("LACLAUGPT_STEP6_MAX_CONTEXT_CHARS", DEFAULT_MAX_CONTEXT_CHARS))
+    external = {
+        "codebook_context_json", "memory_context_json", "rag_context_json",
+        "entity_normalization_json", "theme_normalization_json", "context_evidence_role",
+    }
+    researcher = {"entities", "themes", "political_preference", "researcher_note"}
+    source_representation_prefixes = ("asr_", "ocr_", "preprocess_")
+    prior_analysis_prefixes = (
+        "frame_analysis_", "vllm_", "summary_", "postprocess_", "ep24_entity_",
+        "ep24_theme_", "ep24_memory_", "ep24_seed_", "ep24_sentiment_",
+        "formula_of_populism_", "laclau_", "dna_", "sna_",
+    )
+    source_representation_exact = {
+        "frame_file", "frame_timestamp_seconds", "video_duration_seconds",
+        "whisper_transcript", "whisper_translated", "whisperResult",
+    }
+    prior_analysis_exact = {
+        "metadata", "positive", "neutral", "negative", "video_analysis",
+        "frame_analysis_1", "summary_analysis",
+    }
+
+    source_meta, source_repr, researcher_fields, prior_analysis = [], [], [], []
+    for name in row.index:
+        if name in external:
+            continue
+        if name in researcher:
+            researcher_fields.append(name)
+        elif name in source_representation_exact or name.startswith(source_representation_prefixes):
+            source_repr.append(name)
+        elif name in prior_analysis_exact or name.startswith(prior_analysis_prefixes):
+            prior_analysis.append(name)
         else:
-            for country in countries:
-                get_formula_of_populism(country)
-    finally:
-        c.close()
-        conn.close()
+            source_meta.append(name)
 
+    sections = [
+        "=== CURRENT SOURCE METADATA ===\nROLE: recorded source context\n" + _render_fields(row, source_meta),
+        "=== CURRENT SOURCE-DERIVED REPRESENTATIONS ===\nROLE: ASR/OCR/media-derived cues; usable as current-document evidence with normal model-error caution\n" + _render_fields(row, source_repr),
+        "=== HUMAN RESEARCHER ANNOTATION ===\nROLE: authoritative canonical seeds for normalization; not proof of a theoretical relation\n" + _render_fields(row, researcher_fields),
+        "=== DERIVED PRIOR-STAGE ANALYSIS ===\nROLE: derived_prior_stage_analysis_not_source_evidence\n" + _render_fields(row, prior_analysis),
+        _external_context(
+            row,
+            "codebook_context_json",
+            "=== RESEARCHER/CODEBOOK CONTEXT ===",
+            "background_context_not_source_evidence",
+        ),
+        _external_context(
+            row,
+            "memory_context_json",
+            "=== RESEARCHER MEMORY ===",
+            "normalization_context_not_source_evidence",
+        ),
+        _external_context(
+            row,
+            "rag_context_json",
+            "=== RETRIEVED CORPUS CONTEXT ===",
+            "prior_analysis_context_not_source_evidence",
+        ),
+    ]
+    return _bounded("\n\n".join(sections), max_chars)
+
+
+def _prompt_hash(context: str) -> str:
+    return hashlib.sha256(context.encode("utf-8")).hexdigest()
+
+
+def _model_metadata() -> dict[str, Any]:
+    return {
+        "provider": "ollama",
+        "model": ollama_model(),
+        "model_source": ollama_model_source(),
+        "num_ctx": int(os.getenv("LACLAUGPT_STEP6_NUM_CTX", DEFAULT_NUM_CTX)),
+        "num_predict": int(os.getenv("LACLAUGPT_STEP6_NUM_PREDICT", DEFAULT_NUM_PREDICT)),
+        "temperature": 0.0,
+    }
+
+
+def analyze_context(context: str) -> tuple[str, EP24DiscourseAnalysis]:
+    import ollama
+
+    metadata = _model_metadata()
+    response = ollama.chat(
+        model=metadata["model"],
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": context},
+        ],
+        format=EP24DiscourseAnalysis.model_json_schema(),
+        options={
+            "temperature": 0.0,
+            "num_ctx": metadata["num_ctx"],
+            "num_predict": metadata["num_predict"],
+        },
+    )
+    raw = response["message"]["content"]
+    try:
+        parsed = EP24DiscourseAnalysis.model_validate_json(raw)
+    except Exception as exc:
+        raise Step6ParseError(f"Step 6 structured JSON validation failed: {exc}", raw_response=raw) from exc
+    return raw, parsed
+
+
+def _affect_for(label: str, affects: list[AffectObservation]) -> str:
+    target = label.casefold().strip()
+    matches = [
+        item for item in affects
+        if item.target and item.target.casefold().strip() == target
+    ]
+    if not matches:
+        return ""
+    matches.sort(key=lambda item: item.confidence, reverse=True)
+    return matches[0].affect.strip()
+
+
+def compatibility_columns(result: EP24DiscourseAnalysis) -> tuple[str, str]:
+    us_lines = []
+    for item in result.us_constructs:
+        affect = _affect_for(item.label, result.affects)
+        us_lines.append(f"{item.label}^{affect}" if affect else item.label)
+
+    frontier_lines = []
+    for item in result.frontier_constructs:
+        affect = _affect_for(item.them_side, result.affects)
+        frontier_lines.append(f"{item.them_side}^{affect}" if affect else item.them_side)
+
+    return "\n".join(us_lines), "\n".join(frontier_lines)
+
+
+def _clean_document(row: pd.Series) -> dict[str, Any]:
+    doc: dict[str, Any] = {}
+    for key, value in row.to_dict().items():
+        try:
+            if pd.isna(value):
+                value = None
+        except (TypeError, ValueError):
+            pass
+        doc[str(key)] = value
+    return doc
+
+
+def _country(value: str | None) -> str:
+    candidate = value or os.getenv("LACLAUGPT_COUNTRY") or ""
+    key = str(candidate).strip().casefold()
+    return COUNTRY_ALIASES.get(key, key or "unknown")
+
+
+def _prepare_context(df: pd.DataFrame, country: str) -> tuple[pd.DataFrame, Any | None]:
+    """Attach bounded Mongo-backed memory/RAG/codebook context when configured."""
+    if os.getenv("LACLAUGPT_MONGO_ENABLED", "0").casefold() not in {"1", "true", "yes", "on"}:
+        LOG.warning("MongoDB disabled; Step 6 will run without durable memory/RAG persistence")
+        return df.copy(), None
+
+    from ep24_context import bootstrap_context, enrich_dataframe
+    from ep24_db import country_storage
+
+    cm = country_storage(country)
+    storage = cm.__enter__()
+    try:
+        private_root = Path(os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", "."))
+        bootstrap = bootstrap_context(storage, df, private_root=private_root, country=country)
+        LOG.info(
+            "context bootstrap country=%s codebooks=%s memory=%s fingerprint=%s",
+            country,
+            bootstrap.get("codebook_count"),
+            bootstrap.get("memory_seed_count"),
+            bootstrap.get("codebook_fingerprint"),
+        )
+        enriched = enrich_dataframe(storage, df)
+        return enriched, (cm, storage, bootstrap)
+    except Exception:
+        cm.__exit__(*__import__("sys").exc_info())
+        raise
+
+
+def _persist_row(storage, row: pd.Series, *, country: str) -> int:
+    doc = _clean_document(row)
+    record_id = str(doc.get("_storage_id") or stable_source_id(row))
+    doc["_storage_id"] = record_id
+    doc["_pipeline_step_6"] = {
+        "status": doc.get("laclau_status"),
+        "prompt_version": PROMPT_VERSION,
+        "generated_at": doc.get("laclau_generated_at"),
+        "context_sha256": doc.get("laclau_context_sha256"),
+        "country": country,
+    }
+    # Patch, never replace, so prior-stage fields cannot be erased.
+    return storage.patch_documents("dataframe", [doc])
+
+
+def _finalize_context_handle(handle: Any | None, df: pd.DataFrame) -> None:
+    if not handle:
+        return
+    cm, storage, _ = handle
+    try:
+        from ep24_context import update_retrieval
+        update_retrieval(storage, df, stage="step_06_discourse_analysis")
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def process_country(country: str | None = None) -> Path:
+    normalized_country = _country(country)
+    input_path = Path(os.getenv("LACLAUGPT_INPUT_CSV") or f"ep24_{country}.csv")
+    output_path = Path(os.getenv("LACLAUGPT_OUTPUT_CSV") or input_path)
+
+    original = load_cumulative_csv(input_path, require_canonical=bool(os.getenv("LACLAUGPT_INPUT_CSV")))
+    max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
+    if max_rows > 0:
+        original = original.head(max_rows).copy()
+
+    out = original.copy()
+    ensure_columns(out, STEP6_COLUMNS)
+
+    enriched, context_handle = _prepare_context(out, normalized_country)
+    # Copy only context columns produced by the shared enrichment layer.
+    for column in (
+        "codebook_context_json",
+        "memory_context_json",
+        "rag_context_json",
+        "entity_normalization_json",
+        "theme_normalization_json",
+        "context_evidence_role",
+    ):
+        if column in enriched.columns:
+            out[column] = enriched[column]
+
+    redis = RedisCoordinator(normalized_country, 6)
+    checkpoint_every = max(1, int(os.getenv("LACLAUGPT_STEP6_CHECKPOINT_EVERY", "10") or 10))
+    processed_since_checkpoint = 0
+
+    try:
+        storage = context_handle[1] if context_handle else None
+        for index, row in out.iterrows():
+            record_id = str(row.get("_storage_id") or stable_source_id(row))
+            with redis.lock(record_id) as acquired:
+                if not acquired:
+                    LOG.info("record lock busy id=%s; skipped", record_id)
+                    continue
+
+                redis.mark(record_id, "processing")
+                started = time.monotonic()
+                context, truncated = build_prompt_context(row)
+                context_hash = _prompt_hash(context)
+                LOG.info(
+                    "step6 country=%s row=%s id=%s model=%s prompt=%s context_sha256=%s truncated=%s",
+                    normalized_country, index, record_id, ollama_model(), PROMPT_VERSION,
+                    context_hash, truncated,
+                )
+                try:
+                    raw, result = analyze_context(context)
+                    us_legacy, frontier_legacy = compatibility_columns(result)
+                    generated_at = datetime.now(timezone.utc).isoformat()
+                    model_metadata = _model_metadata()
+
+                    out.at[index, "formula_of_populism_analysis"] = result.analysis_md
+                    out.at[index, "formula_of_populism_us"] = us_legacy
+                    out.at[index, "formula_of_populism_frontier"] = frontier_legacy
+                    out.at[index, "laclau_summary_md"] = result.analysis_md
+                    out.at[index, "laclau_structured_json"] = result.model_dump_json()
+                    out.at[index, "laclau_formula_conditions_met"] = json.dumps(result.formula_minimum_conditions_met)
+                    out.at[index, "laclau_abstention_reason"] = result.formula_abstention_reason or ""
+                    out.at[index, "laclau_prompt_version"] = PROMPT_VERSION
+                    out.at[index, "laclau_model_metadata_json"] = json.dumps(model_metadata, ensure_ascii=False, sort_keys=True)
+                    out.at[index, "laclau_generated_at"] = generated_at
+                    out.at[index, "laclau_context_sha256"] = context_hash
+                    out.at[index, "laclau_context_truncated"] = json.dumps(truncated)
+                    bootstrap_fingerprint = context_handle[2].get("codebook_fingerprint", "") if context_handle else ""
+                    out.at[index, "laclau_codebook_fingerprint"] = bootstrap_fingerprint or _json_text(row.get("ep24_codebook_fingerprint", ""))
+                    out.at[index, "laclau_codebook_context_json"] = _json_text(row.get("codebook_context_json", ""))
+                    out.at[index, "laclau_memory_context_json"] = _json_text(row.get("memory_context_json", ""))
+                    out.at[index, "laclau_rag_context_json"] = _json_text(row.get("rag_context_json", ""))
+                    out.at[index, "laclau_raw_response"] = raw
+                    out.at[index, "laclau_status"] = "ok"
+                    out.at[index, "laclau_error"] = ""
+                    out.at[index, "laclau_runtime_seconds"] = f"{time.monotonic() - started:.3f}"
+
+                    if storage is not None:
+                        out.at[index, "laclau_persistence_status"] = "mongo_patch:pending"
+                        persisted = _persist_row(storage, out.loc[index], country=normalized_country)
+                        out.at[index, "laclau_persistence_status"] = f"mongo_patch:{persisted}"
+                        _persist_row(storage, out.loc[index], country=normalized_country)
+                    else:
+                        out.at[index, "laclau_persistence_status"] = "mongo_disabled"
+                    redis.mark(record_id, "complete")
+                except Exception as exc:
+                    out.at[index, "laclau_status"] = "error"
+                    out.at[index, "laclau_error"] = f"{type(exc).__name__}: {exc}"
+                    if isinstance(exc, Step6ParseError):
+                        out.at[index, "laclau_raw_response"] = exc.raw_response
+                    out.at[index, "laclau_runtime_seconds"] = f"{time.monotonic() - started:.3f}"
+                    if storage is not None:
+                        out.at[index, "laclau_persistence_status"] = "mongo_patch:error_record"
+                        try:
+                            _persist_row(storage, out.loc[index], country=normalized_country)
+                        except Exception:
+                            LOG.exception("Could not persist Step 6 error state id=%s", record_id)
+                    redis.mark(record_id, "error")
+                    LOG.exception("Step 6 failed country=%s row=%s id=%s", normalized_country, index, record_id)
+
+                processed_since_checkpoint += 1
+                if processed_since_checkpoint >= checkpoint_every:
+                    write_cumulative_csv(original, out, output_path)
+                    LOG.info("CSV checkpoint path=%s row=%s", output_path, index)
+                    processed_since_checkpoint = 0
+
+        write_cumulative_csv(original, out, output_path)
+        LOG.info("Step 6 complete country=%s output=%s rows=%s", normalized_country, output_path, len(out))
+        return output_path
+    finally:
+        _finalize_context_handle(context_handle, out)
+
+
+# Historical module-level country set kept for documentation/contract discovery.
+countries = ["fi", "pl", "pt", "de", "es", "hu", "hr", "fr", "bg", "sv"]
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=getattr(logging, os.getenv("LACLAUGPT_LOG_LEVEL", "INFO").upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    if os.getenv("LACLAUGPT_INPUT_CSV"):
+        process_country(os.getenv("LACLAUGPT_COUNTRY"))
+    else:
+        for item in countries:
+            process_country(item)
