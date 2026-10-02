@@ -153,6 +153,55 @@ def test_a_real_reader_can_be_constructed_per_group() -> None:
     assert "constructed both groups" in result.stdout
 
 
+def test_finland_does_not_request_the_unsupported_finnish_model() -> None:
+    """Finland must not ask for `fi`, which EasyOCR has no model for.
+
+    This is a *recorded* gap, not a passing grade: EasyOCR covers nine of the ten
+    EP24 languages and Finnish is the exception. Requesting it raises
+    `ValueError: ({'fi'}, 'is not supported')` and would take the whole Reader down,
+    so the country map must not include it.
+    """
+    assert "fi" not in ob.easyocr_languages("finland")
+    assert "fi" in ob.EASYOCR_UNSUPPORTED_EP24_LANGS
+    for langs in ob.EASYOCR_COUNTRY_GROUPS.values():
+        assert "fi" not in langs, "no EasyOCR group may request the missing Finnish model"
+
+
+@pytest.mark.skipif(not _easyocr_available(), reason="easyocr not installed; cannot probe support")
+def test_easyocr_has_no_finnish_model_but_covers_the_other_nine() -> None:
+    """The support claim is checked against the library, not asserted from memory.
+
+    Every other EP24 language must construct; Finnish must not. If a future
+    easyocr ships a Finnish model this test fails loudly, and the recorded gap
+    should be closed deliberately rather than the list quietly kept short.
+    """
+    import subprocess
+
+    codes = ["bg", "pl", "pt", "de", "es", "hu", "hr", "fr", "sv", "en"]
+    code = (
+        "import warnings, sys; warnings.filterwarnings('ignore')\n"
+        "import easyocr\n"
+        "for code in %r:\n"
+        "    easyocr.Reader([code] if code == 'en' else [code, 'en'], gpu=False, verbose=False)\n"
+        "print('supported-ok')\n"
+        "try:\n"
+        "    easyocr.Reader(['fi', 'en'], gpu=False, verbose=False)\n"
+        "    print('finnish-supported')\n"
+        "except ValueError:\n"
+        "    print('finnish-unsupported')\n" % (codes,)
+    )
+    env = {**__import__("os").environ, "CUDA_VISIBLE_DEVICES": ""}
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=540
+    )
+    assert result.returncode == 0, result.stderr[-1500:]
+    assert "supported-ok" in result.stdout
+    assert "finnish-unsupported" in result.stdout, (
+        "easyocr now constructs a Finnish Reader; close the recorded gap in "
+        "EASYOCR_UNSUPPORTED_EP24_LANGS and the Latin group deliberately"
+    )
+
+
 def test_backend_model_string_names_the_languages_used() -> None:
     """The provenance string must say which script group ran, for the §4 record.
 

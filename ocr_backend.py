@@ -37,6 +37,23 @@ DEFAULT_PADDLE_VERSION = os.getenv("LACLAUGPT_OCR_MODEL", "PP-OCRv5")
 #: (Croatian and Hungarian included). The fix is one Reader per script group,
 #: selected from the canonical country, which is also cheaper and more accurate
 #: than asking one reader to cover two scripts.
+#:
+#: EasyOCR language codes with a recognition model, established by constructing a
+#: real Reader per code (the model tables are not reliably introspectable across
+#: versions). Verified on easyocr 1.7.2:
+#:
+#:     bg pl pt de es hu hr fr sv en   -> Reader constructs
+#:     fi                              -> ValueError: ({'fi'}, 'is not supported')
+#:
+#: Nine of the ten EP24 languages are covered. **Finnish has no EasyOCR model**,
+#: so Finnish on-screen text is not recognised natively. Finland therefore maps to
+#: the Latin group without `fi`: the Reader still builds (previously it crashed for
+#: *every* country), but a Finnish-only overlay will come back empty rather than
+#: wrong-text. That limitation is pinned by
+#: `tests/test_ep24_ocr_script_groups.py::test_easyocr_has_no_finnish_model` so it
+#: is a recorded gap rather than an assumption.
+EASYOCR_UNSUPPORTED_EP24_LANGS = ["fi"]
+
 EASYOCR_LATIN_LANGS = ["en", "fr", "pl", "sv", "pt", "de", "es", "hu", "hr"]
 EASYOCR_CYRILLIC_LANGS = ["bg", "en"]
 
@@ -61,6 +78,11 @@ def easyocr_languages(country: str | None = None) -> list[str]:
     Defaults to the Latin group when the country is unknown, since nine of the ten
     EP24 languages are Latin. Raises for a country that is not in the EP24 set, so
     a typo cannot silently pick a script.
+
+    Note Finland: EasyOCR has no Finnish (`fi`) model, so Finnish is absent from
+    every group by necessity, not oversight. Finland's Reader still constructs and
+    recognises the Latin languages it does have. See
+    `EASYOCR_UNSUPPORTED_EP24_LANGS`.
     """
     token = str(country or "").strip().casefold()
     if not token:
