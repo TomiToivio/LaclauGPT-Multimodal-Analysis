@@ -98,3 +98,35 @@ appropriate. Preserve the local canonical label and aliases. Add established
 English names/translations to `english_label`; do not translate by blindly
 machine-replacing canonical labels. Keep sensitive notes and provenance in
 `LaclauGPT-Private`.
+
+
+## Two distinct coverage metrics (#116)
+
+There are two useful questions and they must not be presented as rival answers to
+one ambiguous phrase such as "missing English labels":
+
+1. **Explicit-English review state**: implemented by `english_label_required()`,
+   `english_label_coverage()`, and
+   `scripts/ep24/english_label_coverage.py`. A non-English-sourced entry must
+   carry an explicit `english_label` (or a documented exemption), even when the
+   English spelling is identical. This distinguishes "verified identical" from
+   "not reviewed yet" and is the provenance/QA metric.
+
+2. **English translation work**: implemented by
+   `english_translation_required()`,
+   `english_translation_coverage_report()`, and
+   `scripts/ep24/check_bilingual_coverage.py`. It counts only entries whose
+   canonical label needs a distinct English rendering. Personal names and
+   already-English labels do not count as translation work.
+
+For example, a Polish person named `Adam Bielan` is **review-required** until an
+explicit English label or exemption is recorded, but needs **no translation**
+because the English rendering is the same name. `Rassemblement National` needs
+both review and translation. `Abortion` needs neither when it has no
+non-English source metadata.
+
+The loader exposes the explicit-review metric as `english_label_coverage` and
+`qa_state`, because that is the safer operational QA signal. The translation
+metric is advisory planning information for backfill work and can be gated
+separately by its dedicated CLI. Compatibility aliases from #110 remain only as
+delegating wrappers; there is one implementation per policy.
