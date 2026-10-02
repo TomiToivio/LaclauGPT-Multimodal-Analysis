@@ -855,7 +855,7 @@ def resolve_dataframe(
     incoming frame is authoritative, every source column is forwarded untouched,
     and this layer only appends. The original mention text is never overwritten --
     that is the issue's central requirement, and it is why the appended columns are
-    named ``ep24_entity_*`` rather than replacing ``new_entity``.
+    named ``ep24_entity_*`` rather than replacing the human ``entities`` field.
 
     Returns a summary dict (counters and the review queue) for stage logging.
     """
