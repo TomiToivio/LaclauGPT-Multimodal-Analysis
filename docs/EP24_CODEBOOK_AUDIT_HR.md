@@ -95,13 +95,26 @@ PGS        Alliance of Primorje-Gorski Kotar (Fair Play List 9)
 NPS        Independent Platform of the North (Fair Play List 9)
 GLAS       Civic Liberal Alliance            (Rivers of Justice)
 DO i SIP   Dalija Orešković and People with a First and Last Name (Rivers of Justice)
-PiP        Law and Justice                   (2 seats, Non-Inscrits)
-Fokus      Fokus                             (minor list)
+PiP        Law and Justice                   (0 seats in 2024 — NOT a seat-winner)
+Fokus      Fokus                             (did not contest the 2024 EP election)
 ```
 
-`PiP` is the sharpest case: a **seat-winning** party (`Non-Inscrits`, 2 MEPs) with
-no codebook entry. A codebook that cannot name a seat-winning party cannot
-normalize references to it.
+> **Correction note (2024 seats).** This table originally annotated `PiP` as
+> "2 seats, Non-Inscrits" and `Fokus` as "minor list". Both were wrong, and both
+> were corrected in the Croatia pass-3 re-check against the official DIP results:
+> **`PiP` won 0 seats in 2024** (22,214 votes, 2.99%, 8th) — the 2 Non-Inscrit
+> seats were won in **2019** by the *Independent list of Mislav Kolakušić*, a
+> different vehicle, and the "2 seats" figure was the 2019 result carried into a
+> 2024 table. **`Fokus` does not appear in the DIP results at all**; the party did
+> not contest this election. The structural finding below stands, but the
+> "sharpest case" argument built on `PiP` being a seat-winner does not: the 2024
+> seat-winners were HDZ (6), the SDP-led list (4), DP (1) and Možemo! (1).
+
+The original argument for `PiP` as the sharpest case was that a **seat-winning**
+party had no codebook entry. That was wrong: `PiP` is not a seat-winner. The
+coverage gap is real — a party polling 2.99% and contesting nationally should be
+representable — but it is a *contender* gap, not a representation gap, and the
+case should be made on that basis.
 
 Coverage is also uneven by layer: some present parties exist only as a
 `public-context` entry (e.g. `Centar`, sourced to the party's Wikipedia page)
@@ -109,12 +122,34 @@ while others are `researcher-grounded`. The two layers are not yet reconciled.
 
 > **Correction note.** An earlier revision of this document stated "13 of 20
 > missing". That count was wrong — it came from a keyword match that both
-> false-positived (`Možemo` matched the unrelated string `Mozemohr`; `SDSS`
-> matched `Republika Srpska`) and false-negatived. The list above was re-derived
+> false-positived and false-negatived. The list above was re-derived
 > by enumerating the entity labels and reading each candidate. The lesson is part
 > of the finding: **substring matching over entity labels produces confident wrong
 > coverage numbers.** Coverage diffs must match on exact labels/aliases, and a
 > human must read the survivors.
+>
+> **Correction note (pass 3).** The two examples originally given for that
+> false-positive were `Možemo` matched `Mozemohr` and `SDSS` matched
+> `Republika Srpska`. Only the first is real. The second does **not** reproduce
+> under any matcher in the tree — raw substring (either direction), the
+> auditor's fold (either direction), word-boundary regex, token overlap, or
+> initials all return false:
+>
+> ```text
+> score_entry("SDSS", <entry Republika Srpska>)          = 0.0
+> boundary_matches("SDSS", "Republika Srpska")           = False
+> "sdss" in "republika srpska"                           = False
+> fold_fixed("SDSS") in fold_fixed("Republika Srpska")   = False
+> ```
+>
+> What does reproduce is a weaker case: the **full name** `Samostalna
+> demokratska srpska stranka` token-overlaps the entry `Republika Srpska` at
+> `score_entry = 0.5`, via the shared tokens `srpska`/`demokratska`. The acronym
+> was quoted where the full name was the actual trigger. The lesson is unchanged,
+> but the right examples are `Most` ⊂ `Mostar` and `HDZ` ⊂ `HDZx`, which
+> reproduce cleanly. `Možemo`/`Mozemohr` is also real but belongs to the
+> **auditor's fold path** (which strips diacritics), not the runtime matcher,
+> which preserves them.
 
 ### D5. Legacy output contains no party entities at all
 

@@ -357,9 +357,16 @@ def boundary_matches(form: str, query: str) -> bool:
     This is the **strict** matcher, and it exists because a plain
     ``form in query`` test is wrong for short party acronyms. Measured on this
     module: ``PiS`` (Poland's ruling party) matches the unrelated word
-    ``Pisarz`` ("writer"), and ``HDZ`` matches ``HDZx``. A hand-corrected
-    coverage count in the Croatia audit came from the same bug (``Možemo``
-    matched ``Mozemohr``, ``SDSS`` matched ``Republika Srpska``).
+    ``Pisarz`` ("writer"), ``HDZ`` matches ``HDZx``, and ``Most`` (a Croatian
+    party) matches ``Mostar``.
+
+    A hand-corrected coverage count in the Croatia audit came from the same
+    class of bug. Note the correction on that example (Croatia pass 3): the
+    audit's ``Možemo``/``Mozemohr`` pair reproduces only through the
+    *auditor's* diacritic-stripping fold, **not** through this runtime matcher,
+    which preserves diacritics; and its ``SDSS``/``Republika Srpska`` pair does
+    not reproduce at all. ``Most``/``Mostar`` and ``HDZ``/``HDZx`` are the pairs
+    that reproduce cleanly against this function.
 
     Use this for **identity and coverage** questions, where a false positive
     silently attributes an actor or inflates a number.
