@@ -30,6 +30,22 @@ EASYOCR_SCRIPT_GROUPS = {
     "cyrillic": ["bg"],
 }
 
+# EasyOCR language codes that actually have a recognition model, measured by
+# constructing a real Reader per code rather than read off the docs (the model
+# tables are not reliably introspectable across easyocr versions). On 1.7.2:
+#
+#     bg pl pt de es hu hr fr sv en  -> Reader constructs
+#     fi                             -> ValueError: ({'fi'}, 'is not supported')
+#
+# Nine of the ten EP24 languages are covered; Finnish is the exception. It is
+# therefore absent from EASYOCR_SCRIPT_GROUPS by necessity, not oversight, and
+# asking for it raises rather than silently dropping it. Consequence worth
+# knowing before choosing engines for Finland: EasyOCR will not read Finnish
+# on-screen text, so a Finnish-only overlay comes back empty. This is recorded
+# here so the natural future edit -- "EP24 has ten languages, add the missing
+# one" -- fails loudly instead of rediscovering the unloadable-list error.
+EASYOCR_UNSUPPORTED_LANGS = ["fi"]
+
 
 def easyocr_script_groups(languages: list[str] | None = None) -> list[str]:
     """Group a language set by script, in a deterministic order.
