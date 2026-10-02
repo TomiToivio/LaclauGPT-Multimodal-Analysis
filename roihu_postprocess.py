@@ -26,8 +26,43 @@ logging.basicConfig(
 )
 
 
+#: Step-5 inference context. The step sits after several cumulative analysis
+#: stages, so the old 4096 truncated evidence silently. Configurable via
+#: LACLAUGPT_POSTPROCESS_NUM_CTX (issue #157).
+DEFAULT_NUM_CTX = 32768
+
+
+def _num_ctx() -> int:
+    return int(os.getenv('LACLAUGPT_POSTPROCESS_NUM_CTX', str(DEFAULT_NUM_CTX)) or DEFAULT_NUM_CTX)
+
+
+def _num_predict() -> int:
+    return int(os.getenv('LACLAUGPT_POSTPROCESS_NUM_PREDICT', '2048') or 2048)
+
+
+#: Cumulative columns kept out of the Step-5 *inference prompt*. They remain in
+#: the dataframe untouched; this only avoids duplicating summary_analysis (added
+#: separately as SUMMARY EVIDENCE) and flooding the context with huge raw model
+#: output from earlier stages (#157 bugs C and D).
+CONTEXT_EXCLUDED_FIELDS = (
+    'summary_analysis',
+    'vllm_video_raw_output',
+    'vllm_video_prompt',
+    'vllm_video_structured_json',
+    'metadata',
+)
+
+
 class Sentiment(BaseModel):
-    topics: list[str]
+    """Structured Step-5 extraction.
+
+    The fields mirror the system prompt and the downstream access pattern
+    (``response.entities`` / ``response.themes``) exactly. The old model carried a
+    spurious ``topics`` field and omitted ``entities``, so a valid model response
+    could not parse (issue #157, bug A).
+    """
+
+    entities: list[str]
     themes: list[str]
     positive: list[str]
     neutral: list[str]
@@ -60,15 +95,19 @@ def get_response(user_prompt, system_prompt):
     options = {
         'repeat_last_n': 64,
         'repeat_penalty': 1.1,
-        'num_ctx': 4096,
+        'num_ctx': _num_ctx(),
         'top_p': 0.9,
         'top_k': 40,
         'min_p': 0.0,
         'temperature': 0.0,
-        'num_predict': 2048,
+        'num_predict': _num_predict(),
     }
     try:
-        logger.info('model=%s model_source=%s', ollama_model(), ollama_model_source())
+        logger.info(
+            'model=%s model_source=%s num_ctx=%s num_predict=%s prompt_chars=%s',
+            ollama_model(), ollama_model_source(), options['num_ctx'],
+            options['num_predict'], len(user_prompt),
+        )
         response = ollama.chat(
             model=ollama_model(),
             messages=[
@@ -143,6 +182,17 @@ def analyze_responses(language=None):
     df = ensure_video_filename(df)
     ensure_columns(df, ('entities', 'themes', 'positive', 'neutral', 'negative', 'postprocess_summary_md'))
 
+    # `summary_analysis` is passed separately as SUMMARY EVIDENCE, so exclude it
+    # from the cumulative context to avoid feeding the same text twice (#157 bug C).
+    # Large raw/derived blobs from earlier stages add no extraction value and can
+    # dominate a cumulative prompt; they stay in the dataframe but are kept out of
+    # inference context (bug D). This reduction is explicit and logged.
+    context_excluded = CONTEXT_EXCLUDED_FIELDS
+    logger.info(
+        'prompt_context excludes %s (kept in dataframe, not duplicated into inference)',
+        ', '.join(sorted(context_excluded)),
+    )
+
     system_prompt = get_system_prompt()
 
     for index, row in df.iterrows():
@@ -152,7 +202,12 @@ def analyze_responses(language=None):
             logger.warning('Row %s has no summary_analysis; skipping', index)
             continue
 
-        prompt = metadata_context(row) + '\n\nSUMMARY EVIDENCE:\n' + str(summary_analysis)
+        context = metadata_context(row, exclude_fields=context_excluded)
+        prompt = context + '\n\nSUMMARY EVIDENCE:\n' + str(summary_analysis)
+        logger.debug(
+            'row=%s context_chars=%s summary_chars=%s prompt_chars=%s',
+            index, len(context), len(str(summary_analysis)), len(prompt),
+        )
         response = get_response(prompt, system_prompt)
         if response is None:
             continue

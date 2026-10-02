@@ -87,12 +87,26 @@ def stage_output(default: str | Path) -> Path:
     return Path(os.getenv("LACLAUGPT_OUTPUT_CSV", str(default)))
 
 
-def metadata_context(row: pd.Series, *, include_model_fields: bool = True) -> str:
-    """Render cumulative context with explicit provenance classes for prompts."""
+def metadata_context(
+    row: pd.Series,
+    *,
+    include_model_fields: bool = True,
+    exclude_fields: Iterable[str] = (),
+) -> str:
+    """Render cumulative context with explicit provenance classes for prompts.
+
+    ``exclude_fields`` omits specific columns from the rendered context. Callers
+    use it to keep a field that is passed separately (and would otherwise be
+    duplicated) or a large derived blob out of an inference prompt. It affects
+    only the prompt rendering, never dataframe storage.
+    """
+    excluded = {str(field) for field in exclude_fields}
     source_lines: list[str] = []
     researcher_lines: list[str] = []
     model_lines: list[str] = []
     for column in row.index:
+        if str(column) in excluded:
+            continue
         raw = row.get(column, "")
         text = "" if raw is None else str(raw).strip()
         if not text or text.lower() == "nan":

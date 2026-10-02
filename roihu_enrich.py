@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -19,6 +20,8 @@ from roihu_codebook_sources import load_registry_from_dir
 from ep24_entities import EntityRegistry, ollama_adjudicator, registry_documents, resolve_dataframe
 from roihu_memory import EP24Memory
 from roihu_identity import ENTITY_KINDS, SENTIMENT_KINDS, THEME_KINDS, resolve_many, seed_context_lines
+
+logger = logging.getLogger(__name__)
 
 EP24_FILES = {
     "FI": ("ep24_fi.csv", "fi"),
@@ -284,7 +287,16 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         sentiment_target_ids: dict[str, list[str]] = {valence: [] for valence in sentiment_columns}
         unresolved: list[dict[str, Any]] = []
         if memory is not None:
-            for kind, column, output in (("entity", "entities", entity_ids), ("topic", "topics", topic_ids)):
+            # Step 5 writes `themes`; the stored identity kind for a theme is
+            # `topic` (see roihu_memory.KINDS / roihu_identity.THEME_KINDS). The
+            # old loop read a `topics` column Step 5 never writes, so themes were
+            # never normalized (#157 bug B). Read `themes`, keep `topics` only as
+            # an explicit legacy alias.
+            theme_column = "themes"
+            if theme_column not in frame.columns:
+                theme_column = "topics"
+                logger.warning("ep24 enrichment: no 'themes' column; using legacy 'topics'")
+            for kind, column, output in (("entity", "entities", entity_ids), ("topic", theme_column, topic_ids)):
                 for label in split_values(row.get(column)):
                     identity = memory.resolve_identity(label, kind, country=country, language=language, accepted_only=True)
                     if identity["decision"] == "EXISTING":
