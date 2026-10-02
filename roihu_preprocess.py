@@ -27,10 +27,18 @@ import pandas as pd
 from asr_backend import describe_backend, language_hint, load_asr_model
 from ep24_pipeline import local_media_path
 from ep24_schema import value as ep24_value
-from ep24_video import is_too_short, prepare_analysis_clip
+from ep24_video import analysis_start_seconds as video_initial_skip_seconds
+from ep24_video import (
+    is_too_short,
+    prepare_analysis_clip,
+)
 from ocr_backend import describe_ocr_backend, load_ocr_backend
 
 FRAME_TIMESTAMP_SECONDS = 1.0
+# Bump when a contracted Step 1 output changes meaning (not merely when a column
+# is added, which the key-derived fingerprint already covers). Existing cache
+# rows become unreachable instead of being served as if still valid.
+CACHE_SCHEMA_VERSION = 2
 REQUIRED_MEDIA_COLUMNS = ("video_id", "allas_filename")
 REQUIRED_ANNOTATION_COLUMNS = ("entities", "themes")
 FORBIDDEN_LEGACY_ANNOTATION_COLUMNS = (
@@ -65,6 +73,18 @@ PREPROCESS_COLUMNS = (
     "preprocess_status",
     "preprocess_note",
     "preprocess_completed_at",
+)
+
+#: Fields the restart cache persists. Derived from the contracted Step 1 output
+#: list rather than written out by hand, because the original hand-maintained
+#: copy is exactly how `ocr_runtime_ms` / `asr_runtime_ms` went missing: two
+#: lists that had to be kept in sync by hand drifted apart, and a cache hit then
+#: produced a record with fewer fields than a fresh run. Deriving it means a
+#: newly contracted output is either cached automatically or fails loudly in
+#: `save_cached`, never silently omitted.
+CACHE_STATUS_COLUMNS = ("preprocess_status", "preprocess_note")
+CACHE_COLUMNS = tuple(
+    column for column in PREPROCESS_COLUMNS if column not in CACHE_STATUS_COLUMNS
 )
 
 Path("./logs").mkdir(exist_ok=True)
@@ -197,74 +217,100 @@ def connect_cache() -> sqlite3.Connection:
     Path("./database").mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect("./database/preprocess_v2.db")
     conn.execute(
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS preprocess_cache (
             cache_key TEXT PRIMARY KEY,
-            frame_file TEXT,
-            frame_timestamp_seconds TEXT,
-            ocr_1 TEXT,
-            ocr_backend TEXT,
-            ocr_model TEXT,
-            asr_transcript TEXT,
-            asr_language TEXT,
-            asr_translated TEXT,
-            asr_backend TEXT,
-            asr_model TEXT,
-            video_duration_seconds TEXT,
-            completed_at TEXT
+            {", ".join(f"{column} TEXT" for column in CACHE_COLUMNS)}
         )
         """
     )
+    # CREATE TABLE IF NOT EXISTS does not alter a table that already exists, so
+    # a cache file written by an older checkout keeps its old shape. Add any
+    # column the current schema expects, instead of failing on the next INSERT.
+    existing = {
+        row[1] for row in conn.execute("PRAGMA table_info(preprocess_cache)")
+    }
+    for column in CACHE_COLUMNS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE preprocess_cache ADD COLUMN {column} TEXT")
+            LOG.info("cache_migrate added_column=%s", column)
     conn.commit()
     return conn
 
 
-def cache_key(row: pd.Series) -> str:
+def cache_fingerprint(country: str) -> str:
+    """Hash of every processing dependency that changes Step 1 output.
+
+    A dependency change must not be able to return a stale record, so the
+    fingerprint is part of the cache *key* rather than a value checked after the
+    lookup: a changed backend, model, language hint or video rule simply
+    addresses a different row, and the old row can never be hit again.
+    """
+    ocr = describe_ocr_backend()
+    asr = describe_backend()
+    parts = {
+        "cache_schema": str(CACHE_SCHEMA_VERSION),
+        "ocr_engine": str(ocr.get("engine", "")),
+        "ocr_model": str(ocr.get("model", "")),
+        "asr_engine": str(asr.get("engine", "")),
+        "asr_model": str(asr.get("model", "")),
+        "language_hint": language_hint(country),
+        "frame_timestamp_seconds": f"{FRAME_TIMESTAMP_SECONDS:.3f}",
+        "initial_skip_seconds": f"{video_initial_skip_seconds():.3f}",
+    }
+    payload = "|".join(f"{key}={value}" for key, value in sorted(parts.items()))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def cache_key(row: pd.Series, *, country: str = "") -> str:
+    resolved_country = str(country or ep24_value(row, "country") or "")
     return "|".join(
         [
-            str(ep24_value(row, "country") or ""),
+            resolved_country,
             str(ep24_value(row, "video_id") or ""),
             str(ep24_value(row, "allas_filename") or ""),
+            cache_fingerprint(resolved_country),
         ]
     )
 
 
-def load_cached(conn: sqlite3.Connection, key: str):
-    return conn.execute(
-        """
-        SELECT frame_file, frame_timestamp_seconds, ocr_1, ocr_backend, ocr_model,
-               asr_transcript, asr_language, asr_translated, asr_backend, asr_model,
-               video_duration_seconds, completed_at
-        FROM preprocess_cache WHERE cache_key=?
-        """,
-        (key,),
+def load_cached(
+    conn: sqlite3.Connection, key: str
+) -> dict[str, str] | None:
+    """Return the cached Step 1 outputs as a mapping, or None on a miss.
+
+    The returned mapping is keyed by exactly ``CACHE_COLUMNS``, so a cache hit
+    and a fresh run produce the same output field set.
+    """
+    columns = ", ".join(CACHE_COLUMNS)
+    row = conn.execute(
+        f"SELECT {columns} FROM preprocess_cache WHERE cache_key=?", (key,)
     ).fetchone()
+    if row is None:
+        return None
+    return {column: (value or "") for column, value in zip(CACHE_COLUMNS, row)}
 
 
-def save_cached(conn: sqlite3.Connection, key: str, values: dict[str, str]) -> None:
+def save_cached(
+    conn: sqlite3.Connection, key: str, values: dict[str, str]
+) -> None:
+    """Persist the contracted Step 1 outputs for ``key``.
+
+    Refuses to write a partial record: if a future Stage-1 column is added to
+    ``CACHE_COLUMNS`` but the caller forgets to populate it, this raises instead
+    of silently storing a record that no longer matches a fresh run.
+    """
+    missing = [column for column in CACHE_COLUMNS if column not in values]
+    if missing:
+        raise KeyError(
+            f"cache write is missing contracted Step 1 fields: {missing}"
+        )
+    columns = ", ".join(CACHE_COLUMNS)
+    placeholders = ", ".join("?" for _ in CACHE_COLUMNS)
     conn.execute(
-        """
-        INSERT OR REPLACE INTO preprocess_cache (
-            cache_key, frame_file, frame_timestamp_seconds, ocr_1, ocr_backend,
-            ocr_model, asr_transcript, asr_language, asr_translated, asr_backend,
-            asr_model, video_duration_seconds, completed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            key,
-            values["frame_file"],
-            values["frame_timestamp_seconds"],
-            values["ocr_1"],
-            values["ocr_backend"],
-            values["ocr_model"],
-            values["asr_transcript"],
-            values["asr_language"],
-            values["asr_translated"],
-            values["asr_backend"],
-            values["asr_model"],
-            values["video_duration_seconds"],
-            values["preprocess_completed_at"],
-        ),
+        f"INSERT OR REPLACE INTO preprocess_cache (cache_key, {columns}) "
+        f"VALUES (?, {placeholders})",
+        (key, *(values[column] for column in CACHE_COLUMNS)),
     )
     conn.commit()
 
@@ -345,40 +391,21 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
 
             cached = load_cached(conn, key)
             if cached:
-                (
-                    frame_file,
-                    frame_ts,
-                    ocr_1,
-                    ocr_engine,
-                    ocr_model,
-                    transcript,
-                    language,
-                    translated,
-                    asr_engine,
-                    asr_model,
-                    duration,
-                    completed_at,
-                ) = cached
-                values = {
-                    "frame_file": frame_file or "",
-                    "frame_timestamp_seconds": frame_ts or "",
-                    "ocr_1": ocr_1 or "",
-                    "ocr_backend": ocr_engine or "",
-                    "ocr_model": ocr_model or "",
-                    "asr_transcript": transcript or "",
-                    "asr_language": language or "",
-                    "asr_translated": translated or "",
-                    "asr_backend": asr_engine or "",
-                    "asr_model": asr_model or "",
-                    "video_duration_seconds": duration or "",
-                    "preprocess_completed_at": completed_at or "",
-                }
-                for column, value in values.items():
+                for column, value in cached.items():
                     out.at[index, column] = value
                 out.at[index, "preprocess_status"] = "cached"
-                out.at[index, "preprocess_note"] = "Loaded generic Step-1 result from SQLite restart cache."
+                out.at[index, "preprocess_note"] = (
+                    "Loaded Step-1 result from SQLite restart cache "
+                    f"(fingerprint={cache_fingerprint(country)})."
+                )
                 counters["cached"] += 1
-                LOG.debug("cache_hit country=%s video_id=%s", country, video_id)
+                LOG.debug(
+                    "cache_hit country=%s video_id=%s fingerprint=%s fields=%d",
+                    country,
+                    video_id,
+                    cache_fingerprint(country),
+                    len(cached),
+                )
                 continue
 
             LOG.debug("cache_miss country=%s video_id=%s", country, video_id)
