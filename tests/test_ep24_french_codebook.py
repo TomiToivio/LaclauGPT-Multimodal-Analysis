@@ -228,13 +228,20 @@ class TestFrenchApostrophe:
         assert identity_key("Besoin d'Europe") != identity_key("Besoin d’Europe")
 
     def test_two_canonical_memory_objects_are_created_for_one_entity(self, tmp_path: Path) -> None:
-        """The downstream cost, pinned so the fix can be shown to remove it.
+        """Was the downstream cost; now pins that #102 removed it.
 
-        Two spellings of one French list become two CANONICAL memory objects with
-        different ids. Nothing in the pipeline flags this, because each spelling is
-        individually valid.
+        Before #102, two spellings of one French list became two CANONICAL memory
+        objects with different ids and nothing flagged it, because each spelling was
+        individually valid. That is the defect this test originally recorded, and its
+        own docstring said: "if this ever passes with first == second, normalisation
+        was fixed and the split is gone".
+
+        #102 fixed it at the recognition layer: the variant spelling is attached as
+        an alias of the existing object and the SAME id comes back, so one entity is
+        one object. The assertion is inverted here to pin the fixed behaviour, and
+        the id-stability half is kept, because the fix must not have moved any id.
         """
-        from roihu_memory import EP24Memory
+        from roihu_memory import EP24Memory, stable_id
 
         memory = EP24Memory(tmp_path / "memory.sqlite3")
         first = memory.add_object(
@@ -246,11 +253,16 @@ class TestFrenchApostrophe:
             state="CANONICAL", origin="researcher_private", locked=True,
         )
         assert first and second
-        assert first != second, (
-            "the two apostrophes produce two canonical objects for one entity; "
-            "if this ever passes with first == second, normalisation was fixed "
-            "and the split is gone"
+        assert first == second, (
+            "one entity must be one canonical object (#102); the apostrophe variant "
+            "is recognised and attached as an alias, not minted as a second object"
         )
+        # Id stability: the surviving id is the un-folded one, so nothing stored
+        # before #102 was re-pointed.
+        assert first == stable_id("actor", "Besoin d'Europe", country="FR", language="fr")
+        # and the converged pair is recorded rather than silent
+        merges = memory.elision_alias_merges()
+        assert merges, "the elision convergence must be recorded"
 
 
 # --------------------------------------------------------------------------
