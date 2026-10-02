@@ -8,28 +8,33 @@ while adding typed JSON statements for later graph construction.
 from __future__ import annotations
 import json, logging, os
 from pathlib import Path
-import ollama, pandas as pd
+import pandas as pd
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_entities import fold_key, resolution_lookup
-from pydantic import BaseModel, Field
 from ep24_cli import configure_step_cli
 import sys
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG=logging.getLogger("step_7_roihu_discourse_network_analysis")
 
-class DNAStatement(BaseModel):
-    actor_name: str
-    concept_label: str
-    proposition: str
-    stance: str = Field(description="support, oppose, neutral, mixed, or unknown")
-    agreement: bool | None = None
-    evidence_quote: str
-    confidence: float = Field(ge=0.0, le=1.0)
+def _models():
+    """Import runtime-only dependencies after CLI parsing."""
+    from pydantic import BaseModel, Field
 
-class DNAResult(BaseModel):
-    analysis_markdown: str
-    statements: list[DNAStatement]
+    class DNAStatement(BaseModel):
+        actor_name: str
+        concept_label: str
+        proposition: str
+        stance: str = Field(description="support, oppose, neutral, mixed, or unknown")
+        agreement: bool | None = None
+        evidence_quote: str
+        confidence: float = Field(ge=0.0, le=1.0)
+
+    class DNAResult(BaseModel):
+        analysis_markdown: str
+        statements: list[DNAStatement]
+
+    return DNAResult
 
 SYSTEM="""You are extracting evidence-linked Discourse Network Analysis (DNA) statements
 from an EP24 social-media analysis. Follow the Phase 2 LaclauGPT DNA logic:
@@ -50,6 +55,8 @@ def source(lang):
     return None
 
 def run_language(lang):
+    import ollama
+    DNAResult = _models()
     p=source(lang)
     if p is None:
         LOG.warning("No CSV for %s",lang); return
