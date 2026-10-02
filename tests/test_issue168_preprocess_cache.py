@@ -171,7 +171,8 @@ def test_cache_key_includes_identity_and_fingerprint():
     )
     key = rp.cache_key(row)
     assert key.split("|")[:3] == ["finland", "v1", "a.mp4"]
-    assert key.split("|")[3] == rp.cache_fingerprint("finland")
+    assert key.split("|")[3] == ""
+    assert key.split("|")[4] == rp.cache_fingerprint("finland")
 
 
 def test_cache_key_separates_records_within_a_country():
@@ -210,3 +211,14 @@ def test_existing_pre_fix_cache_table_is_migrated(tmp_path, monkeypatch):
         assert rp.load_cached(conn, "fi|v1|a.mp4|fp")["asr_runtime_ms"] == "456.7"
     finally:
         conn.close()
+
+
+def test_cache_key_changes_when_source_media_hash_changes():
+    row = pd.Series(
+        {"country": "finland", "video_id": "v1", "allas_filename": "a.mp4"}
+    )
+    first = rp.cache_key(row, media_sha256="aaa")
+    second = rp.cache_key(row, media_sha256="bbb")
+    assert first != second
+    assert "|aaa|" in first
+    assert "|bbb|" in second
