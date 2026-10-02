@@ -1,15 +1,10 @@
-import pandas as pd
 import logging
-from ollama import generate
-from os import listdir
-from os.path import isfile, join
 import os
-import cv2
-import ollama
-import base64
 import sqlite3
-import time
 from logging.handlers import RotatingFileHandler
+
+import ollama
+import pandas as pd
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from ep24_schema import value as ep24_value
 logger = logging.getLogger(__name__)
@@ -62,7 +57,7 @@ Do not perform political, ideological, partisan, populism, sentiment, discourse,
 
 def get_llama_summary_system_prompt():
     """Construct the system prompt for multimodal social-semiotic pre-analysis."""
-    system_prompt = f'''### System Prompt
+    system_prompt = '''### System Prompt
 
 You are assisting a social-science research pipeline by creating a **Multimodal Social-Semiotic Pre-Analysis** of incoming video/image/text material.
 
