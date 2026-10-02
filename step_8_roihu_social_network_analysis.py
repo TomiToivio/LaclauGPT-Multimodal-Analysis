@@ -84,11 +84,11 @@ def run_language(lang):
             edges=[]
             for edge in out.edges:
                 item=edge.model_dump()
-                source=lookup.get(fold_key(edge.source_actor))
+                source_hit=lookup.get(fold_key(edge.source_actor))
                 target=lookup.get(fold_key(edge.target_actor))
-                if source:
-                    item["source_actor_id"]=source["entity_id"]
-                    item["source_actor_canonical_name"]=source["canonical_name"]
+                if source_hit:
+                    item["source_actor_id"]=source_hit["entity_id"]
+                    item["source_actor_canonical_name"]=source_hit["canonical_name"]
                 if target:
                     item["target_actor_id"]=target["entity_id"]
                     item["target_actor_canonical_name"]=target["canonical_name"]
