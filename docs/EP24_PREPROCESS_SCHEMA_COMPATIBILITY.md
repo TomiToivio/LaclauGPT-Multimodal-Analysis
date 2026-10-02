@@ -73,6 +73,8 @@ The dataframe contract is backend-neutral. The candidate adapters are:
 
 The final production selection must be measured on materialized restricted EP24 clips on Roihu GH200, at minimum Finland, Poland and Portugal, recording accuracy/researcher correction, language ID, punctuation, runtime and VRAM. Do not claim that benchmark is complete from public CI.
 
+The private benchmark manifest must now include `reference_transcript_provenance` and `reference_ocr_provenance`. Any non-empty reference must be explicitly human/researcher/manual/gold verified. Earlier EP24 transcript annotations that are themselves Whisper output are useful historical artifacts but **must not be used as ASR ground truth**, because that would reward candidates for reproducing Whisper rather than the speech.
+
 ## OCR decision and benchmark gate
 
 PaddleOCR 3.x is the modern default candidate, configured to PP-OCRv5 for broad multilingual coverage. EasyOCR remains selectable as the historical comparison. OCR runs once on `frame_file` only.
