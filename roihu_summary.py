@@ -198,7 +198,8 @@ def get_llama_summary_response(system_prompt, user_prompt):
                "min_p": 0.0,
                "temperature": 0.0,
                "num_predict": 2048}
-    logger.info("model=%s model_source=%s", ollama_model(), ollama_model_source())\n    logger.debug(f"System prompt: {system_prompt}")
+    logger.info("model=%s model_source=%s", ollama_model(), ollama_model_source())
+    logger.debug(f"System prompt: {system_prompt}")
     logger.debug(f"User prompt: {user_prompt}")
     response = ollama.chat(model=ollama_model(), messages=[
             {"role": "system", "content": system_prompt},
