@@ -1,134 +1,141 @@
-"""Executable regression proof for the single-frame preprocess contract (#128 §2).
+"""Executable regression proof for the active single-frame preprocess contract (#128).
 
-#128 §2 requires a test proving, executably, that:
-
-* exactly one frame is generated;
-* its timestamp is exactly 1.0 s in *original-video* time;
-* OCR runs exactly once, against that frame.
-
-``tests/test_ep24_video_scroll.py`` already pins ``analysis_frame_times`` to
-``[1.0]``, and ``ep24_video`` is import-light, so it is tested for real here.
-
-``roihu_preprocess`` imports ``cv2`` / ``easyocr`` at module scope, and those are
-*not* in the CI test extra (``pyproject.toml`` ``[test]``). Importing it in a test
-module is therefore a collection error that aborts the whole suite. The
-preprocess-side assertions below use the repository's established source-contract
-style instead of importing the stage. The AST checks are real structural
-assertions: they would fail if a second frame request, a second save, or a
-second OCR call were reintroduced.
+Synthetic/mocked only: no private EP24 data, model download, GPU, or CSC access.
 """
 from __future__ import annotations
 
-import ast
-import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT))
+import pytest
 
-import ep24_video as video  # noqa: E402
-
-PREPROCESS_SOURCE = (REPO_ROOT / "roihu_preprocess.py").read_text(encoding="utf-8")
+import roihu_preprocess as preprocess
 
 
-def test_frame_times_are_exactly_one_timestamp_at_original_t1():
-    for duration in (1.001, 2.0, 12.0, 59.9, 600.0):
-        times = video.analysis_frame_times(duration)
-        assert times == [1.0], f"duration {duration} produced {times!r}"
-        assert len(times) == 1
+def test_active_contract_is_one_original_video_frame_at_exactly_one_second():
+    assert preprocess.FRAME_TIMESTAMP_SECONDS == 1.0
+    assert "frame_file" in preprocess.PREPROCESS_COLUMNS
+    assert "ocr_1" in preprocess.PREPROCESS_COLUMNS
+    assert "frame_files" not in preprocess.PREPROCESS_COLUMNS
+    for index in range(2, 7):
+        assert f"ocr_{index}" not in preprocess.PREPROCESS_COLUMNS
 
 
-def test_short_clips_yield_no_frame_rather_than_a_fallback_sample():
-    for duration in (0.0, 0.5, 1.0):
-        assert video.analysis_frame_times(duration) == []
+def test_save_single_keyframe_reads_and_writes_exactly_once(monkeypatch, tmp_path: Path):
+    events = []
 
+    class Capture:
+        def __init__(self, path):
+            events.append(("open", path))
 
-def test_skip_is_applied_in_original_video_time():
-    """The 1.0 s boundary must be original-video time, not clip-relative."""
-    assert video.VIDEO_INITIAL_SKIP_SECONDS == 1.0
-    assert video.analysis_frame_times(100) == [video.analysis_start_seconds()]
-    # the trim used for ASR starts at the same boundary
-    cmd = video.build_trim_command("source.mp4", "analysis.mp4")
-    assert cmd[cmd.index("-ss") + 1] == "1"
+        def isOpened(self):
+            return True
 
+        def set(self, prop, value):
+            events.append(("set", prop, value))
 
-def _functions(tree: ast.Module) -> dict[str, ast.FunctionDef]:
-    return {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+        def read(self):
+            events.append(("read",))
+            return True, object()
 
+        def release(self):
+            events.append(("release",))
 
-def test_keyframe_extraction_requests_frames_from_the_shared_rule_only():
-    """get_keyframes must derive its timestamps solely from analysis_frame_times."""
-    tree = ast.parse(PREPROCESS_SOURCE)
-    fn = _functions(tree)["get_keyframes"]
-    calls = [
-        n.func.id for n in ast.walk(fn)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(preprocess.cv2, "VideoCapture", Capture)
+    monkeypatch.setattr(
+        preprocess.cv2,
+        "imwrite",
+        lambda path, image: events.append(("write", path)) or True,
+    )
+
+    result = preprocess.save_single_keyframe(
+        "source.mp4",
+        video_id="synthetic-video",
+        author_username="synthetic-author",
+        source_type="TikTok",
+    )
+
+    assert [e for e in events if e[0] == "set"] == [
+        ("set", preprocess.cv2.CAP_PROP_POS_MSEC, 1000.0)
     ]
-    assert "analysis_frame_times" in calls, "must use the canonical frame rule"
-    assert "save_keyframe" in calls
-    # no ad-hoc timestamp arithmetic
-    assert not [n for n in ast.walk(fn) if isinstance(n, ast.Constant)
-                and isinstance(n.value, float) and n.value != 0.0], \
-        "get_keyframes must not hard-code a frame time; ep24_video owns the rule"
+    assert len([e for e in events if e[0] == "read"]) == 1
+    assert len([e for e in events if e[0] == "write"]) == 1
+    assert result.endswith(
+        "Keyframes/tiktok/synthetic-author/synthetic-video/frame_t1.0s.jpg"
+    )
 
 
-def test_save_keyframe_guards_the_scroll_boundary():
-    """save_keyframe must refuse any time before the analysis boundary."""
-    tree = ast.parse(PREPROCESS_SOURCE)
-    fn = _functions(tree)["save_keyframe"]
-    src = ast.get_source_segment(PREPROCESS_SOURCE, fn) or ""
-    assert "VIDEO_INITIAL_SKIP_SECONDS" in src
-    assert "raise ValueError" in src, "must fail loudly, not silently substitute"
+def test_save_single_keyframe_fails_instead_of_sampling_another_timestamp(
+    monkeypatch, tmp_path: Path
+):
+    class Capture:
+        def __init__(self, path):
+            pass
+
+        def isOpened(self):
+            return True
+
+        def set(self, prop, value):
+            assert prop == preprocess.cv2.CAP_PROP_POS_MSEC
+            assert value == 1000.0
+
+        def read(self):
+            return False, None
+
+        def release(self):
+            pass
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(preprocess.cv2, "VideoCapture", Capture)
+
+    with pytest.raises(ValueError, match="t=1.0s"):
+        preprocess.save_single_keyframe(
+            "short-or-invalid.mp4",
+            video_id="synthetic-video",
+            author_username="synthetic-author",
+            source_type="Instagram",
+        )
 
 
-def test_get_keyframes_does_not_append_more_than_one_frame():
-    """Structurally: exactly one save per loop iteration, no extra appends."""
-    tree = ast.parse(PREPROCESS_SOURCE)
-    fn = _functions(tree)["get_keyframes"]
-    calls = [
-        n.func.id for n in ast.walk(fn)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-    ]
-    assert calls.count("save_keyframe") == 1, "exactly one frame is saved"
-    appends = [
-        n for n in ast.walk(fn)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "append"
-    ]
-    assert len(appends) == 1, "exactly one append -> at most one frame returned"
+def test_preprocess_source_calls_ocr_once_on_the_single_frame():
+    source = (Path(__file__).resolve().parents[1] / "roihu_preprocess.py").read_text(
+        encoding="utf-8"
+    )
+    # The active OCR adapter exposes one read() call and receives frame_file,
+    # not a list/loop of sampled frames.
+    assert source.count("ocr.read(frame_file)") == 1
+    assert "reader.readtext(frame_files[0])" not in source
+    assert "for i, frame_file in enumerate(frame_files)" not in source
 
 
-def test_ocr_runs_once_on_the_first_frame_only():
-    """The stage performs exactly one readtext call, on frame_files[0]."""
-    tree = ast.parse(PREPROCESS_SOURCE)
-    readtext = [
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "readtext"
-    ]
-    assert len(readtext) == 1, f"expected exactly one OCR call, found {len(readtext)}"
-    arg = ast.get_source_segment(PREPROCESS_SOURCE, readtext[0].args[0])
-    assert arg == "frame_files[0]", f"OCR must read the single frame, got {arg!r}"
+def test_active_source_has_no_six_frame_or_whisper_output_schema():
+    source = (Path(__file__).resolve().parents[1] / "roihu_preprocess.py").read_text(
+        encoding="utf-8"
+    )
+    for old in (
+        "ocr_2",
+        "ocr_3",
+        "ocr_4",
+        "ocr_5",
+        "ocr_6",
+        "whisperResult",
+        "whisper_transcript",
+        "whisper_language",
+        "whisper_translated",
+    ):
+        assert old not in source
 
 
-def test_only_the_first_ocr_column_is_ever_populated():
-    """Documents the measured starting point for #128 §1.
-
-    The stage allocates six OCR slots but assigns only the first, so ocr_2..ocr_6
-    are always empty. This test records today's behaviour so their removal is a
-    deliberate, visible change; it should be replaced when §1 lands.
-    """
-    tree = ast.parse(PREPROCESS_SOURCE)
-    assigned = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if (isinstance(target, ast.Subscript)
-                        and isinstance(target.value, ast.Name)
-                        and target.value.id == "ocr_values"):
-                    index = target.slice.value if isinstance(target.slice, ast.Constant) \
-                        else None
-                    if index is not None:
-                        assigned[index] = ast.get_source_segment(PREPROCESS_SOURCE, node)
-    assert 0 in assigned, "ocr_1 (index 0) must be populated"
-    assert set(assigned) == {0}, f"only ocr_values[0] may be written, got {sorted(assigned)}"
+def test_country_order_starts_with_smoke_countries_and_is_fully_pinned():
+    assert preprocess.COUNTRY_ORDER == (
+        "finland",
+        "poland",
+        "portugal",
+        "germany",
+        "spain",
+        "hungary",
+        "croatia",
+        "france",
+        "bulgaria",
+        "sweden",
+    )
