@@ -163,17 +163,17 @@ def configure_step_cli(
         os.environ["LACLAUGPT_LANGUAGES"] = COUNTRY_TO_LANGUAGE[country]
         if configure_paths:
             _configure_direct_paths(step, country)
-    os.environ["LACLAUGPT_MAX_ROWS"] = str(limit)
+    if limit_source != "default":
+        os.environ["LACLAUGPT_MAX_ROWS"] = str(limit)
 
-    LOG.info(
-        "runtime_selection step=%d country=%s limit=%d selection_source.country=%s "
-        "selection_source.limit=%s input=%s output=%s",
-        step,
-        country or "<default>",
-        limit,
-        country_source,
-        limit_source,
-        os.getenv("LACLAUGPT_INPUT_CSV", "<default>"),
-        os.getenv("LACLAUGPT_OUTPUT_CSV", "<default>"),
+    message = (
+        f"runtime_selection step={step} country={country or '<default>'} limit={limit} "
+        f"selection_source.country={country_source} selection_source.limit={limit_source} "
+        f"input={os.getenv('LACLAUGPT_INPUT_CSV', '<default>')} "
+        f"output={os.getenv('LACLAUGPT_OUTPUT_CSV', '<default>')}"
     )
+    LOG.info(message)
+    # The numbered entry points configure logging at different times. Emit one
+    # concise startup line regardless, so sbatch/cron logs always show selection.
+    print(message, file=__import__("sys").stderr)
     return StepSelection(country, limit, country_source, limit_source, remaining)
