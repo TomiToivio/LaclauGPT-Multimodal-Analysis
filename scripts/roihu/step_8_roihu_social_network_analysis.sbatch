@@ -22,7 +22,7 @@ export TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-${HF_HOME}}
 mkdir -p /scratch/project_2009497/logs "${PRIVATE_ROOT}"/{csv,Allas,Keyframes,database,logs,whisper}
 module --force purge
 module load python-pytorch
-module load ffmpeg
+module load gcc/14.3.0 ffmpeg
 unset PYTHONPATH
 unset PYTHONHOME
 [[ -x "${VENV}/bin/python" ]] || { echo "Missing Roihu ARM64 venv: ${VENV}" >&2; exit 2; }
