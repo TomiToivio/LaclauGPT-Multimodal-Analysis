@@ -2,7 +2,11 @@
 """Issue #128 real-media benchmark harness for CSC Roihu GH200.
 
 Input is a PRIVATE manifest CSV. Required columns:
-  sample_id,country,video_path,reference_transcript,reference_ocr
+  sample_id,country,video_path,reference_transcript,reference_transcript_provenance,
+  reference_ocr,reference_ocr_provenance
+
+Any non-empty accuracy reference must be explicitly human/researcher/manual/gold
+verified. Model-generated text (including old Whisper output) is not ground truth.
 
 The script never prints transcript/reference text. Detailed per-sample text stays
 in the private results CSV; the Markdown summary contains aggregate metrics only.
@@ -30,7 +34,16 @@ from asr_backend import language_hint, load_asr_model
 from ep24_video import analysis_start_seconds, prepare_analysis_clip
 from ocr_backend import load_ocr_backend
 
-REQUIRED = ("sample_id", "country", "video_path", "reference_transcript", "reference_ocr")
+REQUIRED = (
+    "sample_id",
+    "country",
+    "video_path",
+    "reference_transcript",
+    "reference_transcript_provenance",
+    "reference_ocr",
+    "reference_ocr_provenance",
+)
+HUMAN_REFERENCE_PREFIXES = ("human", "researcher", "manual", "gold")
 DEFAULT_ASR = ("canary", "parakeet", "qwen3-asr", "faster-whisper")
 DEFAULT_OCR = ("paddleocr", "easyocr")
 
@@ -112,12 +125,52 @@ def frame_at_analysis_start(video: Path, output: Path) -> Path:
     return output
 
 
+def _require_human_reference(
+    row: dict[str, str],
+    *,
+    reference_field: str,
+    provenance_field: str,
+) -> None:
+    """Reject pseudo-ground-truth before any expensive model load.
+
+    #128 selects a production backend by measured accuracy. Earlier EP24
+    "reference" transcripts were themselves Whisper outputs, so scoring a new
+    ASR against them rewards reproducing Whisper rather than matching speech.
+    Empty references remain allowed (the group is reported unscored), but a
+    non-empty reference must carry explicit human/researcher/manual/gold
+    provenance.
+    """
+    reference = str(row.get(reference_field, "") or "").strip()
+    if not reference:
+        return
+    provenance = str(row.get(provenance_field, "") or "").strip().casefold()
+    normalized = provenance.replace("-", "_").replace(" ", "_")
+    if not any(normalized.startswith(prefix) for prefix in HUMAN_REFERENCE_PREFIXES):
+        sample_id = str(row.get("sample_id", "") or "<unknown>")
+        raise ValueError(
+            f"sample {sample_id}: non-empty {reference_field} requires human-verified "
+            f"{provenance_field}; got {provenance!r}. Model-generated references "
+            "(including Whisper output) must not be used to rank #128 backends."
+        )
+
+
 def read_manifest(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     missing = [name for name in REQUIRED if not rows or name not in rows[0]]
     if missing:
         raise ValueError(f"benchmark manifest missing columns: {missing}")
+    for row in rows:
+        _require_human_reference(
+            row,
+            reference_field="reference_transcript",
+            provenance_field="reference_transcript_provenance",
+        )
+        _require_human_reference(
+            row,
+            reference_field="reference_ocr",
+            provenance_field="reference_ocr_provenance",
+        )
     countries = {r["country"].strip().casefold() for r in rows}
     required_countries = {"finland", "poland", "portugal"}
     if not required_countries.issubset(countries):
