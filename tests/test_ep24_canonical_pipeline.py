@@ -21,11 +21,9 @@ ROW = {
     "sequence_number": "7",
     "political_preference": "researcher annotation",
     "allas_filename": "ep24/finland/session-01/clip-007.mp4",
-    "new_entity": "Person A",
-    "new_theme": "Theme A",
+    "entities": '["Person A", "Person B"]',
+    "themes": '["Theme A", "Theme B"]',
     "video_duration": "12.25",
-    "researcher_new_persons": "Person B",
-    "researcher_new_themes": "Theme B",
     "researcher_note": "human note",
 }
 
@@ -47,14 +45,14 @@ def test_load_preserves_video_id_byte_for_byte_and_all_source_fields(tmp_path):
 def test_cumulative_write_preserves_source_and_upstream_fields(tmp_path):
     before = pd.DataFrame([ROW])
     after = before.copy()
-    after["whisper_transcript"] = ["hei"]
+    after["asr_transcript"] = ["hei"]
     after["frame_analysis_1"] = ["visible text"]
     after["summary_analysis"] = ["markdown"]
     after["dna_statements_json"] = ['[]']
     path = tmp_path / "stage.csv"
     write_cumulative_csv(before, after, path)
     reloaded = pd.read_csv(path, dtype=str, keep_default_na=False)
-    assert list(reloaded.columns[:15]) == list(EP24_REPROCESS_COLUMNS)
+    assert list(reloaded.columns[:len(EP24_REPROCESS_COLUMNS)]) == list(EP24_REPROCESS_COLUMNS)
     for column, expected in ROW.items():
         assert reloaded.loc[0, column] == expected
     for column in ("whisper_transcript", "frame_analysis_1", "summary_analysis", "dna_statements_json"):
