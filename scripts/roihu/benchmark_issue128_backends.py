@@ -12,10 +12,19 @@ from __future__ import annotations
 import csv
 import os
 import statistics
+import sys
 import time
 from pathlib import Path
 
 import cv2
+
+# This script lives in scripts/roihu/ but imports the pipeline modules that sit at
+# the repository root. Python puts the SCRIPT's directory on sys.path (not the
+# cwd), so without this the job dies on the first import no matter where it is
+# launched from -- verified by running it as the sbatch does.
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from asr_backend import language_hint, load_asr_model
 from ep24_video import analysis_start_seconds, prepare_analysis_clip
@@ -40,16 +49,31 @@ def _distance(a, b) -> int:
     return prev[-1]
 
 
-def wer(reference: str, hypothesis: str) -> float:
+def wer(reference: str, hypothesis: str) -> float | None:
+    """Word error rate, or None when there is no reference to compare against.
+
+    An empty reference must not silently become a number: dividing the edit
+    distance by ``max(1, len(ref))`` turns a missing reference into the
+    hypothesis length, which then enters the aggregate as if it were a very
+    wrong transcript. A missing reference means the metric is undefined.
+    """
     ref = _tokens(reference)
-    hyp = _tokens(hypothesis)
-    return _distance(ref, hyp) / max(1, len(ref))
+    if not ref:
+        return None
+    return _distance(ref, _tokens(hypothesis)) / len(ref)
 
 
-def cer(reference: str, hypothesis: str) -> float:
+def cer(reference: str, hypothesis: str) -> float | None:
+    """Character error rate, or None when there is no reference."""
     ref = list(" ".join(str(reference or "").casefold().split()))
-    hyp = list(" ".join(str(hypothesis or "").casefold().split()))
-    return _distance(ref, hyp) / max(1, len(ref))
+    if not ref:
+        return None
+    return _distance(ref, list(" ".join(str(hypothesis or "").casefold().split()))) / len(ref)
+
+
+def _metric(value: float | None) -> str:
+    """Serialise a metric, keeping "no reference" distinguishable from 0.0."""
+    return "" if value is None else f"{value:.6f}"
 
 
 def gpu_peak_mb() -> float:
@@ -104,6 +128,42 @@ def read_manifest(path: Path) -> list[dict[str, str]]:
     return rows
 
 
+def render_summary(sample_count: int, results: list[dict[str, object]]) -> list[str]:
+    """Aggregate per-sample results into the Markdown summary lines.
+
+    Split out of ``main`` so the aggregation can be tested without loading any
+    model: a country with no reference material must still appear, must be
+    reported as unscored, and must not crash the run.
+    """
+    groups: dict[tuple[str, str, str], list[dict[str, object]]] = {}
+    for result in results:
+        key = (str(result["kind"]), str(result["backend"]), str(result["country"]))
+        groups.setdefault(key, []).append(result)
+
+    lines = [
+        "# Issue #128 Roihu real-media benchmark",
+        "",
+        f"Samples: {sample_count}. Analysis skip: {analysis_start_seconds():g}s.",
+        "",
+        "| kind | backend | country | n | n scored | mean error | mean runtime s | max GPU MiB |",
+        "|---|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for (kind, backend, country), values in sorted(groups.items()):
+        metric = "wer" if kind == "asr" else "cer"
+        # A country can legitimately have no reference (no ground truth exists for
+        # it yet). Report the group, but never let a missing reference contribute a
+        # fabricated error value, and never crash the whole run on `mean([])`.
+        errors = [float(str(v[metric])) for v in values if v[metric] not in ("", None)]
+        runtimes = [float(str(v["runtime_seconds"])) for v in values]
+        peaks = [float(str(v["gpu_peak_mb"])) for v in values]
+        mean_error = f"{statistics.mean(errors):.4f}" if errors else "n/a"
+        lines.append(
+            f"| {kind} | {backend} | {country} | {len(values)} | {len(errors)} | "
+            f"{mean_error} | {statistics.mean(runtimes):.3f} | {max(peaks):.1f} |"
+        )
+    return lines
+
+
 def main() -> int:
     manifest = Path(os.environ["LACLAUGPT_BENCH_MANIFEST"])
     output_root = Path(os.getenv("LACLAUGPT_BENCH_OUTPUT", "./benchmark_issue128"))
@@ -149,7 +209,7 @@ def main() -> int:
                 "model": backend.model,
                 "runtime_seconds": f"{elapsed:.6f}",
                 "gpu_peak_mb": f"{gpu_peak_mb():.1f}",
-                "wer": f"{wer(row['reference_transcript'], result.transcript):.6f}",
+                "wer": _metric(wer(row["reference_transcript"], result.transcript)),
                 "cer": "",
                 "detected_language": result.language,
                 "reference_text": row["reference_transcript"],
@@ -178,7 +238,7 @@ def main() -> int:
                 "runtime_seconds": f"{elapsed:.6f}",
                 "gpu_peak_mb": f"{gpu_peak_mb():.1f}",
                 "wer": "",
-                "cer": f"{cer(row['reference_ocr'], text):.6f}",
+                "cer": _metric(cer(row["reference_ocr"], text)),
                 "detected_language": "",
                 "reference_text": row["reference_ocr"],
                 "generated_text": text,
@@ -188,7 +248,11 @@ def main() -> int:
                 f"backend={backend.engine} runtime={elapsed:.2f}s"
             )
 
-    fieldnames = list(results[0])
+    fieldnames = [
+        "kind", "sample_id", "country", "backend", "model", "runtime_seconds",
+        "gpu_peak_mb", "wer", "cer", "detected_language", "reference_text",
+        "generated_text",
+    ]
     result_csv = output_root / "issue128_backend_benchmark.csv"
     with result_csv.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -196,29 +260,7 @@ def main() -> int:
         writer.writerows(results)
 
     summary = output_root / "issue128_backend_benchmark.md"
-    groups: dict[tuple[str, str, str], list[dict[str, object]]] = {}
-    for result in results:
-        key = (str(result["kind"]), str(result["backend"]), str(result["country"]))
-        groups.setdefault(key, []).append(result)
-
-    lines = [
-        "# Issue #128 Roihu real-media benchmark",
-        "",
-        f"Samples: {len(rows)}. Analysis skip: {analysis_start_seconds():g}s.",
-        "",
-        "| kind | backend | country | n | mean error | mean runtime s | max GPU MiB |",
-        "|---|---|---|---:|---:|---:|---:|",
-    ]
-    for (kind, backend, country), values in sorted(groups.items()):
-        metric = "wer" if kind == "asr" else "cer"
-        errors = [float(v[metric]) for v in values if str(v[metric])]
-        runtimes = [float(v["runtime_seconds"]) for v in values]
-        peaks = [float(v["gpu_peak_mb"]) for v in values]
-        lines.append(
-            f"| {kind} | {backend} | {country} | {len(values)} | "
-            f"{statistics.mean(errors):.4f} | {statistics.mean(runtimes):.3f} | "
-            f"{max(peaks):.1f} |"
-        )
+    lines = render_summary(len(rows), results)
     summary.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Wrote private benchmark results: {result_csv}")
     print(f"Wrote aggregate benchmark summary: {summary}")
