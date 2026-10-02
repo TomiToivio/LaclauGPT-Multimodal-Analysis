@@ -322,8 +322,8 @@ def load_codebook(path: str | Path, *, layer: str = "country") -> tuple[list[Cod
 # codebook entries: every seed built from them below is PROVISIONAL and
 # unlocked, so it must still be corroborated/reviewed, same as a model guess.
 RESEARCH_NOTE_SEED_FIELDS: dict[str, tuple[str, ...]] = {
-    "entity": ("new_entity", "researcher_new_persons"),
-    "topic": ("new_theme", "researcher_new_themes"),
+    "entity": ("entities",),
+    "topic": ("themes",),
 }
 _SEED_SPLIT_RE = re.compile(r"[;\n]+")
 
