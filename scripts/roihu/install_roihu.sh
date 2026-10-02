@@ -34,9 +34,25 @@ fi
 
 module --force purge
 module load python-pytorch
-# Roihu exposes ffmpeg behind a GCC toolchain. Pin a known-good toolchain
-# instead of relying on an ambiguous bare "module load ffmpeg".
-module load gcc/14.3.0 ffmpeg
+
+roihu_load_ffmpeg() {
+  # Roihu exposes ffmpeg only behind a GCC toolchain. Allow an explicit
+  # override, otherwise try the currently advertised compatible toolchains.
+  local preferred="${LACLAUGPT_ROIHU_GCC_VERSION:-14.3.0}"
+  local version
+  for version in "${preferred}" 13.4.0 14.3.0 15.2.0; do
+    if module load "gcc/${version}" ffmpeg >/dev/null 2>&1; then
+      echo "Loaded Roihu ffmpeg with gcc/${version}"
+      return 0
+    fi
+    module unload ffmpeg "gcc/${version}" >/dev/null 2>&1 || true
+  done
+  echo "Could not load ffmpeg with Roihu GCC toolchains 13.4.0, 14.3.0, or 15.2.0." >&2
+  echo "Run: module spider ffmpeg" >&2
+  return 1
+}
+
+roihu_load_ffmpeg
 unset PYTHONPATH PYTHONHOME
 
 mkdir -p   "/scratch/${CSC_PROJECT}/logs"   "/scratch/${CSC_PROJECT}/cache/"{huggingface,torch,pip}   "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/"{logs,database,outputs,Keyframes,Allas,.ollama/models}
