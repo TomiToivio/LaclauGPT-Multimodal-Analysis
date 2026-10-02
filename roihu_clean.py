@@ -58,11 +58,9 @@ KEEP_SCHEMA_ORDER: tuple[str, ...] = (
     "sequence_number",
     "political_preference",
     "allas_filename",
-    "new_entity",
-    "new_theme",
+    "entities",
+    "themes",
     "video_duration",
-    "researcher_new_persons",
-    "researcher_new_themes",
     "researcher_note",
 )
 
@@ -349,19 +347,23 @@ def split_multi_value(value: Any) -> list[str]:
             decoded = None
         if isinstance(decoded, list):
             return [str(item).strip() for item in decoded if str(item).strip()]
-    parts = text.split(";") if ";" in text else text.split(",")
+    # Commas are valid inside canonical EP24 labels. Historical human fields
+    # use semicolons/newlines for multiple values; never split an implicit comma.
+    parts = re.split(r"[;\n]+", text)
     return [part.strip() for part in parts if part.strip()]
 
 
 def merge_seed_values(*values: Any) -> list[str]:
     """Deterministic union of human-curated labels, de-duplicated case-insensitively."""
-    seen: dict[str, str] = {}
+    seen: set[str] = set()
+    merged: list[str] = []
     for value in values:
         for item in split_multi_value(value):
             key = item.casefold()
             if key not in seen:
-                seen[key] = item
-    return [seen[key] for key in sorted(seen)]
+                seen.add(key)
+                merged.append(item)
+    return merged
 
 
 @dataclass
@@ -660,11 +662,13 @@ def _apply_decision(row: dict[str, Any], decision: RowDecision) -> dict[str, Any
     enriched["cleaning_notes_md"] = decision.notes_md
     enriched["include_in_reprocess"] = "true" if decision.include_in_reprocess else "false"
     enriched["needs_human_review"] = "true" if decision.needs_human_review else "false"
-    enriched["seed_entities"] = "; ".join(
-        merge_seed_values(row.get("new_entity"), row.get("researcher_new_persons"))
+    enriched["seed_entities"] = json.dumps(
+        merge_seed_values(row.get("new_entity"), row.get("researcher_new_persons")),
+        ensure_ascii=False,
     )
-    enriched["seed_themes"] = "; ".join(
-        merge_seed_values(row.get("new_theme"), row.get("researcher_new_themes"))
+    enriched["seed_themes"] = json.dumps(
+        merge_seed_values(row.get("new_theme"), row.get("researcher_new_themes")),
+        ensure_ascii=False,
     )
     return enriched
 
@@ -688,7 +692,20 @@ class CleaningOutcome:
         return counts
 
     def reprocess_rows(self) -> list[dict[str, Any]]:
-        return [row for row in self.rows if row.get("include_in_reprocess") == "true"]
+        """Return canonical Step-1 rows while preserving the historical derivative.
+
+        Legacy source columns remain in the cleaned audit artifact, but the
+        reprocessing handoff exposes only canonical human annotations.
+        """
+        out: list[dict[str, Any]] = []
+        for row in self.rows:
+            if row.get("include_in_reprocess") != "true":
+                continue
+            canonical = dict(row)
+            canonical["entities"] = row.get("seed_entities", "[]")
+            canonical["themes"] = row.get("seed_themes", "[]")
+            out.append(canonical)
+        return out
 
     def recut_rows(self) -> list[dict[str, Any]]:
         return [
