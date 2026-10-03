@@ -2,12 +2,52 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 QUALITY_STATUSES = ("OK", "REPROCESS", "DELETE")
 _STATUS_PRIORITY = {"OK": 0, "REPROCESS": 1, "DELETE": 2}
 _STATUS_RE = re.compile(r"\b(OK|REPROCESS(?:ED)?|DELETE(?:D)?)\b", re.IGNORECASE)
+
+#: A verdict is a status word the model asserts *about the video*, not any
+#: occurrence of the word in prose. The bare-word scan this replaces escalated
+#: legitimate content to DELETE on sentences like "the original audio is deleted
+#: and replaced by music" or "a screenshot of a deleted post" -- and DELETE does
+#: not merely drop the row from step 5, it also removes the local frame and video
+#: copy. On the EP24 corpus, where describing an editing cut or quoting a deleted
+#: post is routine, that silently removes valid videos from the research dataset.
+#:
+#: So a token counts as a verdict when it reads as a judgement about the media:
+#: emphasised or backticked, a labelled field, next to an imperative, or in a
+#: clause that also names an unusability word ("garbage", "meaningless", ...).
+#: A bare "deleted"/"ok" in ordinary description does not count.
+_UNUSABLE_WORDS = (
+    "garbage", "unusable", "meaningless", "corrupt", "no meaningful content",
+    "no useful content", "nothing useful", "unwatchable", "broken",
+)
+_VERDICT_PATTERNS = (
+    # emphasis / backticks: **DELETE**, `REPROCESS`
+    re.compile(r"\*\*\s*(OK|REPROCESS|DELETE)\s*\*\*", re.IGNORECASE),
+    re.compile(r"`\s*(OK|REPROCESS|DELETE)\s*`", re.IGNORECASE),
+    # a labelled field: STATUS: DELETE, verdict = REPROCESS
+    re.compile(r"\b(?:status|verdict|label|recommendation|decision|classification)\s*[:=]\s*"
+               r"(?:\*\*)?\s*(OK|REPROCESS|DELETE)\b", re.IGNORECASE),
+    # imperative / recommendation phrasing
+    re.compile(r"\b(?:mark|marked|marks|flag|flagged|flags|classif(?:y|ied|ies))\s+"
+               r"(?:this\s+|it\s+|the\s+\w+\s+)?(?:as\s+|for\s+)?(?:\*\*)?(REPROCESS|DELETE)\b",
+               re.IGNORECASE),
+    re.compile(r"\b(?:should|must|needs? to|ought to|has to)\s+be\s+"
+               r"(?:\*\*)?(reprocessed|delete[dr]?|reprocess(?:ed)?)\b", re.IGNORECASE),
+    # an explicit unusability judgement about the media, optionally followed by a
+    # trailing status word: "... meaningless content, garbage. DELETE."
+    re.compile(r"\b(?:" + "|".join(re.escape(w) for w in _UNUSABLE_WORDS) + r")\b"
+               r"(?:[^.\n]{0,60}?\b(DELETE|REPROCESS)\b)?", re.IGNORECASE),
+)
+#: A line that is nothing but a status word, e.g. "DELETE." on its own line.
+_STANDALONE_RE = re.compile(
+    r"^\s*(?:\*\*)?\s*(OK|REPROCESS|DELETE)\s*[.:!]?\s*(?:\*\*)?\s*$",
+    re.IGNORECASE,
+)
 
 QUALITY_COLUMNS = (
     "processing_status",
@@ -44,17 +84,45 @@ def normalize_reason(value: object, *, fallback: str = "") -> str:
 
 
 def status_from_text(text: object, *, default: str = "OK") -> str:
-    """Best-effort extraction from model prose. Explicit stronger labels win."""
+    """Extract a quality verdict from model prose.
+
+    Only *verdict-like* occurrences count. A bare status word in descriptive
+    prose is ignored, because words like "deleted" and "ok" appear constantly in
+    ordinary video description ("the audio is deleted and replaced by music",
+    "a screenshot of a deleted post") and treating those as a DELETE verdict
+    discards legitimate research material. See `_VERDICT_PATTERNS` above.
+    """
     raw = "" if text is None else str(text)
-    statuses = []
-    for match in _STATUS_RE.findall(raw):
-        token = match.upper()
-        if token.startswith("REPROCESS"):
+    statuses: list[str] = []
+
+    def record(token: str) -> None:
+        upper = token.upper()
+        if upper.startswith("REPROCESS"):
             statuses.append("REPROCESS")
-        elif token.startswith("DELETE"):
+        elif upper.startswith("DELETE"):
             statuses.append("DELETE")
         else:
             statuses.append("OK")
+
+    for pattern in _VERDICT_PATTERNS:
+        for match in pattern.finditer(raw):
+            token = next((g for g in match.groups() if g), "")
+            if not token:
+                # The unusability pattern may match with no trailing status word
+                # ("... meaningless content, garbage."). That is itself a DELETE
+                # judgement about the media.
+                if any(word in match.group(0).casefold() for word in _UNUSABLE_WORDS):
+                    statuses.append("DELETE")
+                continue
+            if token.casefold() in {"reprocessed", "deleted", "reprocess"}:
+                token = "REPROCESS" if "reprocess" in token.casefold() else "DELETE"
+            record(token)
+
+    for line in raw.splitlines():
+        match = _STANDALONE_RE.match(line)
+        if match:
+            record(match.group(1))
+
     if not statuses:
         return default
     return max(statuses, key=_STATUS_PRIORITY.__getitem__)
