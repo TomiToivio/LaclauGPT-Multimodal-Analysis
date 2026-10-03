@@ -64,7 +64,20 @@ STEP_QUALITY_COLUMNS = (
 )
 
 
-def normalize_status(value: object, *, default: str = "OK") -> str:
+def normalize_status(value: object, *, default: str = "OK", strict: bool = False) -> str:
+    """Coerce a value to a valid quality status.
+
+    Unrecognised text is common in real data -- an older schema, a model that
+    wrote prose into a status field, a hand-edited CSV. Raising here is *not* a
+    safe default: Step 5 normalizes the whole incoming column before routing, and
+    that call sits outside any per-row error handling, so one unexpected value
+    aborts the entire step for every country.
+
+    The default is therefore to fall back to `default`, which routes the row
+    onward for review rather than deleting it from the dataset. Pass
+    `strict=True` where the caller wants to reject bad input explicitly, such as
+    validating a model response before trusting it.
+    """
     text = "" if value is None else str(value).strip().upper()
     aliases = {
         "REPROCESSED": "REPROCESS",
@@ -74,7 +87,9 @@ def normalize_status(value: object, *, default: str = "OK") -> str:
     if not text:
         return default
     if text not in _STATUS_PRIORITY:
-        raise ValueError(f"invalid processing status: {value!r}")
+        if strict:
+            raise ValueError(f"invalid processing status: {value!r}")
+        return default
     return text
 
 
