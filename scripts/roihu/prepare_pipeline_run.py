@@ -15,11 +15,13 @@ def read_rows(path: Path):
         reader = csv.DictReader(fh)
         return reader.fieldnames or [], list(reader)
 
-def stable_id(row: dict[str, str], index: int) -> str:
+def stable_identity(row: dict[str, str], index: int) -> tuple[str, str]:
     for key in ("video_id", "_storage_id", "allas_filename", "url"):
         if row.get(key):
-            return row[key]
-    return hashlib.sha256(json.dumps(row, sort_keys=True).encode()).hexdigest()[:16] + f"-{index}"
+            return key, row[key]
+    return "_row_hash", hashlib.sha256(
+        json.dumps(row, sort_keys=True).encode()
+    ).hexdigest()[:16] + f"-{index}"
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -36,6 +38,7 @@ def main() -> int:
     selected_root = args.run_dir / "inputs"
     selected_root.mkdir(exist_ok=True)
     manifest_rows = []
+    all_records = []
 
     if args.test:
         countries = list(TEST_COUNTRIES)
@@ -53,13 +56,33 @@ def main() -> int:
                 writer.writeheader()
                 writer.writerows(row for _, row in chosen)
             for idx, row in chosen:
-                manifest_rows.append({"country": country, "source_index": idx, "record_id": stable_id(row, idx)})
+                key, record_id = stable_identity(row, idx)
+                item = {
+                    "country": country,
+                    "source_index": idx,
+                    "record_key": key,
+                    "record_id": record_id,
+                }
+                manifest_rows.append(item)
+                all_records.append(item)
         effective_input = selected_root
     else:
         paths = sorted(args.input_root.glob("ep24_*.csv"))
         countries = [p.stem.removeprefix("ep24_") for p in paths]
         if not countries:
             raise SystemExit(f"no ep24_*.csv files under {args.input_root}")
+        for path, country in zip(paths, countries, strict=True):
+            _, rows = read_rows(path)
+            for idx, row in enumerate(rows):
+                key, record_id = stable_identity(row, idx)
+                all_records.append(
+                    {
+                        "country": country,
+                        "source_index": idx,
+                        "record_key": key,
+                        "record_id": record_id,
+                    }
+                )
         effective_input = args.input_root
 
     (args.run_dir / "countries.txt").write_text("\n".join(countries) + "\n", encoding="utf-8")
@@ -72,6 +95,7 @@ def main() -> int:
         "countries": countries,
         "sample_size": len(manifest_rows) if args.test else None,
         "sample": manifest_rows,
+        "records": all_records,
     }
     (args.run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(str(effective_input))
