@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Historical five-stage order retained as a compatibility invariant for the legacy EP24 record.
+# The numbered Phase 2 runner below extends around it rather than rewriting that history.
+LEGACY_STAGE_ORDER="preprocess frame summary postprocess populism"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PUBLIC_ROOT="${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 export CSC_PROJECT="${CSC_PROJECT:-project_2009497}"
