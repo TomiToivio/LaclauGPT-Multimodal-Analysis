@@ -16,7 +16,7 @@ Issue #209 makes every EP24 numbered stage independently installable and indepen
 | 8 SNA | `step_8_roihu_social_network_analysis.py` | `setup_step_8_social_network_analysis.sh` | `submit_step_8_social_network_analysis.sh` | `python-pytorch` + Ollama | GH200, 72 CPU, 36h | Pandas, Pydantic, Ollama; graph metrics are deterministic stdlib |
 | 9 RDF | `step_9_roihu_rdf.py` | `setup_step_9_rdf.sh` | `submit_step_9_rdf.sh` | CPU Python venv, no model stack | `small`, 4 CPU, 16G, 4h | Python standard library |
 
-Each venv lives under the private EP24 scratch root at `.venvs/step-N`. Requirements are reviewable under `requirements/roihu-step*.txt`. Step 3 deliberately inherits vLLM and Transformers from CSC's `python-vllm` module rather than pip-replacing that stack. Step 9 deliberately avoids GPU/model dependencies.
+Each venv lives under the private EP24 scratch root at `.venvs/step-N`. Requirements are reviewable under `requirements/roihu-step*.txt`. Set up Steps 1–8 on `roihu-gpu.csc.fi` (ARM64); set up Step 9 on `roihu-cpu.csc.fi` (x86_64), because its `small` CPU job must not reuse an ARM64 venv. Step 3 deliberately inherits vLLM and Transformers from CSC's `python-vllm` module rather than pip-replacing that stack. Step 9 deliberately avoids GPU/model dependencies.
 
 ## Setup and individual submission
 
