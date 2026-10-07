@@ -16,6 +16,8 @@ export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${CACHE_ROOT}/pip}"
 export HF_HOME="${HF_HOME:-${CACHE_ROOT}/huggingface}"
 export TORCH_HOME="${TORCH_HOME:-${CACHE_ROOT}/torch}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${CACHE_ROOT}}"
+export LACLAUGPT_OCR_ENGINE="${LACLAUGPT_OCR_ENGINE:-easyocr}"
+export LACLAUGPT_ASR_ENGINE="${LACLAUGPT_ASR_ENGINE:-canary}"
 mkdir -p "${PIP_CACHE_DIR}" "${HF_HOME}" "${TORCH_HOME}" "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/.venvs"   "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/"{logs,database,outputs,Keyframes,Allas}
 
 if [[ "$(uname -m)" != "aarch64" && "${LACLAUGPT_ALLOW_NON_ROIHU_INSTALL:-0}" != "1" ]]; then
