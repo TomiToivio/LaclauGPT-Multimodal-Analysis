@@ -7,6 +7,10 @@ import shutil
 import sys
 from pathlib import Path
 
+PUBLIC_ROOT = Path(__file__).resolve().parents[2]
+if str(PUBLIC_ROOT) not in sys.path:
+    sys.path.insert(0, str(PUBLIC_ROOT))
+
 IMPORTS = {
     1: ("pandas", "cv2"),
     2: ("pandas", "cv2", "ollama"),
@@ -16,7 +20,7 @@ IMPORTS = {
     6: ("pandas", "ollama", "pydantic"),
     7: ("pandas", "ollama", "pydantic"),
     8: ("pandas", "ollama", "pydantic"),
-    9: (),
+    9: ("pandas", "pymongo"),
 }
 GPU_STEPS = set(range(1, 9))
 OLLAMA_STEPS = {2, 4, 5, 6, 7, 8}
