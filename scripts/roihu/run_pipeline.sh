@@ -109,7 +109,7 @@ for country in "${COUNTRIES[@]}"; do
       unset LACLAUGPT_SBATCH_DEPENDENCY || true
     fi
     submitter="$(submitter_for "${step}")"
-    job_id="$("${submitter}" --country "${country}" --limit 0)"
+    job_id="$(bash "${submitter}" --country "${country}" --limit 0)"
     printf "%s\t%s\t%s\n" "${country}" "${step}" "${job_id}" >> "${JOBS_TSV}"
     previous="${job_id}"
   done
