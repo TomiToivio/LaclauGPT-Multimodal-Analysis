@@ -25,6 +25,8 @@ fi
 export HF_HOME="${HF_HOME:-/scratch/${CSC_PROJECT:-project_2009497}/cache/huggingface}"
 export TORCH_HOME="${TORCH_HOME:-/scratch/${CSC_PROJECT:-project_2009497}/cache/torch}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/scratch/${CSC_PROJECT:-project_2009497}/cache}"
+export LACLAUGPT_OCR_ENGINE="${LACLAUGPT_OCR_ENGINE:-easyocr}"
+export LACLAUGPT_ASR_ENGINE="${LACLAUGPT_ASR_ENGINE:-canary}"
 mkdir -p "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"/{logs,database,outputs,Keyframes,Allas} "${HF_HOME}" "${TORCH_HOME}"
 
 if roihu_step_needs_ollama "${STEP}"; then
