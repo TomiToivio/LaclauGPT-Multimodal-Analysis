@@ -1,0 +1,6 @@
+pandas>=2.2,<3
+pydantic>=2.8,<3
+pymongo>=4.8,<5
+redis>=5,<7
+openpyxl>=3.1
+requests>=2.32
