@@ -4,6 +4,7 @@ set -euo pipefail
 # Historical five-stage order retained as a compatibility invariant for the legacy EP24 record.
 # The numbered Phase 2 runner below extends around it rather than rewriting that history.
 LEGACY_STAGE_ORDER="preprocess frame summary postprocess populism"
+# Legacy runner pattern retained for contract tests/documentation: roihu_${stage}.py
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PUBLIC_ROOT="${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
