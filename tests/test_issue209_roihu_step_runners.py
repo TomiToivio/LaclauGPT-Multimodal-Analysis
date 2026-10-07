@@ -115,3 +115,56 @@ def test_pipeline_modes_are_explicit():
     assert "afterok:" in script
     assert "afterany:" in script
     assert "LACLAUGPT_MONGO_ENABLED=0" in script
+
+
+def test_summary_tracks_each_video_at_each_step(tmp_path: Path, monkeypatch):
+    run = tmp_path / "run"
+    outputs = run / "outputs" / "finland"
+    outputs.mkdir(parents=True)
+    records = [
+        {
+            "country": "finland",
+            "source_index": 0,
+            "record_key": "video_id",
+            "record_id": "fi-1",
+        },
+        {
+            "country": "finland",
+            "source_index": 1,
+            "record_key": "video_id",
+            "record_id": "fi-2",
+        },
+    ]
+    (run / "manifest.json").write_text(
+        json.dumps({"mode": "test", "records": records, "sample": records})
+    )
+    jobs = run / "jobs.tsv"
+    jobs.write_text("country\\tstep\\tjob_id\\nfinland\\t1\\t101\\n")
+    with (outputs / "step_01_preprocess.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["video_id"])
+        writer.writeheader()
+        writer.writerow({"video_id": "fi-1"})
+        writer.writerow({"video_id": "fi-2"})
+
+    fake_sacct = tmp_path / "sacct"
+    fake_sacct.write_text("#!/bin/sh\\necho '101|COMPLETED|0:0'\\n")
+    fake_sacct.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path) + ":" + __import__("os").environ["PATH"])
+    monkeypatch.setenv("LACLAUGPT_EP24_OUTPUT_ROOT", str(run / "outputs"))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROIHU / "summarize_pipeline_run.py"),
+            str(run),
+            str(jobs),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    summary = json.loads((run / "summary.json").read_text())
+    step1 = [item for item in summary["video_steps"] if item["step"] == 1]
+    assert {item["status"] for item in step1} == {"present"}
+    step2 = [item for item in summary["video_steps"] if item["step"] == 2]
+    assert {item["status"] for item in step2} == {"no_output"}
