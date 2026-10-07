@@ -77,7 +77,9 @@ EP24 visual analysis has a mandatory collection-quality rule: the contextual sti
 8. `step_8_roihu_social_network_analysis.py` - basic Phase 2 SNA: explicit node/edge tables, transparent graph metrics, evidence-supported relations, and a separately labelled Castells/Communication Power interpretation.
 9. `step_9_roihu_rdf.py` - deterministic RDF/knowledge-graph export of the cumulative record, including Step 8 SNA nodes/edges and provenance. This is CPU-only; it does not need Ollama or a GPU.
 
-Each stage has its own matching batch file under `scripts/roihu/step_N_*.sbatch`. Submit one stage at a time, inspect its CSV/log output, then submit the next. See [docs/ROIHU_NUMBERED_PIPELINE.md](docs/ROIHU_NUMBERED_PIPELINE.md) and the canonical [Steps 1–9 pipeline contract](docs/EP24_PIPELINE_CONTRACT.md).\n\nFor production operation, each stage also has a dedicated idempotent setup script and dedicated submit wrapper with a step-specific Roihu environment. The pipeline controller provides explicit `--test` (10 random FI + 10 PL + 10 PT, Steps 1–9) and `--full` (all videos, all discovered countries, Steps 1–9) modes. See [docs/ROIHU_PER_STEP_ENVIRONMENTS.md](docs/ROIHU_PER_STEP_ENVIRONMENTS.md).
+Each stage has its own matching batch file under `scripts/roihu/step_N_*.sbatch`. Submit one stage at a time, inspect its CSV/log output, then submit the next. See [docs/ROIHU_NUMBERED_PIPELINE.md](docs/ROIHU_NUMBERED_PIPELINE.md) and the canonical [Steps 1–9 pipeline contract](docs/EP24_PIPELINE_CONTRACT.md).
+
+For production operation, each stage also has a dedicated idempotent setup script and dedicated submit wrapper with a step-specific Roihu environment. The pipeline controller provides explicit `--test` (10 random FI + 10 PL + 10 PT, Steps 1–9) and `--full` (all videos, all discovered countries, Steps 1–9) modes. See [docs/ROIHU_PER_STEP_ENVIRONMENTS.md](docs/ROIHU_PER_STEP_ENVIRONMENTS.md).
 
 The code style these steps are written in — one step per named file, shared `ep24_*.py` infrastructure, theory-heavy prompts kept readable, additive fields — is documented in [docs/CODING_STYLE.md](docs/CODING_STYLE.md).
 
