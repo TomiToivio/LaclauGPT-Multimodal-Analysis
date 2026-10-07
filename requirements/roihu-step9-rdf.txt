@@ -1,2 +1,8 @@
-# Step 9 uses only the Python standard library at runtime.
-# Keep this file so the per-step dependency closure remains explicit.
+# RDF itself uses only the Python standard library. These lightweight
+# packages support the optional Mongo/Redis stage orchestrator used by the
+# generic Step 9 runner when LACLAUGPT_MONGO_ENABLED=1.
+pandas>=2.2,<3
+pydantic>=2.9,<3
+pymongo>=4.10,<5
+redis>=5,<7
+openpyxl>=3.1,<4
