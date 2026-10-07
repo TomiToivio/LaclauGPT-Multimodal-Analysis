@@ -20,9 +20,19 @@ export LACLAUGPT_OCR_ENGINE="${LACLAUGPT_OCR_ENGINE:-easyocr}"
 export LACLAUGPT_ASR_ENGINE="${LACLAUGPT_ASR_ENGINE:-canary}"
 mkdir -p "${PIP_CACHE_DIR}" "${HF_HOME}" "${TORCH_HOME}" "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/.venvs"   "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/"{logs,database,outputs,Keyframes,Allas}
 
-if [[ "$(uname -m)" != "aarch64" && "${LACLAUGPT_ALLOW_NON_ROIHU_INSTALL:-0}" != "1" ]]; then
-  echo "Expected Roihu ARM64 login node; got $(uname -m)." >&2
-  exit 2
+ARCH="$(uname -m)"
+if [[ "${LACLAUGPT_ALLOW_NON_ROIHU_INSTALL:-0}" != "1" ]]; then
+  if [[ "${RUNTIME}" == "cpu" ]]; then
+    [[ "${ARCH}" == "x86_64" ]] || {
+      echo "Step ${STEP} is CPU-only: run setup on roihu-cpu (x86_64); got ${ARCH}." >&2
+      exit 2
+    }
+  else
+    [[ "${ARCH}" == "aarch64" ]] || {
+      echo "Step ${STEP} requires the Roihu GPU/ARM64 module stack; got ${ARCH}." >&2
+      exit 2
+    }
+  fi
 fi
 [[ -f "${REQ}" ]] || { echo "Missing requirements: ${REQ}" >&2; exit 2; }
 
