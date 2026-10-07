@@ -1,5 +1,7 @@
 # LaclauGPT Multimodal Analysis
 
+[![Tests](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/actions/workflows/tests.yml/badge.svg)](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/actions/workflows/tests.yml)
+
 <!-- project-logos:start -->
 <p align="center">
   <a href="https://www.co3socialcontract.eu/"><img src="https://raw.githubusercontent.com/TomiToivio/LaclauGPT/main/assets/co3-logo.svg" width="180" alt="CO3 project logo"></a>
