@@ -239,7 +239,7 @@ Analyze the provided frame using the social-semiotic pre-analysis categories abo
     # Temperature 0.0 was found to be the best for this task
     options={"repeat_last_n": 64,
              "repeat_penalty": 1.1,
-             "num_ctx": 8192,
+             "num_ctx": int(os.getenv("LACLAUGPT_FRAME_NUM_CTX", "8192")),
              "top_p": 0.9,
              "top_k": 40,
              "min_p": 0.0,
@@ -262,9 +262,44 @@ Analyze the provided frame using the social-semiotic pre-analysis categories abo
     return frame_analysis
 
 def _row_context(row: pd.Series) -> tuple[str, str]:
-    """Return complete provenance-labelled row context and its reproducibility hash."""
-    context = metadata_context(row, include_model_fields=True)
+    """Budget frame prompt context without changing any stored source fields.
+
+    Retrieval hits and memory may contain other videos' entire transcripts.
+    They remain in the cumulative dataframe, but cannot displace this frame's
+    direct evidence from a single-frame prompt.
+    """
+    budget = max(1000, int(os.getenv("LACLAUGPT_FRAME_CONTEXT_MAX_CHARS", "9000")))
+    priorities = (
+        "video_id", "country", "source_type", "author_username",
+        "source_recording", "political_preference", "entities", "themes",
+        "researcher_note", "frame_timestamp_seconds", "ocr_1",
+        "asr_transcript", "asr_translated", "preprocess_status",
+    )
+    parts = []
+    remaining = budget
+    for key in priorities:
+        raw = row.get(key, "")
+        value = "" if raw is None else str(raw).strip()
+        if not value or value.lower() == "nan":
+            continue
+        label = f"- {key}: "
+        if remaining <= len(label) + 30:
+            break
+        cap = min(len(value), remaining - len(label) - 1)
+        piece = label + value[:cap]
+        if cap < len(value):
+            piece += " [TRUNCATED FOR MODEL CONTEXT; ORIGINAL PRESERVED]"
+        parts.append(piece)
+        remaining -= len(piece) + 1
+    context = (
+        "EP24 SINGLE-FRAME EVIDENCE AND PROVENANCE. Researcher annotations "
+        "are not model ground truth. OCR and ASR are upstream estimates. "
+        "Full cumulative metadata, memory and RAG retrieval are retained "
+        "outside this bounded prompt.\n" + "\n".join(parts)
+    )
     digest = hashlib.sha256(context.encode("utf-8")).hexdigest()
+    logger.info("frame_context_budget chars=%d limit=%d full_context_chars=%d",
+                len(context), budget, len(metadata_context(row, include_model_fields=True)))
     return context, digest
 
 
