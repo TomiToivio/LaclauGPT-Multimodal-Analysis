@@ -39,6 +39,8 @@ source "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/scripts/roihu/roihu_job_common.sh"
 
 roihu_load_runtime "vllm"
 roihu_diagnostics
+source "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/scripts/roihu/ensure_step3_rclone.sh"
+roihu_ensure_rclone
 roihu_preflight 3
 
 cd "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
