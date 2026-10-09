@@ -372,6 +372,14 @@ def run_country(
                         storage.collection_name("dataframe"),
                         storage.config.dataset, alternatives,
                     )
+                if total_rows == 0:
+                    raise RuntimeError(
+                        f"Step {step} input collection is empty: "
+                        f"{storage.config.mongo_database}."
+                        f"{storage.collection_name('dataframe')}. "
+                        "Run Step 0 without --dry-run with matching dataset "
+                        "and database before requesting a GPU job."
+                    )
                 LOG.info("country=%s step=%d nothing else eligible", country, step)
                 break
 
