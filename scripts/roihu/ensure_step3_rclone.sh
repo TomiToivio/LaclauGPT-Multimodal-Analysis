@@ -2,6 +2,15 @@
 # Install/resolve a persistent native ARM64 rclone for the Roihu GPU jobs.
 # Intended to be sourced after the appropriate CSC modules are loaded.
 roihu_ensure_rclone() {
+  # The Allas module exposes the site's rclone binary and configured remotes.
+  # Explicitly load it here, after any module purges/venv activation, so both
+  # the generic and legacy Step 3 launchers inherit a usable command.
+  if type module >/dev/null 2>&1; then
+    module load allas || {
+      echo "Step 3 requires 'module load allas' on CSC Roihu." >&2
+      return 2
+    }
+  fi
   local root="${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:?private root required}"
   local bin_dir="${LACLAUGPT_RCLONE_BIN_DIR:-${root}/.tools/bin}"
   local destination="${bin_dir}/rclone"
