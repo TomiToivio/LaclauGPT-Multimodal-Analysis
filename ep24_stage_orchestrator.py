@@ -80,18 +80,35 @@ def claim_batch(
     collection = storage.db[storage.collection_name("dataframe")]
     now = datetime.now(timezone.utc)
     stale = now - timedelta(hours=stale_hours)
-    collection.update_many(
-        {
-            f"{status_path(step)}.status": "claimed",
-            f"{status_path(step)}.claimed_at": {"$lt": stale.isoformat()},
-        },
-        {
-            "$set": {
-                f"{status_path(step)}.status": "retry",
-                f"{status_path(step)}.recovered_at": now.isoformat(),
-            }
-        },
-    )
+    try:
+        collection.update_many(
+            {
+                f"{status_path(step)}.status": "claimed",
+                f"{status_path(step)}.claimed_at": {"$lt": stale.isoformat()},
+            },
+            {
+                "$set": {
+                    f"{status_path(step)}.status": "retry",
+                    f"{status_path(step)}.recovered_at": now.isoformat(),
+                }
+            },
+        )
+    except Exception as exc:
+        # A MongoDB ping can succeed even when this identity has no collection
+        # write privileges. Explain the failed permission without logging the URI.
+        from pymongo.errors import OperationFailure
+        if isinstance(exc, OperationFailure) and exc.code == 13:
+            raise RuntimeError(
+                "EP24 MongoDB write authorization failed for "
+                f"database={storage.config.mongo_database!r}, "
+                f"collection={storage.collection_name('dataframe')!r}. "
+                "Check LACLAUGPT_MONGO_URI credentials and authSource, "
+                "and grant the service user readWrite on this database "
+                "(or equivalent least-privilege collection write permissions). "
+                "MongoDB ping only checks connectivity, not write access. "
+                "Do not expose credentials in logs."
+            ) from exc
+        raise
 
     claimed: list[dict] = []
     query = eligible_query(step, retry_errors=retry_errors, force=force)
