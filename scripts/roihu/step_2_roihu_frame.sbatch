@@ -46,9 +46,16 @@ cd "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
 source "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/scripts/roihu/lib_roihu_diagnostics.sh"
 roihu_diagnostics 2
 
-srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_stage_orchestrator.py" \
-  --step 2 \
-  --script "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_2_roihu_frame.py" \
-  "$@"
+# The Mongo orchestrator requires an enabled Mongo connection. In CSV mode,
+# run the numbered entrypoint directly, matching the generic step runner.
+if [[ "${LACLAUGPT_MONGO_ENABLED:-0}" =~ ^(1|true|yes|on)$ ]]; then
+  srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_stage_orchestrator.py" \
+    --step 2 \
+    --script "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_2_roihu_frame.py" \
+    "$@"
+else
+  echo "MongoDB disabled: running Step 2 with cumulative CSV/SQLite checkpoints."
+  srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_2_roihu_frame.py" "$@"
+fi
 
 echo "EP24 Step 2 completed at $(date --iso-8601=seconds)"
