@@ -117,10 +117,20 @@ roihu_start_ollama() {
   for _ in {1..60}; do ollama list >/dev/null 2>&1 && break; sleep 2; done
   ollama list >/dev/null 2>&1 || { echo "Ollama failed; see ${log}" >&2; exit 3; }
   if ! ollama show "${model}" >/dev/null 2>&1; then
-    if [[ "${LACLAUGPT_MULTIMODAL_PULL_MODEL:-0}" == "1" ]]; then
-      ollama pull "${model}"
+    # Pull missing models into the persistent private OLLAMA_MODELS store by
+    # default. Opt out for offline/strict deployments with ...PULL_MODEL=0.
+    if [[ "${LACLAUGPT_MULTIMODAL_PULL_MODEL:-1}" == "1" ]]; then
+      echo "Ollama model ${model} missing; downloading to the shared model store."
+      if ! ollama pull "${model}"; then
+        echo "Ollama pull failed for ${model}. Check network access, model tag and available storage; or pre-pull from a network-enabled node." >&2
+        exit 3
+      fi
+      ollama show "${model}" >/dev/null 2>&1 || {
+        echo "Model ${model} still unavailable after pull; see ${log}" >&2
+        exit 3
+      }
     else
-      echo "Missing Ollama model: ${model}. Set LACLAUGPT_MULTIMODAL_PULL_MODEL=1 to pull it." >&2
+      echo "Missing Ollama model: ${model}. Auto-pull disabled by LACLAUGPT_MULTIMODAL_PULL_MODEL=0." >&2
       exit 3
     fi
   fi
