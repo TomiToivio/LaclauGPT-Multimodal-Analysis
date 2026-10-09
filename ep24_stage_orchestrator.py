@@ -374,6 +374,8 @@ def run_country(
                 stage=f"step_{step:02d}",
                 country=country,
             )
+            from ep24_result_reporting import report_stage_rows
+            report_stage_rows(step, country, after, checkpoint)
             LOG.info(
                 "country=%s step=%d durable_batch=%d cumulative=%d backup=%s sha256=%s",
                 country,
