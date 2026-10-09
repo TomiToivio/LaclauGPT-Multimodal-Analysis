@@ -44,6 +44,9 @@ fi
 if [[ "${STEP}" == "3" ]]; then
   source "${SCRIPT_DIR}/ensure_step3_rclone.sh"
   roihu_ensure_rclone
+  export RCLONE_BIN="$(command -v rclone)"
+  [[ -x "${RCLONE_BIN}" ]] || { echo "Step 3 rclone binary missing" >&2; exit 2; }
+  echo "step3_rclone_executable=${RCLONE_BIN}"
 fi
 
 python "${SCRIPT_DIR}/validate_step_environment.py" --step "${STEP}"
