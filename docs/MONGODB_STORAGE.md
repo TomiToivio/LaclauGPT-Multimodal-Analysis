@@ -22,8 +22,9 @@ Public code and documentation contain variable names only. The real values are s
 Expected variables:
 
 ```bash
-LACLAUGPT_MONGODB_URI=...
-LACLAUGPT_MONGODB_DATABASE=...
+LACLAUGPT_MONGO_ENABLED=1
+LACLAUGPT_MONGO_URI=... # credentials in private .env only
+LACLAUGPT_MONGO_DATABASE=... # authorized database name
 LACLAUGPT_REDIS_URL=...
 ```
 
