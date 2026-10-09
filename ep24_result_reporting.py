@@ -50,3 +50,30 @@ def report_stage_rows(step: int, country: str, frame: pd.DataFrame, csv_path: st
     with (log_dir / f"step_{step:02d}_{country}.log").open("a", encoding="utf-8") as handle:
         handle.write(content)
     print(content, flush=True)
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    from ep24_cli import checkpoint_path, normalize_country
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--step", type=int, required=True)
+    parser.add_argument("-c", "--country")
+    parser.add_argument("-n", "--limit", type=int)
+    args, _ = parser.parse_known_args(argv)
+    country = normalize_country(args.country or os.getenv("LACLAUGPT_COUNTRY"))
+    if not country:
+        print("EP24 reporting: no country supplied; cumulative stage CSV remains available", flush=True)
+        return 0
+    root = Path(os.getenv("LACLAUGPT_EP24_OUTPUT_ROOT") or
+                Path(os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", ".")) / "outputs")
+    path = Path(os.getenv("LACLAUGPT_OUTPUT_CSV") or checkpoint_path(args.step, country, root))
+    if not path.exists():
+        print(f"EP24 reporting: no stage CSV at {path}", flush=True)
+        return 0
+    frame = pd.read_csv(path, dtype=str, keep_default_na=False, low_memory=False)
+    if args.limit and args.limit > 0:
+        frame = frame.head(args.limit)
+    report_stage_rows(args.step, country, frame, path)
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
