@@ -38,3 +38,26 @@ def test_mongo_database_defaults_to_uri_path(monkeypatch):
     assert StorageConfig.from_env().mongo_database == "exampleDatabase"
     monkeypatch.setenv("LACLAUGPT_MONGO_DATABASE", "overrideDatabase")
     assert StorageConfig.from_env().mongo_database == "overrideDatabase"
+
+def test_review_csv_contains_generated_results_only(tmp_path, monkeypatch):
+    import csv
+    monkeypatch.setenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", str(tmp_path))
+    monkeypatch.setenv("LACLAUGPT_EP24_REVIEW_DIR", str(tmp_path / "review"))
+    monkeypatch.setenv("LACLAUGPT_ANALYSIS_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("SLURM_JOB_ID", "1234")
+    source = pd.DataFrame([{
+        "_storage_id": "synthetic-01",
+        "source_text": "PRIVATE ORIGINAL SOURCE",
+        "asr_transcript": "Generated synthetic transcript",
+        "ocr_1": "Generated OCR",
+    }])
+    report_stage_rows(1, "finland", source, tmp_path / "cumulative.csv")
+    report_stage_rows(1, "finland", source, tmp_path / "cumulative.csv")
+    review = tmp_path / "review" / "step_01_finland_1234_review.csv"
+    with review.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 2
+    assert rows[0]["record_id"] == "synthetic-01"
+    assert rows[0]["asr_transcript"] == "Generated synthetic transcript"
+    assert "source_text" not in rows[0]
+    assert "PRIVATE ORIGINAL SOURCE" not in review.read_text()
