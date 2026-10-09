@@ -62,6 +62,13 @@ def main() -> int:
         if not asr_import or not ocr_import:
             fail(f"unsupported Step 1 backend asr={asr} ocr={ocr}")
         require_import(asr_import)
+        if asr in {"canary", "parakeet"}:
+            require_import("soundfile")
+            try:
+                from lhotse.audio import set_current_audio_backend
+                set_current_audio_backend("LibsndfileBackend")
+            except Exception as exc:
+                fail(f"NeMo requires working Lhotse LibsndfileBackend: {exc}")
         require_import(ocr_import)
         if shutil.which("ffmpeg") is None:
             fail("ffmpeg is required by Step 1")
