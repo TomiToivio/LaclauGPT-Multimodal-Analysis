@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sqlite3
+from urllib.parse import urlsplit, unquote
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,12 +58,16 @@ class StorageConfig:
     @classmethod
     def from_env(cls) -> "StorageConfig":
         enabled = os.getenv("LACLAUGPT_MONGO_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
+        uri = os.getenv("LACLAUGPT_MONGO_URI")
+        # Honor the URI database when a separate database override is absent.
+        # Do not log or render the URI: it can contain credentials.
+        uri_database = unquote(urlsplit(uri).path.lstrip("/")) if uri else ""
         return cls(
             dataset=os.getenv("LACLAUGPT_DATASET", "ep24"),
             country=os.getenv("LACLAUGPT_COUNTRY", "fi"),
             mongo_enabled=enabled,
-            mongo_uri=os.getenv("LACLAUGPT_MONGO_URI"),
-            mongo_database=os.getenv("LACLAUGPT_MONGO_DATABASE", "laclaugpt"),
+            mongo_uri=uri,
+            mongo_database=os.getenv("LACLAUGPT_MONGO_DATABASE") or uri_database or "laclaugpt",
             mongo_timeout_ms=int(os.getenv("LACLAUGPT_MONGO_TIMEOUT_MS", "5000")),
         )
 
