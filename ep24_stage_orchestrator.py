@@ -326,6 +326,32 @@ def run_country(
                 force=force,
             )
             if not claimed:
+                # An empty claim can mean no import, a namespace mismatch,
+                # completed/error rows, or a pending upstream stage.
+                # Log counts without exposing private record data or Mongo URI.
+                stage_key = status_path(step)
+                total_rows = collection.count_documents({})
+                stage_counts = {
+                    state: collection.count_documents({f"{stage_key}.status": state})
+                    for state in ("complete", "claimed", "error", "pending", "retry")
+                }
+                unstarted = collection.count_documents({stage_key: {"$exists": False}})
+                upstream = (collection.count_documents(
+                    {f"{status_path(step - 1)}.status": "complete"}
+                ) if step > 1 else total_rows)
+                LOG.warning(
+                    "NO_ELIGIBLE_ROWS country=%s step=%d database=%s collection=%s "
+                    "total=%d upstream_complete=%d stage_not_started=%d "
+                    "stage_counts=%s retry_errors=%s. "
+                    "If total=0 run Step 0 non-dry-run with identical "
+                    "LACLAUGPT_DATASET/LACLAUGPT_MONGO_DATABASE. "
+                    "If error>0, retry with --retry-errors; "
+                    "if claimed>0, check concurrent jobs/stale claims; "
+                    "if complete>0, existing analyses are preserved.",
+                    country, step, storage.config.mongo_database,
+                    storage.collection_name("dataframe"), total_rows, upstream,
+                    unstarted, stage_counts, retry_errors,
+                )
                 LOG.info("country=%s step=%d nothing else eligible", country, step)
                 break
 
