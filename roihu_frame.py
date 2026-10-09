@@ -277,7 +277,14 @@ def _row_context(row: pd.Series) -> tuple[str, str]:
     )
     parts = []
     remaining = budget
-    for key in priorities:
+    excluded = {"rag_context_json", "memory_context_json",
+                "codebook_context_json", "entity_normalization_json",
+                "theme_normalization_json"}
+    fields = (*priorities, *(str(key) for key in row.index
+                             if str(key) not in priorities
+                             and str(key) not in excluded
+                             and not str(key).startswith(("_pipeline", "rag_", "memory_"))))
+    for key in fields:
         raw = row.get(key, "")
         value = "" if raw is None else str(raw).strip()
         if not value or value.lower() == "nan":
