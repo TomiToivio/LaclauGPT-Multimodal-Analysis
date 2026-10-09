@@ -6,6 +6,7 @@ prints only generated result fields, not private input records or prompt context
 from __future__ import annotations
 
 import logging
+import csv
 import os
 from pathlib import Path
 
@@ -36,7 +37,27 @@ def report_stage_rows(step: int, country: str, frame: pd.DataFrame, csv_path: st
         return
     maximum = max(100, int(os.getenv("LACLAUGPT_ANALYSIS_MAX_CHARS", "12000")))
     selected = [name for name in OUTPUT_FIELDS.get(step, ()) if name in frame.columns]
-    lines = [f"=== EP24 step={step} country={country} rows={len(frame)} csv={csv_path} ==="]
+    # Append a per-job, per-country CSV of generated fields after each batch.
+    # This file is private and separate from the canonical cumulative CSV.
+    review_dir = Path(os.getenv("LACLAUGPT_EP24_REVIEW_DIR") or
+        Path(os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", ".")) / "outputs" / "review")
+    review_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    job_id = os.getenv("SLURM_JOB_ID", "interactive")
+    review_path = review_dir / f"step_{step:02d}_{country}_{job_id}_review.csv"
+    identity = next((name for name in ("_storage_id", "source_id", "video_id")
+                     if name in frame.columns), None)
+    columns = (["record_id"] if identity else ["row_index"]) + selected
+    needs_header = not review_path.exists() or review_path.stat().st_size == 0
+    fd = os.open(review_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
+        if needs_header:
+            writer.writeheader()
+        for index, row in frame.iterrows():
+            record = {"record_id": str(row[identity])} if identity else {"row_index": str(index)}
+            record.update({name: str(row[name]) if row[name] is not None else "" for name in selected})
+            writer.writerow(record)
+    lines = [f"=== EP24 step={step} country={country} rows={len(frame)} csv={csv_path} review_csv={review_path} ==="]
     for index, row in frame.iterrows():
         lines.append(f"--- result row={index} ---")
         for column in selected:
