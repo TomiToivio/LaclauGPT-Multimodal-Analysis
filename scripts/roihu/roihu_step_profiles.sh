@@ -81,19 +81,21 @@ roihu_load_step_modules() {
       module load python-pytorch
       module load gcc/13.4.0
       module load ffmpeg/7.1-cuda12.4
-      module load allas
       ;;
     2|4|5|6|7|8)
       module load python-pytorch
       ;;
     3)
       module load python-vllm
-      module load allas
       module load gcc/14.3.0 ffmpeg
       ;;
     9)
-      # Deliberately no GPU/model module stack.
+      # RDF runs on x86_64 CPU; do not load GPU or model modules.
       ;;
   esac
+  # Required on every Roihu step for consistent Allas/S3 utilities. Load
+  # after the module purge and runtime-specific dependencies.
+  module load allas
+  echo "Step ${step} modules loaded (Allas + runtime profile)" >&2
   unset PYTHONPATH PYTHONHOME
 }
