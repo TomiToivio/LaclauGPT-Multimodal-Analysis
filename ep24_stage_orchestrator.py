@@ -420,6 +420,7 @@ def run_country(
                 processed,
                 run_id,
             )
+            after = None
             try:
                 after = run_legacy_batch(
                     country=country,
@@ -438,6 +439,15 @@ def run_country(
                 )
                 update_retrieval(storage, after, stage=f"step_{step:02d}")
             except Exception as exc:
+                if after is not None:
+                    try:
+                        from ep24_result_reporting import report_stage_rows
+                        report_stage_rows(
+                            step, country, after,
+                            output_root / country / f"step_{step:02d}_failed_batch.csv",
+                        )
+                    except Exception:
+                        LOG.exception("Unable to emit failed batch review")
                 mark_claimed_error(storage, step, run_id, exc)
                 raise
 
