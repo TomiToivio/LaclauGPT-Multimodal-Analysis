@@ -15,7 +15,7 @@ import pandas as pd
 LOG = logging.getLogger("ep24.results")
 OUTPUT_FIELDS = {
     1: ("ocr_1", "asr_transcript", "asr_translated", "preprocess_status", "preprocess_note"),
-    2: ("frame_analysis_1", "frame_analysis_status", "frame_quality_status"),
+    2: ("frame_analysis_1", "frame_analysis_status", "frame_quality_status", "frame_quality_reason"),
     3: ("vllm_video_analysis", "vllm_video_markdown_analysis", "vllm_video_status"),
     4: ("summary_analysis", "summary_summary_md", "summary_quality_status"),
     5: ("postprocess_summary_md", "postprocess_entities", "postprocess_themes",
