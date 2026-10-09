@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
+import tempfile
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Callable
 
@@ -53,10 +56,40 @@ def language_hint(country: str | None) -> str:
     return COUNTRY_LANGUAGE_HINTS.get(str(country or "").strip().casefold(), "")
 
 
+def _nemo_audio_path(path: str, directory: str) -> str:
+    """Decode a trimmed video once to PCM WAV for Lhotse's soundfile backend.
+
+    Recent torchaudio releases have no torchaudio.io.StreamReader, which the
+    FFmpeg-torchaudio Lhotse backend still attempts to import.
+    """
+    destination = Path(directory) / "speech.wav"
+    completed = subprocess.run(
+        ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+         "-y", "-i", path, "-vn", "-ac", "1", "-ar", "16000",
+         "-c:a", "pcm_s16le", str(destination)],
+        check=False, capture_output=True, text=True,
+    )
+    if completed.returncode or not destination.is_file() or destination.stat().st_size <= 44:
+        raise RuntimeError("Cannot decode analysis audio to PCM WAV: " +
+                           (completed.stderr or "").strip()[:500])
+    return str(destination)
+
+
+def _configure_nemo_audio_backend() -> None:
+    import soundfile
+    from lhotse.audio import set_current_audio_backend
+
+    # Explicitly avoid the removed torchaudio.io.StreamReader API.
+    set_current_audio_backend("LibsndfileBackend")
+    LOG.info("NeMo/Lhotse audio backend=LibsndfileBackend soundfile=%s",
+             soundfile.__version__)
+
+
 def load_asr_model() -> ASRBackend:
     engine = os.getenv("LACLAUGPT_ASR_ENGINE", DEFAULT_ENGINE).strip().lower()
 
     if engine == "canary":
+        _configure_nemo_audio_backend()
         from nemo.collections.asr.models import ASRModel
 
         model_name = os.getenv("LACLAUGPT_ASR_MODEL", DEFAULT_CANARY_MODEL)
@@ -70,17 +103,20 @@ def load_asr_model() -> ASRBackend:
                     "Canary requires a source language hint; pass the canonical country "
                     "so EP24 can select its language."
                 )
-            same = model.transcribe([path], source_lang=source, target_lang=source)[0]
-            transcript = str(getattr(same, "text", same) or "").strip()
-            translated = transcript
-            if source != "en":
-                en = model.transcribe([path], source_lang=source, target_lang="en")[0]
-                translated = str(getattr(en, "text", en) or "").strip()
-            return ASRResult(transcript, source, translated)
+            with tempfile.TemporaryDirectory(prefix="ep24_canary_") as tmpdir:
+                wav = _nemo_audio_path(path, tmpdir)
+                same = model.transcribe([wav], source_lang=source, target_lang=source)[0]
+                transcript = str(getattr(same, "text", same) or "").strip()
+                translated = transcript
+                if source != "en":
+                    en = model.transcribe([wav], source_lang=source, target_lang="en")[0]
+                    translated = str(getattr(en, "text", en) or "").strip()
+                return ASRResult(transcript, source, translated)
 
         return ASRBackend(engine, model_name, _transcribe)
 
     if engine == "parakeet":
+        _configure_nemo_audio_backend()
         from nemo.collections.asr.models import ASRModel
 
         model_name = os.getenv("LACLAUGPT_ASR_MODEL", DEFAULT_PARAKEET_MODEL)
@@ -88,7 +124,9 @@ def load_asr_model() -> ASRBackend:
         model = ASRModel.from_pretrained(model_name=model_name)
 
         def _transcribe(path: str, hint: str | None = None) -> ASRResult:
-            out = model.transcribe([path])[0]
+            with tempfile.TemporaryDirectory(prefix="ep24_parakeet_") as tmpdir:
+                wav = _nemo_audio_path(path, tmpdir)
+                out = model.transcribe([wav])[0]
             transcript = str(getattr(out, "text", out) or "").strip()
             detected = str(
                 getattr(out, "language", "")

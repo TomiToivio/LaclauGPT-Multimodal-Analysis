@@ -3,3 +3,4 @@ opencv-python-headless>=4.10
 easyocr>=1.7
 deep-translator>=1.11
 nemo_toolkit[asr]>=2.4,<3
+soundfile>=0.12,<1
