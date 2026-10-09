@@ -62,7 +62,7 @@ def _write_env(root: Path, text: str) -> Path:
 # --------------------------------------------------------------------------- #
 
 def test_summary_never_prints_a_secret(private, monkeypatch):
-    _write_env(private, f"LACLAUGPT_MONGODB_URI=mongodb://user:{SECRET}@host:27017/db\n")
+    _write_env(private, f"LACLAUGPT_MONGO_URI=mongodb://user:{SECRET}@host:27017/db\n")
     monkeypatch.setenv("LACLAUGPT_EP24_PRIVATE_ROOT", str(private))
     S.load_private_env()
     out = S.summary()
@@ -72,7 +72,7 @@ def test_summary_never_prints_a_secret(private, monkeypatch):
 
 def test_describe_redacts_only_secret_shaped_names(private, monkeypatch):
     env = {
-        "LACLAUGPT_MONGODB_URI": "mongodb://x",
+        "LACLAUGPT_MONGO_URI": "mongodb://x",
         "LACLAUGPT_API_TOKEN": "abc123",
         "LACLAUGPT_MAX_ROWS": "100",
         "PATH": "/usr/bin",
@@ -86,7 +86,7 @@ def test_describe_redacts_only_secret_shaped_names(private, monkeypatch):
 
 
 def test_secret_marker_matching_covers_the_names_the_pipeline_uses():
-    for name in ("LACLAUGPT_MONGODB_URI", "LACLAUGPT_API_TOKEN", "LACLAUGPT_PASSWORD",
+    for name in ("LACLAUGPT_MONGO_URI", "LACLAUGPT_API_TOKEN", "LACLAUGPT_PASSWORD",
                  "LACLAUGPT_SECRET", "SOME_CONNECTION_STRING"):
         assert S.is_secret(name), name
     for name in ("LACLAUGPT_MAX_ROWS", "LACLAUGPT_EP24_ROOT", "LACLAUGPT_COUNTRY"):
@@ -160,9 +160,9 @@ def test_parsing_handles_export_quotes_and_malformed_lines(private, monkeypatch)
 # --------------------------------------------------------------------------- #
 
 def test_validate_reports_every_missing_name_at_once():
-    missing = S.validate({}, ("LACLAUGPT_MONGODB_URI", "LACLAUGPT_OTHER"))
-    assert missing == ["LACLAUGPT_MONGODB_URI", "LACLAUGPT_OTHER"]
-    assert S.validate({"LACLAUGPT_MONGODB_URI": "x"}, ("LACLAUGPT_MONGODB_URI",)) == []
+    missing = S.validate({}, ("LACLAUGPT_MONGO_URI", "LACLAUGPT_OTHER"))
+    assert missing == ["LACLAUGPT_MONGO_URI", "LACLAUGPT_OTHER"]
+    assert S.validate({"LACLAUGPT_MONGO_URI": "x"}, ("LACLAUGPT_MONGO_URI",)) == []
 
 
 def test_summary_reports_missing_required(private, monkeypatch):
@@ -170,7 +170,7 @@ def test_summary_reports_missing_required(private, monkeypatch):
     monkeypatch.setenv("LACLAUGPT_EP24_PRIVATE_ROOT", str(private))
     S.load_private_env()
     out = S.summary()
-    assert "LACLAUGPT_MONGODB_URI" in out
+    assert "LACLAUGPT_MONGO_URI" in out
     assert "missing_required" in out
 
 
@@ -187,10 +187,10 @@ def test_cli_exit_code_reflects_missing_settings(tmp_path, monkeypatch, capsys):
     """
     good = tmp_path / "good"
     good.mkdir()
-    _write_env(good, "LACLAUGPT_MONGODB_URI=mongodb://h/db\n")
+    _write_env(good, "LACLAUGPT_MONGO_URI=mongodb://h/db\n")
     assert S.main(["--private-root", str(good)]) == 0
 
-    monkeypatch.delenv("LACLAUGPT_MONGODB_URI", raising=False)
+    monkeypatch.delenv("LACLAUGPT_MONGO_URI", raising=False)
     bad = tmp_path / "bad"
     bad.mkdir()
     _write_env(bad, "LACLAUGPT_MAX_ROWS=1\n")
@@ -200,7 +200,7 @@ def test_cli_exit_code_reflects_missing_settings(tmp_path, monkeypatch, capsys):
 def test_cli_output_leaks_no_secret(tmp_path, capsys):
     root = tmp_path / "priv"
     root.mkdir()
-    _write_env(root, f"LACLAUGPT_MONGODB_URI=mongodb://u:{SECRET}@h/db\n")
+    _write_env(root, f"LACLAUGPT_MONGO_URI=mongodb://u:{SECRET}@h/db\n")
     S.main(["--private-root", str(root)])
     captured = capsys.readouterr()
     assert SECRET not in captured.out

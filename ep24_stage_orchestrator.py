@@ -233,6 +233,7 @@ def run_legacy_batch(
         env["LACLAUGPT_INPUT_CSV"] = str(input_csv)
         env["LACLAUGPT_OUTPUT_CSV"] = str(output_csv)
         env["LACLAUGPT_MAX_ROWS"] = "0"
+        env["PYTHONUNBUFFERED"] = "1"
         env["LACLAUGPT_STAGE_RUN_ID"] = run_id
         LOG.debug(
             "exec country=%s step=%d script=%s rows=%d input_columns=%d",
@@ -242,7 +243,9 @@ def run_legacy_batch(
             len(before),
             len(before.columns),
         )
-        result = subprocess.run([sys.executable, str(script)], env=env, check=False)
+        LOG.info("stage_subprocess_start step=%d country=%s rows=%d", step, country, len(before))
+        result = subprocess.run([sys.executable, "-u", str(script)], env=env, check=False)
+        LOG.info("stage_subprocess_end step=%d country=%s returncode=%d", step, country, result.returncode)
         if result.returncode != 0:
             raise RuntimeError(
                 f"step {step} command failed with exit code {result.returncode}"

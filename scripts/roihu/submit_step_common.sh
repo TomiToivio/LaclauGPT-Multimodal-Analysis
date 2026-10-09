@@ -29,9 +29,12 @@ CPUS="${LACLAUGPT_SBATCH_CPUS:-${CPUS}}"
 MEM="${LACLAUGPT_SBATCH_MEM:-${MEM}}"
 GRES="${LACLAUGPT_SBATCH_GRES:-${GRES}}"
 TIME="${LACLAUGPT_SBATCH_TIME:-${TIME}}"
-mkdir -p "/scratch/${CSC_PROJECT}/logs"
+LOG_DIR="${LACLAUGPT_EP24_LOG_DIR:-${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/logs/slurm}"
+mkdir -p "${LOG_DIR}"
+chmod 700 "${LOG_DIR}"
+export LACLAUGPT_EP24_LOG_DIR="${LOG_DIR}"
 
-SBATCH_ARGS=(--parsable --account="${CSC_PROJECT}" --partition="${PARTITION}" --cpus-per-task="${CPUS}" --time="${TIME}")
+SBATCH_ARGS=(--parsable --output="${LOG_DIR}/step_${STEP}_%j.out" --error="${LOG_DIR}/step_${STEP}_%j.err" --job-name="ep24-step-${STEP}" --account="${CSC_PROJECT}" --partition="${PARTITION}" --cpus-per-task="${CPUS}" --time="${TIME}")
 [[ "${MEM}" != "0" && -n "${MEM}" ]] && SBATCH_ARGS+=(--mem="${MEM}")
 [[ -n "${GRES}" ]] && SBATCH_ARGS+=(--gres="${GRES}")
 [[ -n "${LACLAUGPT_SBATCH_DEPENDENCY:-}" ]] && SBATCH_ARGS+=(--dependency="${LACLAUGPT_SBATCH_DEPENDENCY}")
@@ -39,4 +42,7 @@ SBATCH_ARGS=(--parsable --account="${CSC_PROJECT}" --partition="${PARTITION}" --
 echo "Submitting EP24 Step ${STEP} ($(roihu_step_name "${STEP}")) partition=${PARTITION} cpus=${CPUS} gres=${GRES:-none} time=${TIME}" >&2
 job_id="$(sbatch "${SBATCH_ARGS[@]}" --export=ALL "${SCRIPT_DIR}/step_runner.sbatch" "$@")"
 job_id="${job_id%%;*}"
+echo "Slurm stdout: ${LOG_DIR}/step_${STEP}_${job_id}.out" >&2
+echo "Slurm stderr: ${LOG_DIR}/step_${STEP}_${job_id}.err" >&2
+echo "Follow live: tail -f ${LOG_DIR}/step_${STEP}_${job_id}.out ${LOG_DIR}/step_${STEP}_${job_id}.err" >&2
 echo "${job_id}"

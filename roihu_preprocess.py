@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import sys
 import os
 import shutil
 import sqlite3
@@ -105,6 +106,10 @@ if not LOG.handlers:
     )
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     LOG.addHandler(handler)
+    # Mirror OCR, ASR and per-record progress into Slurm stdout.
+    stream = logging.StreamHandler(sys.stdout)
+    stream.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    LOG.addHandler(stream)
 LOG.setLevel(logging.DEBUG)
 
 
