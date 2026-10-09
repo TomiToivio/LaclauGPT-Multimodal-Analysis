@@ -12,16 +12,18 @@ from pathlib import Path
 import pandas as pd
 
 LOG = logging.getLogger("ep24.results")
-OUTPUT_PREFIXES = {
-    1: ("ocr_1", "asr_transcript", "asr_translated", "preprocess_status"),
-    2: ("frame_analysis", "frame_response", "frame_quality"),
+OUTPUT_FIELDS = {
+    1: ("ocr_1", "asr_transcript", "asr_translated", "preprocess_status", "preprocess_note"),
+    2: ("frame_analysis_1", "frame_analysis_status", "frame_quality_status"),
     3: ("vllm_video_analysis", "vllm_video_markdown_analysis", "vllm_video_status"),
-    4: ("summary_analysis", "summary_",),
-    5: ("postprocess_", "positive", "neutral", "negative"),
-    6: ("laclau_",),
-    7: ("dna_",),
-    8: ("sna_",),
-    9: ("rdf_",),
+    4: ("summary_analysis", "summary_summary_md", "summary_quality_status"),
+    5: ("postprocess_summary_md", "postprocess_entities", "postprocess_themes",
+        "positive", "neutral", "negative"),
+    6: ("laclau_summary_md", "laclau_raw_response", "laclau_status"),
+    7: ("dna_analysis_markdown", "dna_raw_response", "dna_status"),
+    8: ("sna_analysis_markdown", "sna_report_markdown",
+        "sna_castells_interpretation_markdown", "sna_status"),
+    9: ("rdf_document_uri", "rdf_row_uri", "rdf_status"),
 }
 
 def report_stage_rows(step: int, country: str, frame: pd.DataFrame, csv_path: str | Path) -> None:
@@ -33,8 +35,7 @@ def report_stage_rows(step: int, country: str, frame: pd.DataFrame, csv_path: st
     if os.getenv("LACLAUGPT_PRINT_ANALYSIS", "1").lower() in {"0", "false", "no"}:
         return
     maximum = max(100, int(os.getenv("LACLAUGPT_ANALYSIS_MAX_CHARS", "12000")))
-    prefixes = OUTPUT_PREFIXES.get(step, ())
-    selected = [name for name in frame.columns if any(name.startswith(p) for p in prefixes)]
+    selected = [name for name in OUTPUT_FIELDS.get(step, ()) if name in frame.columns]
     lines = [f"=== EP24 step={step} country={country} rows={len(frame)} csv={csv_path} ==="]
     for index, row in frame.iterrows():
         lines.append(f"--- result row={index} ---")
@@ -46,8 +47,11 @@ def report_stage_rows(step: int, country: str, frame: pd.DataFrame, csv_path: st
     content = "\n".join(lines) + "\n"
     log_dir = Path(os.getenv("LACLAUGPT_ANALYSIS_LOG_DIR") or
                    Path(os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", ".")) / "logs" / "analysis")
-    log_dir.mkdir(parents=True, exist_ok=True)
-    with (log_dir / f"step_{step:02d}_{country}.log").open("a", encoding="utf-8") as handle:
+    log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Private model output may contain research material. Restrict new log files.
+    log_path = log_dir / f"step_{step:02d}_{country}.log"
+    fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as handle:
         handle.write(content)
     print(content, flush=True)
 
