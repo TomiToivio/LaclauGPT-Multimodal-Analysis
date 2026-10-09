@@ -2,6 +2,10 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 set -euo pipefail
+export PYTHONUNBUFFERED=1
+export LACLAUGPT_PRINT_ANALYSIS="${LACLAUGPT_PRINT_ANALYSIS:-1}"
+echo "EP24 job started: step=${LACLAUGPT_STEP:-unknown} job=${SLURM_JOB_ID:-unknown} $(date --iso-8601=seconds)"
+trap 'status=$?; echo "EP24 job exit: step=${LACLAUGPT_STEP:-unknown} code=$status at $(date --iso-8601=seconds)" >&2' EXIT
 
 STEP="${LACLAUGPT_STEP:?LACLAUGPT_STEP is required}"
 PUBLIC_ROOT="${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-/scratch/${CSC_PROJECT:-project_2009497}/LaclauGPT-Multimodal-Analysis}"
