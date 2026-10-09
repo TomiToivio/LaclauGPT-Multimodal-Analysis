@@ -353,11 +353,16 @@ def run_country(
                     unstarted, stage_counts, retry_errors,
                 )
                 if total_rows == 0:
-                    alternatives = [
-                        name for name in collection.database.list_collection_names()
-                        if name.endswith(f"_{country}_dataframe")
-                        and name != storage.collection_name("dataframe")
-                    ]
+                    try:
+                        alternatives = [
+                            name for name in collection.database.list_collection_names()
+                            if name.endswith(f"_{country}_dataframe")
+                            and name != storage.collection_name("dataframe")
+                        ]
+                    except Exception:
+                        # Some Mongo identities may read their collection but
+                        # lack permission to enumerate the database.
+                        alternatives = ["<collection listing unavailable>"]
                     LOG.error(
                         "STEP_%d_EMPTY_INPUT database=%s expected_collection=%s "
                         "dataset=%s other_country_collections=%s. "
