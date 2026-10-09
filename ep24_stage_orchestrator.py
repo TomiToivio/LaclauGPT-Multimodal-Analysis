@@ -281,6 +281,7 @@ def run_country(
     retry_errors: bool,
     force: bool,
     dry_run: bool,
+    requeue_failed_results: bool = False,
 ) -> int:
     old_country = os.environ.get("LACLAUGPT_COUNTRY")
     os.environ["LACLAUGPT_COUNTRY"] = country
@@ -306,6 +307,19 @@ def run_country(
                 count = min(count, limit)
             LOG.info("country=%s step=%d dry-run eligible=%d", country, step, count)
             return count
+
+        if requeue_failed_results:
+            if step != 2:
+                raise ValueError("--requeue-failed-results is supported only for Step 2")
+            result = collection.update_many(
+                {f"{status_path(step)}.status": "complete",
+                 "frame_analysis_status": "error"},
+                {"$set": {f"{status_path(step)}.status": "error",
+                          f"{status_path(step)}.error_type": "HistoricalFrameFailure"}},
+            )
+            LOG.warning("Requeued %d previously false-complete Step 2 errors in %s",
+                        result.modified_count, storage.collection_name("dataframe"))
+            retry_errors = True
 
         if force:
             # Reset this stage ONCE for the eligible upstream subset. Claims then
@@ -475,6 +489,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-n", "--limit", type=int)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--retry-errors", action="store_true")
+    parser.add_argument("--requeue-failed-results", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -539,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
             retry_errors=args.retry_errors,
             force=args.force,
             dry_run=args.dry_run,
+            requeue_failed_results=args.requeue_failed_results,
         )
     LOG.info("step=%d countries=%d processed_rows=%d", args.step, len(selected), total)
     return 0
