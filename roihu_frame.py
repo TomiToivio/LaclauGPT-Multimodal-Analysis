@@ -61,6 +61,10 @@ if not logger.handlers:
         logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     )
     logger.addHandler(handler)
+    import sys
+    stream = logging.StreamHandler(sys.stdout)
+    stream.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s'))
+    logger.addHandler(stream)
 logger.setLevel(logging.DEBUG)
 
 DB_PATH = Path(os.getenv("LACLAUGPT_FRAME_SQLITE", "./database/frame.db"))
