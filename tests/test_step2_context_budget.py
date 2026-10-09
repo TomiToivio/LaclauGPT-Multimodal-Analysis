@@ -1,6 +1,11 @@
 """Step 2 must never stuff entire Mongo RAG and memory into a frame prompt."""
+import sys
+from types import ModuleType
+
 import pandas as pd
-from roihu_frame import _row_context
+
+sys.modules.setdefault('ollama', ModuleType('ollama'))
+from roihu_frame import _row_context  # noqa: E402
 
 
 def test_frame_context_is_bounded_and_prioritizes_direct_evidence(monkeypatch):
