@@ -534,7 +534,9 @@ def fetch_video(
 
     remote_source = build_rclone_source(args.rclone_remote, args.allas_bucket, object_path)
     operation = "copyurl" if urlsplit(remote_source).scheme in {"http", "https"} else "copyto"
-    rclone_bin = os.environ.get("RCLONE_BIN", "rclone")
+    rclone_bin = os.environ.get("RCLONE_BIN") or shutil.which("rclone")
+    if not rclone_bin:
+        raise RuntimeError("rclone executable missing in Step 3 child process; check RCLONE_BIN and Slurm export")
     command = [rclone_bin, operation, remote_source, str(local_path)]
     logger.info("download_backend=rclone command=%s", redact_sensitive(shlex.join(command)))
     result = subprocess.run(
@@ -1057,7 +1059,8 @@ def persist_mongo_patch(
             }
             collection.update_one(
                 {"_storage_id": source_id},
-                {"$set": fields, "$setOnInsert": {"_storage_id": source_id}},
+                {"$set": {k: v for k, v in fields.items() if k != "_storage_id"},
+                 "$setOnInsert": {"_storage_id": source_id}},
                 upsert=True,
             )
             updated += 1
