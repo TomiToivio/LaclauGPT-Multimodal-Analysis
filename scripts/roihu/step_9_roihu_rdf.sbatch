@@ -14,6 +14,8 @@ set -euo pipefail
 PUBLIC_ROOT=${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-/scratch/project_2009497/LaclauGPT-Multimodal-Analysis}
 PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:-/scratch/project_2009497/LaclauGPT-Private/ep24_reprocess}
 VENV=${LACLAUGPT_MULTIMODAL_VENV:-${PUBLIC_ROOT}/.venv-roihu-gpu}
+source "${PUBLIC_ROOT}/scripts/roihu/roihu_step_profiles.sh"
+roihu_load_step_modules 9
 export LACLAUGPT_MAX_ROWS=${LACLAUGPT_MAX_ROWS:-100}
 mkdir -p /scratch/project_2009497/logs "${PRIVATE_ROOT}/rdf" "${PRIVATE_ROOT}/database"
 [[ -x "${VENV}/bin/python" ]] || { echo "Missing Roihu venv: ${VENV}" >&2; exit 2; }
