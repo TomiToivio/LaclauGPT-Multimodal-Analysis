@@ -54,6 +54,12 @@ def eligible_query(step: int, *, retry_errors: bool, force: bool) -> dict:
     query: dict = {}
     if step > 1:
         query[f"{status_path(step - 1)}.status"] = "complete"
+    if step == 2:
+        query["preprocess_status"] = {"$in": ["ok", "cached"]}
+        query["frame_file"] = {"$exists": True, "$nin": ["", None]}
+        query["frame_timestamp_seconds"] = {"$exists": True, "$nin": ["", None]}
+    elif step == 3:
+        query["frame_analysis_status"] = {"$in": ["ok", "cached"]}
     if not force:
         allowed = ["pending", "retry"]
         if retry_errors:
@@ -309,16 +315,27 @@ def run_country(
             return count
 
         if requeue_failed_results:
-            if step != 2:
-                raise ValueError("--requeue-failed-results is supported only for Step 2")
+            if step == 1:
+                historical = {
+                    f"{status_path(step)}.status": "complete",
+                    "preprocess_status": {"$nin": ["ok", "cached"]},
+                }
+                reason = "HistoricalPreprocessFailure"
+            elif step == 2:
+                historical = {
+                    f"{status_path(step)}.status": "complete",
+                    "frame_analysis_status": {"$nin": ["ok", "cached"]},
+                }
+                reason = "HistoricalFrameFailure"
+            else:
+                raise ValueError("--requeue-failed-results supports Step 1 or Step 2")
             result = collection.update_many(
-                {f"{status_path(step)}.status": "complete",
-                 "frame_analysis_status": "error"},
+                historical,
                 {"$set": {f"{status_path(step)}.status": "error",
-                          f"{status_path(step)}.error_type": "HistoricalFrameFailure"}},
+                          f"{status_path(step)}.error_type": reason}},
             )
-            LOG.warning("Requeued %d previously false-complete Step 2 errors in %s",
-                        result.modified_count, storage.collection_name("dataframe"))
+            LOG.warning("Requeued %d historical Step %d failures in %s",
+                        result.modified_count, step, storage.collection_name("dataframe"))
             retry_errors = True
 
         if force:
@@ -366,6 +383,11 @@ def run_country(
                 upstream = (collection.count_documents(
                     {f"{status_path(step - 1)}.status": "complete"}
                 ) if step > 1 else total_rows)
+                LOG.warning(
+                    "UPSTREAM_READINESS country=%s step=%d valid_input=%d",
+                    country, step, collection.count_documents(
+                        eligible_query(step, retry_errors=True, force=True)),
+                )
                 LOG.warning(
                     "NO_ELIGIBLE_ROWS country=%s step=%d database=%s collection=%s "
                     "total=%d upstream_complete=%d stage_not_started=%d "
