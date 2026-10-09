@@ -57,5 +57,6 @@ if [[ "${LACLAUGPT_MONGO_ENABLED:-0}" =~ ^(1|true|yes|on)$ ]]; then
   srun --ntasks=1 python "${PUBLIC_ROOT}/ep24_stage_orchestrator.py" --step "${STEP}" --script "${ENTRY}" "$@"
 else
   srun --ntasks=1 python "${ENTRY}" "$@"
+  python "${PUBLIC_ROOT}/ep24_result_reporting.py" --step "${STEP}" "$@"
 fi
 echo "run_completed=$(date --iso-8601=seconds)"

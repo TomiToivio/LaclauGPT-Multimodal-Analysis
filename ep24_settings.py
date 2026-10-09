@@ -79,7 +79,7 @@ SECRET_MARKERS = (
 
 #: Settings the Roihu steps 1-6 need. A missing one is reported, not raised, so
 #: the bootstrap can list them all in one run.
-REQUIRED_SETTINGS: tuple[str, ...] = ("LACLAUGPT_MONGODB_URI",)
+REQUIRED_SETTINGS: tuple[str, ...] = ("LACLAUGPT_MONGO_URI",)
 
 
 def is_secret(name: str) -> bool:
@@ -115,6 +115,8 @@ def validate(
 ) -> list[str]:
     """Return the names of required settings that are unset or empty."""
     env = environ if environ is not None else dict(os.environ)
+    if env.get("LACLAUGPT_MONGO_ENABLED", "1").lower() in {"0", "false", "no", "off"}:
+        return []
     return [name for name in required if not env.get(name)]
 
 
