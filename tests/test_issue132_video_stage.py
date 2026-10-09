@@ -132,6 +132,8 @@ def test_mongo_persistence_uses_patch_upserts_not_document_replacement(monkeypat
     assert upsert is True
     assert "$set" in update
     assert "$setOnInsert" in update
+    assert "_storage_id" not in update["$set"]
+    assert update["$setOnInsert"]["_storage_id"] == query["_storage_id"]
     assert update["$set"]["custom_prior_field"] == "keep"
     assert update["$set"]["vllm_video_analysis"] == "analysis"
 
