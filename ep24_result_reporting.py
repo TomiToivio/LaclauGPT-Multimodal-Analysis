@@ -40,7 +40,8 @@ def report_stage_rows(step: int, country: str, frame: pd.DataFrame, csv_path: st
     for index, row in frame.iterrows():
         lines.append(f"--- result row={index} ---")
         for column in selected:
-            value = str(row[column] if pd.notna(row[column]) else "").strip()
+            cell = row[column]
+            value = str(cell if cell is not None else "").strip()
             if value:
                 lines.append(f"{column}: {value[:maximum]}{' [TRUNCATED; FULL CSV RETAINS VALUE]' if len(value)>maximum else ''}")
     lines.append(f"=== EP24 step={step} end ===")
