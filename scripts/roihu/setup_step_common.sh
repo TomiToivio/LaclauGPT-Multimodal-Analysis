@@ -74,7 +74,8 @@ if [[ "${STEP}" == "3" ]]; then
   mkdir -p "${RCLONE_BIN_DIR}"
   if [[ ! -x "${RCLONE_BIN_DIR}/rclone" ]]; then
     if command -v rclone >/dev/null 2>&1; then
-      ln -sfn "$(command -v rclone)" "${RCLONE_BIN_DIR}/rclone"
+      cp "$(command -v rclone)" "${RCLONE_BIN_DIR}/rclone"
+      chmod 755 "${RCLONE_BIN_DIR}/rclone"
     else
       tmp_rclone="$(mktemp -d)"
       trap 'rm -rf "${tmp_rclone}"' EXIT
