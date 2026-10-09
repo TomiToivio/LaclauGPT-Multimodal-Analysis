@@ -352,6 +352,21 @@ def run_country(
                     storage.collection_name("dataframe"), total_rows, upstream,
                     unstarted, stage_counts, retry_errors,
                 )
+                if total_rows == 0:
+                    alternatives = [
+                        name for name in collection.database.list_collection_names()
+                        if name.endswith(f"_{country}_dataframe")
+                        and name != storage.collection_name("dataframe")
+                    ]
+                    LOG.error(
+                        "STEP_%d_EMPTY_INPUT database=%s expected_collection=%s "
+                        "dataset=%s other_country_collections=%s. "
+                        "Run Step 0 WITHOUT --dry-run against the same private "
+                        ".env, and check inserted count before resubmitting.",
+                        step, storage.config.mongo_database,
+                        storage.collection_name("dataframe"),
+                        storage.config.dataset, alternatives,
+                    )
                 LOG.info("country=%s step=%d nothing else eligible", country, step)
                 break
 
@@ -438,7 +453,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     try:
