@@ -26,6 +26,8 @@ if [[ -f "${LACLAUGPT_EP24_ENV_FILE:-${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/.env}"
   set +a
 fi
 
+export LACLAUGPT_DATASET="${LACLAUGPT_DATASET:-ep2024_reprocess}"
+echo "EP24 Mongo namespace: dataset=${LACLAUGPT_DATASET} database=${LACLAUGPT_MONGO_DATABASE:-<URI/default>}"
 export HF_HOME="${HF_HOME:-/scratch/${CSC_PROJECT:-project_2009497}/cache/huggingface}"
 export TORCH_HOME="${TORCH_HOME:-/scratch/${CSC_PROJECT:-project_2009497}/cache/torch}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/scratch/${CSC_PROJECT:-project_2009497}/cache}"
