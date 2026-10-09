@@ -34,6 +34,12 @@ if roihu_step_needs_ollama "${STEP}"; then
   roihu_start_ollama
 fi
 
+# The Step 3 setup installs a project-local ARM64 rclone binary. Restore its
+# location in the Slurm job after the CSC module stack is loaded.
+if [[ "${STEP}" == "3" ]]; then
+  export PATH="${LACLAUGPT_RCLONE_BIN_DIR:-${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/.tools/bin}:${PATH}"
+fi
+
 python "${SCRIPT_DIR}/validate_step_environment.py" --step "${STEP}"
 
 echo "run_started=$(date --iso-8601=seconds)"
