@@ -78,8 +78,21 @@ def main() -> int:
 
     if step == 3:
         for exe in ("ffmpeg", "ffprobe", "rclone"):
-            if shutil.which(exe) is None:
-                fail(f"{exe} is required by Step 3")
+            resolved = shutil.which(exe)
+            if resolved is None and exe == "rclone":
+                # Allas may be configured without placing its executable on
+                # the venv's PATH. The setup helper stores a usable binary in
+                # the private Step 3 tools directory.
+                private = Path(os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", ""))
+                candidate = Path(os.getenv("LACLAUGPT_RCLONE_BIN_DIR") or private / ".tools" / "bin") / "rclone"
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    os.environ["PATH"] = f"{candidate.parent}{os.pathsep}{os.getenv('PATH', '')}"
+                    resolved = shutil.which(exe)
+            if resolved is None:
+                fail(f"{exe} is required by Step 3; check module load allas and "
+                     "scripts/roihu/setup_step_3_video.sh")
+            if exe == "rclone":
+                print(f"step3_rclone={resolved}", flush=True)
 
     if step in OLLAMA_STEPS:
         install_root = Path(os.getenv(

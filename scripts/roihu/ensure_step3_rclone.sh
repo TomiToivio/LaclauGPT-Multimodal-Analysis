@@ -17,6 +17,8 @@ roihu_ensure_rclone() {
   mkdir -p "${bin_dir}"
   if [[ -x "${destination}" ]] && "${destination}" version >/dev/null 2>&1; then
     export PATH="${bin_dir}:${PATH}"
+    hash -r 2>/dev/null || true
+    echo "Roihu Step 3 rclone ready (cached): $(command -v rclone)" >&2
     return 0
   fi
   if command -v rclone >/dev/null 2>&1 && rclone version >/dev/null 2>&1; then
@@ -54,6 +56,7 @@ PY
     rm -rf "${tmp}"
   fi
   export PATH="${bin_dir}:${PATH}"
+  hash -r 2>/dev/null || true
   if ! rclone version >/dev/null 2>&1; then
     echo "Installed rclone cannot run on $(uname -m); rerun Step 3 setup on ARM64." >&2
     return 2
