@@ -67,35 +67,10 @@ if roihu_step_needs_ollama "${STEP}"; then
   fi
 fi
 
-# Step 3 stages videos through Allas with rclone. CSC module availability can
-# differ between login and compute nodes, so install a private ARM64 binary.
+# Step 3 needs rclone both at setup and inside the compute job.
 if [[ "${STEP}" == "3" ]]; then
-  RCLONE_BIN_DIR="${LACLAUGPT_RCLONE_BIN_DIR:-${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/.tools/bin}"
-  mkdir -p "${RCLONE_BIN_DIR}"
-  if [[ ! -x "${RCLONE_BIN_DIR}/rclone" ]]; then
-    if command -v rclone >/dev/null 2>&1; then
-      cp "$(command -v rclone)" "${RCLONE_BIN_DIR}/rclone"
-      chmod 755 "${RCLONE_BIN_DIR}/rclone"
-    else
-      tmp_rclone="$(mktemp -d)"
-      trap 'rm -rf "${tmp_rclone}"' EXIT
-      curl -fL --retry 3 https://downloads.rclone.org/rclone-current-linux-arm64.zip -o "${tmp_rclone}/rclone.zip"
-      python - "${tmp_rclone}/rclone.zip" "${RCLONE_BIN_DIR}/rclone" <<'PY'
-import pathlib, sys, zipfile
-archive, destination = map(pathlib.Path, sys.argv[1:])
-with zipfile.ZipFile(archive) as zf:
-    matches = [entry for entry in zf.infolist() if entry.filename.endswith('/rclone') and not entry.is_dir()]
-    if len(matches) != 1:
-        raise RuntimeError("Expected exactly one rclone executable in download")
-    destination.write_bytes(zf.read(matches[0]))
-destination.chmod(0o755)
-PY
-      rm -rf "${tmp_rclone}"
-      trap - EXIT
-    fi
-  fi
-  export PATH="${RCLONE_BIN_DIR}:${PATH}"
-  rclone version | head -1
+  source "${SCRIPT_DIR}/ensure_step3_rclone.sh"
+  roihu_ensure_rclone
 fi
 
 export LACLAUGPT_STEP="${STEP}"
