@@ -236,7 +236,7 @@ class TestCitedPathsExist:
 
 
 class TestStepSetIsComplete:
-    def test_all_nine_steps_exist_on_disk(self) -> None:
+    def test_step_zero_and_all_nine_analysis_steps_exist_on_disk(self) -> None:
         """The guide claims the numbered steps exist; that claim must hold."""
         steps = sorted(p.name for p in ROOT.glob("step_*_roihu_*.py"))
         numbers = sorted(
@@ -244,7 +244,7 @@ class TestStepSetIsComplete:
             for match in (re.match(r"step_(\d+)_", name) for name in steps)
             if match
         )
-        assert numbers == list(range(1, 10)), f"expected steps 1..9, found {numbers}"
+        assert numbers == list(range(10)), f"expected ingestion step 0 and analysis steps 1..9, found {numbers}"
 
 
 if __name__ == "__main__":
