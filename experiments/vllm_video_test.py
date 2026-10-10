@@ -714,7 +714,7 @@ def bounded_video_context(row: pd.Series | None) -> str:
     if row is None:
         return ""
     budget = max(1000, int(os.getenv("LACLAUGPT_VIDEO_CONTEXT_MAX_CHARS", "7000")))
-    keys = ("video_id", "country", "source_type", "author_username",
+    keys = ("video_id", "country", "source_type", "source_recording", "author_username",
             "political_preference", "entities", "themes", "researcher_note",
             "asr_transcript", "asr_translated", "ocr_1", "frame_analysis_1")
     sections = ["\nEP24 SOURCE METADATA (recorded source, not visual proof):", "\nRESEARCHER ANNOTATION (human supplied, not model ground truth):", "\nUPSTREAM MODEL / ENRICHMENT CONTEXT (fallible):"]
