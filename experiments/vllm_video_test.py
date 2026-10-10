@@ -717,7 +717,7 @@ def bounded_video_context(row: pd.Series | None) -> str:
     keys = ("video_id", "country", "source_type", "author_username",
             "political_preference", "entities", "themes", "researcher_note",
             "asr_transcript", "asr_translated", "ocr_1", "frame_analysis_1")
-    sections = ["\\nEP24 CONTEXT (fallible; primary evidence is the video):"]
+    sections = ["\nEP24 SOURCE METADATA (recorded source, not visual proof):", "\nRESEARCHER ANNOTATION (human supplied, not model ground truth):", "\nUPSTREAM MODEL / ENRICHMENT CONTEXT (fallible):"]
     remaining = budget
     for key in keys:
         value = str(row.get(key, "") or "").strip()
