@@ -78,4 +78,4 @@ def test_doc_separates_measured_from_estimated():
     assert "Measured (repository)" in doc
     assert "Estimated" in doc
     # The one real Roihu datapoint must be named as such.
-    assert "Qwen/Qwen3-VL-32B-Instruct" in doc and "vLLM on GH200" in doc
+    assert "Qwen/Qwen3-VL-8B-Instruct" in doc and "vLLM on GH200" in doc
