@@ -100,14 +100,47 @@ def postprocess_num_predict() -> int:
 
 
 def _prompt_context(row: pd.Series) -> str:
-    """Cumulative context without duplicating the summary or giant raw prompt blobs."""
-    reduced = row.drop(labels=[c for c in PROMPT_EXCLUDE_COLUMNS if c in row.index])
-    return metadata_context(reduced, include_model_fields=True)
+    """Only evidence relevant to Step 5 extraction, never the entire cumulative row."""
+    limit = max(3000, int(os.getenv("LACLAUGPT_STEP5_MAX_PROMPT_CHARS", "12000")))
+    # Summary remains primary evidence, but original transcript and visible
+    # text disambiguate names missed by earlier model summaries.
+    priority = (
+        ("summary_analysis", 7800),
+        ("asr_transcript", 1900),
+        ("ocr_1", 1000),
+        ("entities", 500),
+        ("themes", 500),
+        ("researcher_note", 350),
+        ("country", 80),
+        ("video_id", 120),
+        ("vllm_video_status", 40),
+        ("frame_analysis_status", 40),
+        ("processing_status", 40),
+        ("processing_status_reason", 200),
+    )
+    lines = ["CURRENT EP24 VIDEO ONLY. Extract from evidence, not metadata guesses."]
+    remaining = limit - len(lines[0])
+    for field, cap in priority:
+        value = row.get(field, "")
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            continue
+        value = str(value).strip()
+        if not value or value.lower() == "nan":
+            continue
+        prefix = f"\\n{field} [upstream evidence/context]: "
+        take = min(len(value), cap, max(0, remaining - len(prefix) - 30))
+        if take <= 0:
+            break
+        piece = prefix + value[:take]
+        if take < len(value):
+            piece += " [TRUNCATED; original stored unchanged]"
+        lines.append(piece)
+        remaining -= len(piece)
+    return "".join(lines)
 
 
 def build_postprocess_prompt(row: pd.Series) -> str:
-    summary = str(row.get("summary_analysis", "") or "").strip()
-    return _prompt_context(row) + "\n\nSUMMARY EVIDENCE:\n" + summary
+    return _prompt_context(row)
 
 
 def _country_code(row: pd.Series, language: str | None = None) -> str:
