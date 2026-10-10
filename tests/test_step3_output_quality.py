@@ -31,3 +31,13 @@ def test_accepts_substantive_unique_analysis():
     body += "A timestamp is present on the interface, but the exact date is unclear. "
     ok, reason = validate_video_analysis(body + '{"SCROLL":false,"SCROLL_SECONDS":[]}')
     assert ok, reason
+
+
+def test_step3_32b_default_and_recommended_sampling():
+    from experiments.vllm_video_test import DEFAULT_MODEL, SYSTEM_PROMPT, parse_args
+    assert DEFAULT_MODEL == "Qwen/Qwen3-VL-32B-Instruct"
+    args = parse_args([])
+    assert (args.temperature, args.top_p, args.top_k) == (0.7, 0.8, 20)
+    assert (args.repetition_penalty, args.presence_penalty) == (1.0, 1.5)
+    assert "European Parliament" in SYSTEM_PROMPT
+    assert "temporal" in SYSTEM_PROMPT
