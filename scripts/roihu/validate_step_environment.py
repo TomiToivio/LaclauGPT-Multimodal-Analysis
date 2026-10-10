@@ -14,7 +14,7 @@ if str(PUBLIC_ROOT) not in sys.path:
 IMPORTS = {
     1: ("pandas", "cv2"),
     2: ("pandas", "cv2", "ollama"),
-    3: ("pandas", "vllm", "transformers"),
+    3: ("pandas", "vllm", "transformers", "qwen_vl_utils"),
     4: ("pandas", "ollama"),
     5: ("pandas", "ollama", "pydantic"),
     6: ("pandas", "ollama", "pydantic"),
@@ -84,6 +84,16 @@ def main() -> int:
                 fail(f"Step 1 backend initialization failed: {type(exc).__name__}: {exc}")
 
     if step == 3:
+        try:
+            from qwen_vl_utils import process_vision_info
+            if not callable(process_vision_info):
+                fail("qwen_vl_utils.process_vision_info is not callable")
+        except Exception as exc:
+            fail(
+                "Step 3 needs qwen-vl-utils for native Qwen3-VL video. "
+                "Run bash scripts/roihu/setup_step_3_video.sh. "
+                f"Cause: {type(exc).__name__}: {exc}"
+            )
         for exe in ("ffmpeg", "ffprobe", "rclone"):
             resolved = shutil.which(exe)
             if resolved is None and exe == "rclone":
