@@ -2,11 +2,7 @@
 
 Issue: #144 — *Research optimal Ollama/vLLM model and runtime for each Roihu analysis step.*
 
-Scope: **documentation only.** This record specifies how to choose a model and
-runtime per step and the exact procedure that produces the evidence. It does not
-change any production model, prompt, runtime or configuration. Choosing a new
-default is a separate issue that must cite measured results from the procedure
-below.
+Scope: **documentation only.** This record specifies how to choose a model and runtime per step and the exact procedure that produces the evidence. The Step 3 default is now 32B by explicit user request; GH200 results for this new default are not yet measured.
 
 Status: **procedure and candidates fixed; empirical Roihu results not yet
 recorded.** The apples-to-apples Ollama-vs-vLLM run and the blinded multilingual
@@ -23,10 +19,10 @@ Read every number in this document with its label:
 - **Measured (repository):** what the current code actually does — model
   defaults, runtimes, and the fields the Step-3 harness records. Verified by
   reading the files named below.
-- **Measured (Roihu):** a real Roihu result. There is currently **one** such
-  datapoint: Step 3 has completed a real EP24 video with `Qwen/Qwen3-VL-8B-Instruct`
+- **Measured (Roihu):** a real Roihu result. The existing measured
+  datapoint concerns the **previous** Step 3 baseline: a real EP24 video with `Qwen/Qwen3-VL-8B-Instruct`
   under vLLM on GH200 (reported in the #144 discussion). Nothing else here has a
-  recorded Roihu measurement.
+  recorded Roihu measurement for the new 32B model.
 - **Estimated:** candidate rankings and feasibility from model/runtime
   documentation and architecture. These are hypotheses the procedure below is
   designed to falsify.
@@ -43,7 +39,7 @@ it is not one.
 | 1 ASR | specialist backend, no LLM | `canary` → `nvidia/canary-1b-v2` (`LACLAUGPT_ASR_ENGINE`) |
 | 1 OCR | specialist backend, no LLM | `paddleocr` → `PP-OCRv5` (`LACLAUGPT_OCR_ENGINE`) |
 | 2 keyframe VLM | **Ollama** | `qwen3.8:27b` (`LACLAUGPT_MULTIMODAL_MODEL`) |
-| 3 whole video | **vLLM** | `Qwen/Qwen3-VL-8B-Instruct` (`LACLAUGPT_VLLM_TEST_MODEL`) |
+| 3 whole video | **vLLM** | `Qwen/Qwen3-VL-32B-Instruct` (`LACLAUGPT_VLLM_TEST_MODEL`) |
 | 4 summary/fusion | **Ollama** | `qwen3.8:27b` |
 | 5 structured postprocess | **Ollama** | `qwen3.8:27b` |
 | 6 discourse analysis | **Ollama** | `qwen3.8:27b` |
@@ -59,7 +55,7 @@ Source: `asr_backend.py`, `ocr_backend.py`, `roihu_frame.py`, `roihu_summary.py`
 
 Two facts shape the whole decision:
 
-1. **Step 3 already proves vLLM works on Roihu.** Its harness records
+1. **Step 3 proves vLLM works on Roihu with the earlier 8B model.** Its harness records
    `vllm_version`, `vllm_torch_version`, `vllm_cuda_version`, `vllm_gpu_name`,
    `vllm_hostname`, `vllm_peak_gpu_memory_mb`, `vllm_video_inference_seconds`,
    `vllm_video_runtime_seconds`, `vllm_structured_output_status` and the prompt
@@ -289,3 +285,7 @@ should be proposed as a separate issue citing them.
 - [x] No implementation or configuration change performed.
 - [ ] Measured Ollama-vs-vLLM Roihu numbers — blocked on CSC access.
 - [ ] Blinded multilingual quality scores — blocked on the private sample + run.
+
+## October 2026 Step 3 change
+
+The new configured Step 3 default is `Qwen/Qwen3-VL-32B-Instruct`, with compact EP24 narrative instructions and sampling temperature 0.7, top_p 0.8, top_k 20, repetition penalty 1.0 and presence penalty 1.5. This is a requested production experiment, **not a measured 32B Roihu quality or memory result**. The previous 8B vLLM on GH200 measurement remains historical evidence. Test 32B on a small Roihu batch before a full force rerun.
