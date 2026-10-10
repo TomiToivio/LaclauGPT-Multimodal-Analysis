@@ -719,7 +719,13 @@ def bounded_video_context(row: pd.Series | None) -> str:
             "asr_transcript", "asr_translated", "ocr_1", "frame_analysis_1")
     sections = ["\nEP24 SOURCE METADATA (recorded source, not visual proof):", "\nRESEARCHER ANNOTATION (human supplied, not model ground truth):", "\nUPSTREAM MODEL / ENRICHMENT CONTEXT (fallible):"]
     remaining = budget
-    for key in keys:
+    excluded = {"rag_context_json", "memory_context_json",
+                "codebook_context_json", "entity_normalization_json",
+                "theme_normalization_json"}
+    fields = (*keys, *(str(key) for key in row.index
+                       if str(key) not in keys and str(key) not in excluded
+                       and not str(key).startswith(("rag_", "memory_", "_pipeline"))))
+    for key in fields:
         value = str(row.get(key, "") or "").strip()
         if not value or value.lower() == "nan":
             continue
