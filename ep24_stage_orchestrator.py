@@ -327,15 +327,42 @@ def run_country(
                     "frame_analysis_status": {"$nin": ["ok", "cached"]},
                 }
                 reason = "HistoricalFrameFailure"
+            elif step == 3:
+                from experiments.vllm_video_test import validate_video_analysis
+
+                repaired = 0
+                for doc in collection.find(
+                    {f"{status_path(step)}.status": "complete"},
+                    {"_storage_id": 1, "vllm_video_analysis": 1},
+                ):
+                    ok, reason = validate_video_analysis(
+                        str(doc.get("vllm_video_analysis", "") or "")
+                    )
+                    if not ok:
+                        result = collection.update_one(
+                            {"_storage_id": doc["_storage_id"],
+                             f"{status_path(step)}.status": "complete"},
+                            {"$set": {
+                                f"{status_path(step)}.status": "error",
+                                f"{status_path(step)}.error_type": "HistoricalDegenerateVideo",
+                                "vllm_video_status": "error",
+                                "vllm_video_error": reason,
+                            }},
+                        )
+                        repaired += result.modified_count
+                LOG.warning("Requeued %d historical degenerate Step 3 analyses", repaired)
+                retry_errors = True
+                historical = None
             else:
-                raise ValueError("--requeue-failed-results supports Step 1 or Step 2")
-            result = collection.update_many(
-                historical,
-                {"$set": {f"{status_path(step)}.status": "error",
-                          f"{status_path(step)}.error_type": reason}},
-            )
-            LOG.warning("Requeued %d historical Step %d failures in %s",
-                        result.modified_count, step, storage.collection_name("dataframe"))
+                raise ValueError("--requeue-failed-results supports Steps 1-3")
+            if historical is not None:
+                result = collection.update_many(
+                    historical,
+                    {"$set": {f"{status_path(step)}.status": "error",
+                              f"{status_path(step)}.error_type": reason}},
+                )
+                LOG.warning("Requeued %d historical Step %d failures in %s",
+                            result.modified_count, step, storage.collection_name("dataframe"))
             retry_errors = True
 
         if force:
