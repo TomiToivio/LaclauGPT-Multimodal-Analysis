@@ -113,6 +113,8 @@ def _prompt_context(row: pd.Series) -> str:
         ("researcher_note", 350),
         ("country", 80),
         ("video_id", 120),
+        ("vllm_video_status", 40),
+        ("frame_analysis_status", 40),
         ("processing_status", 40),
         ("processing_status_reason", 200),
     )
