@@ -144,7 +144,7 @@ def _validate_keyframe(frame_file: str, timestamp: float) -> tuple[Path, tuple[i
 # Get the analysis from Ollama
 def get_analysis(frame_file, row_context=''):
     """Analyze the single t=1.0s frame with complete cumulative row context."""
-    # Social-semiotic first-pass prompt. Keep this stage descriptive and pre-discursive.
+    # Researcher methodology: multimodal social-semiotic pre-analysis (Halliday/SFL, Kress & van Leeuwen).\n    # These videos are from TikTok and Instagram feeds.\n    # Keep the actual model prompt lean while maintaining that methodological frame.
     system_prompt = """You are analyzing ONE keyframe at original t=1.0s from a
 TikTok/Instagram video collected around the European Parliament elections 2024
 (EP24). Perform descriptive, light multimodal social-semiotic analysis.
