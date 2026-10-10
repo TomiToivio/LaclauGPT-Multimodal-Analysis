@@ -664,6 +664,7 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
         temperature=args.temperature,
         top_p=args.top_p,
         max_tokens=args.max_tokens,
+        repetition_penalty=1.12,
     )
     structured_status = "off"
     if args.structured_output:
@@ -705,6 +706,58 @@ def ep24_metadata_context(row: pd.Series | None) -> str:
         + cumulative
     )
 
+def bounded_video_context(row: pd.Series | None) -> str:
+    """Keep source-specific evidence, not retrieved transcripts of other videos.
+
+    All original columns remain intact in MongoDB and cumulative checkpoints.
+    """
+    if row is None:
+        return ""
+    budget = max(1000, int(os.getenv("LACLAUGPT_VIDEO_CONTEXT_MAX_CHARS", "7000")))
+    keys = ("video_id", "country", "source_type", "source_recording", "author_username",
+            "political_preference", "entities", "themes", "researcher_note",
+            "asr_transcript", "asr_translated", "ocr_1", "frame_analysis_1")
+    sections = ["\nEP24 SOURCE METADATA (recorded source, not visual proof):", "\nRESEARCHER ANNOTATION (human supplied, not model ground truth):", "\nUPSTREAM MODEL / ENRICHMENT CONTEXT (fallible):"]
+    remaining = budget
+    excluded = {"rag_context_json", "memory_context_json",
+                "codebook_context_json", "entity_normalization_json",
+                "theme_normalization_json"}
+    fields = (*keys, *(str(key) for key in row.index
+                       if str(key) not in keys and str(key) not in excluded
+                       and not str(key).startswith(("rag_", "memory_", "_pipeline"))))
+    for key in fields:
+        value = str(row.get(key, "") or "").strip()
+        if not value or value.lower() == "nan":
+            continue
+        prefix = f"\\n- {key}: "
+        if remaining < len(prefix) + 64:
+            break
+        use = value[:min(len(value), remaining - len(prefix) - 50)]
+        line = prefix + use
+        if len(use) < len(value):
+            line += " [TRUNCATED; FULL ORIGINAL IN MONGODB]"
+        sections.append(line)
+        remaining -= len(line)
+    return "".join(sections)
+
+
+def validate_video_analysis(text: str) -> tuple[bool, str]:
+    """Reject malformed, generic and repetition-loop text before marking complete."""
+    body = re.sub(r'\\{\\s*"SCROLL"\\s*:\\s*(?:true|false).*', "", text, flags=re.I | re.S).strip()
+    if len(body) < 220:
+        return False, "analysis_too_short"
+    # Reject loops of repeated long phrases even when overall length is large.
+    normalized = re.sub(r"\\s+", " ", body.lower())
+    words = normalized.split()
+    if len(words) >= 110:
+        phrases = [" ".join(words[i:i + 12]) for i in range(len(words) - 11)]
+        from collections import Counter
+        common = Counter(phrases)
+        if common.most_common(1)[0][1] >= 4:
+            return False, "degenerate_repetition"
+    return True, "ok"
+
+
 def build_video_messages(
     local_path: Path,
     args: argparse.Namespace,
@@ -728,7 +781,7 @@ def build_video_messages(
                     "max_pixels": args.video_max_pixels,
                     "total_pixels": args.video_total_pixels,
                 },
-                {"type": "text", "text": VIDEO_PROMPT + ep24_metadata_context(row)},
+                {"type": "text", "text": VIDEO_PROMPT + bounded_video_context(row)},
             ],
         },
     ]
@@ -1340,6 +1393,9 @@ def main(argv: list[str] | None = None) -> int:
             record["SCROLL"] = "TRUE" if scroll_meta["SCROLL"] else "FALSE"
             record["SCROLL_SECONDS"] = json.dumps(scroll_meta["SCROLL_SECONDS"])
             record["needs_resplit"] = "TRUE" if needs_resplit(scroll_meta) else "FALSE"
+            valid, quality_error = validate_video_analysis(analysis)
+            if args.model_backend != "stub" and not valid:
+                raise ValueError(f"Invalid vLLM video output: {quality_error}")
             record["vllm_video_analysis"] = analysis
             record["vllm_video_markdown_analysis"] = analysis
             record["vllm_video_status"] = "ok"
