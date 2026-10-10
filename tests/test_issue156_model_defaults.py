@@ -40,8 +40,8 @@ def test_active_ollama_paths_have_no_old_default():
     assert "qwen3.8:27b" in (ROOT / "ep24_models.py").read_text(encoding="utf-8")
 
 
-def test_video_step_remains_vllm_qwen3_vl_8b():
-    expected = "Qwen/Qwen3-VL-8B-Instruct"
+def test_video_step_uses_vllm_qwen3_vl_32b():
+    expected = "Qwen/Qwen3-VL-32B-Instruct"
     harness = (ROOT / "experiments/vllm_video_test.py").read_text(encoding="utf-8")
     env_example = (ROOT / "config/vllm_video_test.env.example").read_text(encoding="utf-8")
     sbatch = (ROOT / "scripts/roihu/vllm_video_test.sbatch").read_text(encoding="utf-8")

@@ -62,7 +62,7 @@ from ep24_schema import (
     value as ep24_value,
 )
 
-DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen3-VL-32B-Instruct"
 DEFAULT_SAMPLE_SIZE = None
 
 # allas_filename is authoritative for the researcher-feed reprocessing corpus.
@@ -135,64 +135,33 @@ OUTPUT_COLUMNS = (
 # representation* only: no Laclau/populism, ideological, partisan, sentiment,
 # DNA or SNA analysis. Those belong downstream.
 SYSTEM_PROMPT = (
-    "You are performing a descriptive multimodal pre-analysis of one short "
-    "social-media video from TikTok or Instagram. The video is related to the " 
-    "European Parliament Elections in 2024."
-    "Note the political context and take into account recognizable politicians, "
-    "political slogans, political symbols, country flags and political situations " 
-    "like voting or campaign rallies. The videos are from different countries of "
-    "the European Union: Finland, Sweden, Germany, France, Spain, Portugal, "
-    "Croatia, Hungary and Bulgaria.\n\n"
-    "Describe only what is observable in the video, and mark uncertainty "
-    "explicitly rather than filling gaps with plausible invention.\n"
-    "Note if the video has problems such as there is no meaningful video content "
-    "or the user scrolls in the middle of the video meaning the video is badly "
-    "split. Note the video problem clearly and state if the video should be "    
-    "reprocessed or if the video is garbage and should be deleted.\n"
-    "Clearly indicate if the video is OK, or mark it for REPROCESS or DELETE.\n"
-    "EP24 COLLECTION RULE: the original split clip always begins with a known "
-    "feed-scroll artifact. The application removes the first 1.0 second before "
-    "you see the video. Do not count that known initial transition as an "
-    "additional scroll. Inspect the remaining content for later TikTok/Instagram "
-    "feed scrolls that indicate the original splitter failed."
+    "You analyze social-media videos collected around the 2024 European Parliament "
+    "elections (EP24). Watch the entire video and describe its narrative in temporal "
+    "order: main scenes, what happens, who participates, and meaningful transitions. "
+    "Pay particular attention to visible or audible political content: politicians, "
+    "parties, slogans, flags, voting, rallies and election messages. "
+    "Separate what is directly visible or audible from uncertain inference and "
+    "fallible OCR, ASR or researcher context. Never invent identities, translations "
+    "or events. If content is static, describe it as static. Avoid repetitions, "
+    "generic filler and lists of what a video is not. "
+    "The first 1.0 second of the original recording has already been removed "
+    "because it contains the known initial feed-scroll artifact. Only mark a later scroll "
+    "when it switches between distinct TikTok/Instagram posts. "
+    "Conclude with OK, REPROCESS or DELETE and a brief reason. Write in English."
 )
 
 VIDEO_PROMPT = (
-    "Watch this video from beginning to end and produce an in-depth description "
-    "of its whole temporal narrative. Cover, wherever observable:\n"
-    "1. Major scenes and scene changes, in the order they occur.\n"
-    "2. Actions and events over time.\n"
-    "3. People and participants (describe them without guessing unknown "
-    "identities).\n"
-    "4. Spoken words and visible text, when you can perceive them.\n"
-    "5. Gestures, facial expressions and interactions.\n"
-    "6. Camera work and editing changes (cuts, zooms, transitions).\n"
-    "7. Graphics, captions, memes, screenshots and platform interface elements.\n"
-    "8. Important visual signs, symbols and logos.\n"
-    "9. Temporal relationships between events (what happens before, during and "
-    "after what).\n"
-    "10. A concise beginning -> middle -> end narrative summary.\n"
-    "11. Keep in mind the European Parliament elections 2024 context "
-    "Note recognizable politicians, political symbols, political situations.\n"
-    "12. Also list TikTok/Instagram metadata you see, especially the username.\n"    
-    "13. Note if the video is useless and should be deleted, or if it has to be "
-    "reprocessed and cut again.\n" 
-    "Clearly indicate if the video is OK, or mark it for REPROCESS or DELETE.\n"
-    ""
-    "Finish with a short 'Uncertainty' note listing what you could not determine "
-    "or are unsure about. Then append exactly one JSON object on its own line with "
-    "keys SCROLL and SCROLL_SECONDS. SCROLL must be true only when an additional "
-    "feed-scroll transition separates distinct TikTok/Instagram items after the "
-    "known initial artifact. Distinguish a feed scroll from normal camera motion, "
-    "cuts, pans, zooms, in-post scrolling, or animation. SCROLL_SECONDS must list "
-    "approximate timestamps in seconds on the ORIGINAL source timeline. Because "
-    "the visible analysis clip begins at original t=1.0s, add 1.0 second to visible "
-    "timestamps. If no additional feed scroll exists, output "
-    "{\"SCROLL\": false, \"SCROLL_SECONDS\": []}. Write in English. Do not identify "
-    "unknown individuals."
+    "Describe the video's beginning, development and ending, its people, actions, "
+    "important visible text or speech and EP24 political content. "
+    "Mention uncertainty briefly and give a justified quality verdict. "
+    "Be detailed enough to distinguish this specific video, but do not pad. "
+    "End with one JSON object containing SCROLL (boolean) and SCROLL_SECONDS "
+    "(list of approximate timestamps on the ORIGINAL video timeline, including "
+    "the initial 1.0-second offset). If there are no additional post-to-post "
+    "scrolls, write exactly: {\"SCROLL\": false, \"SCROLL_SECONDS\": []}."
 )
-PROMPT_VERSION = "ep24-vllm-video-description-v1"
-PROMPT_TEXT = f"{SYSTEM_PROMPT}\n\n{VIDEO_PROMPT}"
+PROMPT_VERSION = "ep24-vllm-video-description-v2-32b"
+PROMPT_TEXT = f"{SYSTEM_PROMPT}\\n\\n{VIDEO_PROMPT}"
 PROMPT_SHA256 = hashlib.sha256(PROMPT_TEXT.encode("utf-8")).hexdigest()
 
 STRUCTURED_OUTPUT_SCHEMA = {
@@ -664,7 +633,9 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
         temperature=args.temperature,
         top_p=args.top_p,
         max_tokens=args.max_tokens,
-        repetition_penalty=1.12,
+        top_k=args.top_k,
+        repetition_penalty=args.repetition_penalty,
+        presence_penalty=args.presence_penalty,
     )
     structured_status = "off"
     if args.structured_output:
@@ -713,7 +684,7 @@ def bounded_video_context(row: pd.Series | None) -> str:
     """
     if row is None:
         return ""
-    budget = max(1000, int(os.getenv("LACLAUGPT_VIDEO_CONTEXT_MAX_CHARS", "7000")))
+    budget = max(1000, int(os.getenv("LACLAUGPT_VIDEO_CONTEXT_MAX_CHARS", "3500")))
     keys = ("video_id", "country", "source_type", "source_recording", "author_username",
             "political_preference", "entities", "themes", "researcher_note",
             "asr_transcript", "asr_translated", "ocr_1", "frame_analysis_1")
@@ -1170,8 +1141,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     parser.add_argument("--max-model-len", type=int, default=32768)
     parser.add_argument("--max-tokens", type=int, default=2048)
-    parser.add_argument("--temperature", type=float, default=0.1)
-    parser.add_argument("--top-p", type=float, default=0.9)
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--top-p", type=float, default=0.8)
+    parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument("--repetition-penalty", type=float, default=1.0)
+    parser.add_argument("--presence-penalty", type=float, default=1.5)
     parser.add_argument("--video-min-pixels", type=int, default=4 * 32 * 32)
     parser.add_argument("--video-max-pixels", type=int, default=256 * 32 * 32)
     parser.add_argument("--video-total-pixels", type=int, default=20480 * 32 * 32)

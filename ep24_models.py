@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 
 DEFAULT_OLLAMA_MODEL = "qwen3.8:27b"
-DEFAULT_VLLM_VIDEO_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+DEFAULT_VLLM_VIDEO_MODEL = "Qwen/Qwen3-VL-32B-Instruct"
 
 
 def ollama_model(*, specific_env: str | None = None) -> str:

@@ -44,9 +44,9 @@ def test_ollama_steps_share_the_documented_default_model():
 
 def test_step3_uses_vllm_with_the_documented_baseline_model():
     text = _text("experiments/vllm_video_test.py")
-    assert 'DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"' in text
+    assert 'DEFAULT_MODEL = "Qwen/Qwen3-VL-32B-Instruct"' in text
     assert "vllm" in text.casefold()
-    assert "Qwen/Qwen3-VL-8B-Instruct" in DOC.read_text(encoding="utf-8")
+    assert "Qwen/Qwen3-VL-32B-Instruct" in DOC.read_text(encoding="utf-8")
 
 
 def test_step1_specialist_backends_match_the_document():
@@ -78,4 +78,4 @@ def test_doc_separates_measured_from_estimated():
     assert "Measured (repository)" in doc
     assert "Estimated" in doc
     # The one real Roihu datapoint must be named as such.
-    assert "Qwen/Qwen3-VL-8B-Instruct" in doc and "vLLM on GH200" in doc
+    assert "Qwen/Qwen3-VL-32B-Instruct" in doc and "vLLM on GH200" in doc
