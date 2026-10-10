@@ -1,11 +1,12 @@
 import hashlib
+import json
 import logging
 import os
 import sqlite3
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from ep24_db import country_storage
 from ep24_memory import retrieve_researcher_memory
@@ -13,9 +14,11 @@ from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import load_cumulative_csv, metadata_context, write_cumulative_csv
 from ep24_rag import retrieve_stage_rag, upsert_stage_rag
 from ep24_redis import RedisCoordinator
-from ep24_schema import stable_source_id, value as ep24_value
-from roihu_storage import StorageConfig
+from ep24_schema import stable_source_id
+from ep24_schema import value as ep24_value
+from ep24_summary_evidence import build_packet
 from laclaugpt_quality import QUALITY_COLUMNS, merge_status, summary_quality_decision
+from roihu_storage import StorageConfig
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
@@ -129,7 +132,7 @@ def _evidence_from_row(row) -> tuple[str, str, str, str]:
 
 
 def _prompt_sha256(system_prompt: str, user_prompt: str, model: str) -> str:
-    payload = f"{model}\n{system_prompt}\n{user_prompt}"
+    payload = json.dumps({"model": model, "system": system_prompt, "user": user_prompt, "options": _summary_options()}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -199,61 +202,28 @@ def _mongo_resume_summary(storage, source_id: str, *, model: str, context_sha256
 # Add video analysis
 # Transcript is good to be here
 # Put the rest of the dataframe columns in metadata. I mean every field the pipeline has produced so far. 
-def get_llama_summary_user_prompt(
-    metadata,
-    transcript,
-    frame_analysis,
-    video_analysis,
-    memory_context="",
-    rag_context="",
-):
-    """Construct the user prompt with explicit source/context evidence boundaries."""
-    user_message = f'''### User Prompt
-
-### Input data
-
-1. **Frame analyses**
-```
-{frame_analysis}
-```
-
-2. **Video analysis**
-```
-{video_analysis}
-```
-
-3. **Source/platform metadata**
-```
-{metadata}
-```
-
-4. **Speech / transcript**
-```
-{transcript}
-```
-
-5. **Researcher memory / normalization context (NOT source evidence)**
-```
-{memory_context or "<none>"}
-```
-
-6. **Retrieved prior-corpus context (NOT source evidence)**
-```
-{rag_context or "<none>"}
-```
-
-### Task
-
-Integrate all available modalities into one **descriptive multimodal social-semiotic first pass**.
-
-Treat frame descriptions, written/visible text, transcript, metadata, and temporal sequence as distinct evidence streams. Preserve disagreements between them rather than forcing a single interpretation. Metadata can provide context but must not override what is actually present in the media.
-
-You are analyzing TikTok and Instagram videos related to the European Parliament Elections of 2024. Pay attention to multimodal political content.  
-Note the political context and take into account recognizable politicians, political slogans, political symbols, country flags and political situations like voting or campaign rallies. The videos are from different countries of the European Union: Finland, Sweden, Germany, France, Spain, Portugal, Croatia, Hungary and Bulgaria.
-
-Your task is to describe the political content carefully but don't perform in-depth discourse analysis yet. A later step will do that. 
-'''
-    return user_message
+def get_llama_summary_user_prompt(metadata, transcript, frame_analysis, video_analysis, memory_context="", rag_context=""):
+    """Bounded packet in production; backwards-compatible evidence API for tools/tests."""
+    if metadata or transcript or frame_analysis or memory_context or rag_context:
+        blocks = [
+            ("Video analysis", video_analysis),
+            ("Speech / transcript", transcript),
+            ("Frame analyses", frame_analysis),
+            ("Source/platform metadata", metadata),
+            ("Researcher memory / normalization context (NOT source evidence)", memory_context),
+            ("Retrieved prior-corpus context (NOT source evidence)", rag_context),
+        ]
+        evidence = "\n\n".join(
+            f"### {label}\n{str(value)[:4000]}" for label, value in blocks if value
+        )
+    else:
+        evidence = video_analysis
+    return (
+        "Describe the EP24 TikTok/Instagram video using labelled evidence. "
+        "Keep modalities separate, preserve contradictions and language uncertainty. "
+        "Do descriptive multimodal social semiotics, not downstream discourse analysis.\n\n"
+        + evidence
+    )
 
 
 def get_llama_summary_system_prompt():
@@ -384,10 +354,9 @@ The result must be useful as evidence-preserving input to later discourse analys
     return system_prompt
 
 
-def get_llama_summary_response(system_prompt, user_prompt, *, model=None):
-    """Get the configured Ollama model's response for the summary analysis."""
-    selected_model = model or ollama_model()
-    options = {
+def _summary_options():
+    """Effective generation settings included in cache provenance."""
+    return {
         "repeat_last_n": 64,
         "repeat_penalty": 1.1,
         "num_ctx": int(os.getenv("LACLAUGPT_SUMMARY_NUM_CTX", "32768")),
@@ -397,6 +366,12 @@ def get_llama_summary_response(system_prompt, user_prompt, *, model=None):
         "temperature": 0.0,
         "num_predict": int(os.getenv("LACLAUGPT_SUMMARY_NUM_PREDICT", "2048")),
     }
+
+
+def get_llama_summary_response(system_prompt, user_prompt, *, model=None):
+    """Get the configured Ollama model's response for the summary analysis."""
+    selected_model = model or ollama_model()
+    options = _summary_options()
     logger.info(
         "model_call_start model=%s model_source=%s num_ctx=%s num_predict=%s",
         selected_model,
@@ -541,7 +516,7 @@ def analyze_videos(language=None):
             )
             memory_items = []
             rag_items = []
-            if storage is not None:
+            if storage is not None and os.getenv("LACLAUGPT_SUMMARY_INCLUDE_RETRIEVAL", "0") == "1":
                 try:
                     memory_items = retrieve_researcher_memory(storage, retrieval_query, limit=12)
                     rag_items = retrieve_stage_rag(
@@ -554,14 +529,10 @@ def analyze_videos(language=None):
                     logger.exception("context_retrieval_failed source_id=%s", source_id)
             memory_context = _format_memory_context(memory_items)
             rag_context = _format_rag_context(rag_items)
+            evidence_packet = build_packet(row, memory=memory_context, rag=rag_context)
             system_prompt = get_llama_summary_system_prompt()
             user_prompt = get_llama_summary_user_prompt(
-                metadata,
-                transcript,
-                frame_analysis,
-                video_analysis,
-                memory_context,
-                rag_context,
+                "", "", "", evidence_packet,
             )
             context_sha256 = _prompt_sha256(system_prompt, user_prompt, model)
 
