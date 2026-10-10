@@ -1,13 +1,12 @@
 import hashlib
 import json
-from ep24_summary_evidence import build_packet
 import logging
 import os
 import sqlite3
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from ep24_db import country_storage
 from ep24_memory import retrieve_researcher_memory
@@ -15,9 +14,11 @@ from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import load_cumulative_csv, metadata_context, write_cumulative_csv
 from ep24_rag import retrieve_stage_rag, upsert_stage_rag
 from ep24_redis import RedisCoordinator
-from ep24_schema import stable_source_id, value as ep24_value
-from roihu_storage import StorageConfig
+from ep24_schema import stable_source_id
+from ep24_schema import value as ep24_value
+from ep24_summary_evidence import build_packet
 from laclaugpt_quality import QUALITY_COLUMNS, merge_status, summary_quality_decision
+from roihu_storage import StorageConfig
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
@@ -202,12 +203,26 @@ def _mongo_resume_summary(storage, source_id: str, *, model: str, context_sha256
 # Transcript is good to be here
 # Put the rest of the dataframe columns in metadata. I mean every field the pipeline has produced so far. 
 def get_llama_summary_user_prompt(metadata, transcript, frame_analysis, video_analysis, memory_context="", rag_context=""):
-    """Pass only the already budgeted evidence packet, never cumulative rows."""
+    """Bounded packet in production; backwards-compatible evidence API for tools/tests."""
+    if metadata or transcript or frame_analysis or memory_context or rag_context:
+        blocks = [
+            ("Video analysis", video_analysis),
+            ("Speech / transcript", transcript),
+            ("Frame analyses", frame_analysis),
+            ("Source/platform metadata", metadata),
+            ("Researcher memory / normalization context (NOT source evidence)", memory_context),
+            ("Retrieved prior-corpus context (NOT source evidence)", rag_context),
+        ]
+        evidence = "\n\n".join(
+            f"### {label}\n{str(value)[:4000]}" for label, value in blocks if value
+        )
+    else:
+        evidence = video_analysis
     return (
-        "Describe the EP24 TikTok/Instagram video using the following labelled evidence. "
+        "Describe the EP24 TikTok/Instagram video using labelled evidence. "
         "Keep modalities separate, preserve contradictions and language uncertainty. "
         "Do descriptive multimodal social semiotics, not downstream discourse analysis.\n\n"
-        + video_analysis
+        + evidence
     )
 
 
