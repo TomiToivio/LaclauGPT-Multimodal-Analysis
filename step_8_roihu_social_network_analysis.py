@@ -269,7 +269,7 @@ def run_language(lang: str) -> Path | None:
 
     for index, row in selected.iterrows():
         evidence = build_sna_evidence(row)
-        if not evidence.strip():
+        if evidence == "EP24 current-source relations, no RAG-derived evidence.":
             df.at[index, "sna_status"] = "no_evidence"
             continue
 
