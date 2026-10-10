@@ -34,6 +34,7 @@ from ep24_video import VIDEO_INITIAL_SKIP_SECONDS
 from laclaugpt_quality import QUALITY_COLUMNS, merge_status, quality_decision_from_analysis
 
 FRAME_TIMESTAMP_SECONDS = 1.0
+FRAME_PROMPT_VERSION = "ep24-frame-v2-concise-20261010"
 OUTPUT_COLUMNS = (
     "frame_analysis_1",
     "frame_analysis_timestamp_seconds",
@@ -143,88 +144,28 @@ def _validate_keyframe(frame_file: str, timestamp: float) -> tuple[Path, tuple[i
 # Get the analysis from Ollama
 def get_analysis(frame_file, row_context=''):
     """Analyze the single t=1.0s frame with complete cumulative row context."""
-    # Social-semiotic first-pass prompt. Keep this stage descriptive and pre-discursive.
-    system_prompt = f'''### System Prompt
+    # Researcher methodology: multimodal social-semiotic pre-analysis (Halliday/SFL, Kress & van Leeuwen).\n    # These videos are from TikTok and Instagram feeds.\n    # Keep the actual model prompt lean while maintaining that methodological frame.
+    system_prompt = """You are analyzing ONE keyframe at original t=1.0s from a
+TikTok/Instagram video collected around the European Parliament elections 2024
+(EP24). Perform descriptive, light multimodal social-semiotic analysis.
+Describe only the image, not an imagined video narrative. Attend especially to
+people, actions, political signs, slogans, party logos, flags, campaign scenes
+and other visible election context. Distinguish denotation from cautious
+interpretation. Treat ASR/OCR/researcher notes as fallible context, not visual
+proof. Never invent identities, text, ideology, or events. Be precise, concise,
+non-repetitive, and preserve legible words in their original language."""
 
-You are performing a **multimodal social-semiotic pre-analysis** of a single frame from incoming social-media or web video a TikTok or Instagram video related to European Parliament Elections in 2024. It is recorded from a GrapheneOS phone video feed by a researcher doing digital ethnography. 
-
-Note the political context and take into account recognizable politicians, political slogans, political symbols, country flags and political situations like voting or campaign rallies. The videos are from different countries of the European Union: Finland, Sweden, Germany, France, Spain, Portugal, Croatia, Hungary and Bulgaria. 
-
-Use a light social-semiotic methodology inspired by Halliday/SFL, Kress & van Leeuwen, multimodal social semiotics, and structuralist attention to signs and relations. Separate observation from interpretation and mark uncertainty explicitly.
-
-### Input
-- Exactly one keyframe sampled at original source t=1.0s, immediately after the known feed-scroll artifact.
-- Treat this as the deep visual/context still that complements the later whole-video narrative analysis.
-- It may contain people, objects, environments, captions, subtitles, memes, screenshots, platform UI, graphics, diagrams, logos, symbols, emojis, or embedded media.
-- Inspect platform/video metadata that is visibly rendered in the frame: username/handle, display name, date/time, title/caption, hashtags, subtitles, counters, labels, buttons and other interface text. Report only what is actually visible and mark uncertainty.
-- You also receive other information like date the video feed was recorded, political preference of the synthetic profile of the researcher recording the video, transcript of the video etc. Focus on the visual analysis of the keyframe but you can use the other data to augment your analysis.
-
-### Analysis categories
-
-1. **Denotative description**
-   - Describe only what is visibly present.
-   - Include people without identifying unknown persons, objects, setting, actions frozen in the frame, text, graphics, interface elements, and embedded images/screens.
-   - Keep in mind the European Parliament Elections 2024 context. Note any recognizable politicians, party symbols and situations like campaign rallies.
-   - Distinguish observation from inference.
-
-2. **Semiotic resources / modes**
-   - Identify visible resources such as photographic image, illustration, writing, typography, colour, gesture/posture, spatial arrangement, symbols, diagrams, emojis, platform/interface elements, and image-within-image.
-   - Pay attention to political symbols and party colors.
-   - Note what each resource appears to contribute descriptively.
-
-3. **Participants, processes, circumstances**
-   - Participants: visible people, groups, objects, institutions represented by explicit text/logo, places, or other entities.
-   - Processes: visible actions or represented processes.
-   - Circumstances: visible spatial, temporal, environmental, or situational context.
-   - Identify recognizable politicians. Note political roles like politician or voter and situations like voting.
-
-4. **Composition and salience**
-   - Foreground/background; centre/periphery; relative size/scale; camera distance/angle where observable; cropping; gaze/gesture direction; repetition; contrast; visual hierarchy.
-   - Describe likely viewing order only when composition supports it.
-   - Treat colour as a compositional resource, not as evidence of mood, ideology, nationality, or emotion unless explicit contextual evidence supports that reading.
-
-5. **Salient signs / signifiers**
-   - List especially prominent, repeated, foregrounded, or explicitly emphasized words, objects, symbols, gestures, colours, and graphic elements.
-   - Think about the meaning in political context.
-
-6. **Relations among signs**
-   - Note observable juxtapositions, contrasts, pairings, repetitions, sequences implied inside the frame, part-whole relations, labels, arrows, vectors, or other relational structures.
-   - Where useful, distinguish narrative/vector structures from conceptual/classificatory structures.
-
-7. **Image–text / intermodal relations**
-   - If text and image coexist, describe whether they appear redundant, complementary/extending, elaborating/anchoring, or contrasting.
-   - Quote short visible text exactly when legible. Mark OCR-like uncertainty rather than guessing.
-
-8. **Connotation, cautiously**
-   - Record culturally available associations only when strongly supported by conventional signs or explicit context.
-   - Keep connotation separate from denotation and offer multiple plausible readings when appropriate.
-   - Never turn connotation into political/discourse analysis at this stage.
-
-9. **Ambiguity and uncertainty**
-   - List unclear identities, illegible text, ambiguous symbols, uncertain scene context, cropping limitations, or interpretations that require other frames/audio/transcript.
-
-10. **Video metadata**
-   - These videos are from TikTok and Instagram feeds: list any visible metadata.
-   - List the author username of the creator of TikTok or Instagram video.
-   - Also list other visible metadata like hashtags, video title, date, other visible text.
-
-11. **Video problems**    
-   - Note if the frame has problems, for an example it seems like there is no meaningful content in the screen.
-   - Indicate if you think the video is OK, should be REPROCESSED or DELETED.
-   - Clearly indicate if the video is `OK`, or mark it for `REPROCESS` or `DELETE`.
-
-### Output
-Produce a detailed structured description under the headings above, and include:
-- **Visible platform/video metadata:** username/handle, date/time, title/caption, hashtags, subtitles, interface labels and other metadata-like text actually visible on screen.
-- **Visible text transcription:** preserve exact text where legible and distinguish it from OCR/upstream transcript context.
-- **Detailed scene inventory:** people, objects, setting, clothing, gestures, graphics, logos, symbols, composition and small but potentially relevant details.
-- **Frame gist:** 1–3 neutral sentences.
-- **Preserve for downstream analysis:** exact visible words/phrases and salient signs that later stages should receive unchanged where possible.
-- **Uncertainty:** everything unclear, cropped, illegible or dependent on temporal context.
-'''
-
-    user_prompt = f'''
-Analyze the provided frame using the social-semiotic pre-analysis categories above. Stay descriptive and modality-aware. Do not perform discourse or political analysis, and do not infer ideology, persuasion, populism, sentiment, or political alignment.\n\nCUMULATIVE EP24 CONTEXT:\n{row_context}\n'''
+    user_prompt = (
+        "Describe the frame under these headings: (1) Visible scene and "
+        "participants; (2) Political and other salient signs and their "
+        "composition; (3) Legible text, graphics, interface metadata and "
+        "image-text relations; (4) Uncertainty and limitations; "
+        "(5) Image usability: OK, REPROCESS or DELETE with a reason. "
+        "Mention gaze, gestures, framing, colour and contrasts only if "
+        "meaningful. Do not infer events before or after this single frame. "
+        "Prefer direct observation over background context.\\n\\n"
+        f"Limited EP24 context (not primary visual evidence):\\n{row_context}"
+    )
     model = ollama_model()
     logger.info("model=%s model_source=%s", model, ollama_model_source())
     logger.debug("model=%s frame_file=%s cumulative_context_chars=%d", model, frame_file, len(row_context))
@@ -268,7 +209,7 @@ def _row_context(row: pd.Series) -> tuple[str, str]:
     They remain in the cumulative dataframe, but cannot displace this frame's
     direct evidence from a single-frame prompt.
     """
-    budget = max(1000, int(os.getenv("LACLAUGPT_FRAME_CONTEXT_MAX_CHARS", "9000")))
+    budget = max(1000, int(os.getenv("LACLAUGPT_FRAME_CONTEXT_MAX_CHARS", "3500")))
     priorities = (
         "video_id", "country", "source_type", "author_username",
         "source_recording", "political_preference", "entities", "themes",
@@ -304,7 +245,7 @@ def _row_context(row: pd.Series) -> tuple[str, str]:
         "Full cumulative metadata, memory and RAG retrieval are retained "
         "outside this bounded prompt.\n" + "\n".join(parts)
     )
-    digest = hashlib.sha256(context.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256((FRAME_PROMPT_VERSION + "\\n" + context).encode("utf-8")).hexdigest()
     logger.info("frame_context_budget chars=%d limit=%d full_context_chars=%d",
                 len(context), budget, len(metadata_context(row, include_model_fields=True)))
     return context, digest
