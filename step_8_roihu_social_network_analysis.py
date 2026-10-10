@@ -115,6 +115,41 @@ def _enrich_edges(edges, row) -> list[dict]:
     return enriched
 
 
+def build_sna_evidence(row) -> str:
+    """Bound model input to current-source actor/relation evidence."""
+    max_chars = max(3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000")))
+    fields = (
+        ("asr_transcript", 3000),
+        ("dna_statements_json", 3000),
+        ("summary_analysis", 2500),
+        ("entities", 600),
+        ("researcher_note", 400),
+        ("ocr_1", 650),
+        ("country", 100),
+        ("video_id", 150),
+        ("source_recording", 150),
+    )
+    parts = ["EP24 current-source relations, no RAG-derived evidence."]
+    remaining = max_chars - len(parts[0])
+    for field, cap in fields:
+        raw = row.get(field, "")
+        if raw is None:
+            continue
+        value = str(raw).strip()
+        if not value or value.lower() == "nan":
+            continue
+        label = f"\\n{field}: "
+        take = min(len(value), cap, max(0, remaining - len(label) - 40))
+        if take <= 0:
+            break
+        part = label + value[:take]
+        if take < len(value):
+            part += " [TRUNCATED; original preserved]"
+        parts.append(part)
+        remaining -= len(part)
+    return "".join(parts)
+
+
 def _castells_interpretation(ollama, model: str, nodes, edges, metrics) -> str:
     if not edges:
         return (
@@ -233,19 +268,8 @@ def run_language(lang: str) -> Path | None:
     all_edges: list[dict] = []
 
     for index, row in selected.iterrows():
-        evidence = metadata_context(row) + "\n\nANALYTICAL EVIDENCE:\n" + "\n\n".join(
-            str(row.get(key, ""))
-            for key in (
-                "summary_analysis",
-                "formula_of_populism_analysis",
-                "dna_analysis_markdown",
-                "dna_statements_json",
-                "entities",
-                "themes",
-            )
-            if str(row.get(key, "")).strip()
-        )
-        if not evidence.strip():
+        evidence = build_sna_evidence(row)
+        if evidence == "EP24 current-source relations, no RAG-derived evidence.":
             df.at[index, "sna_status"] = "no_evidence"
             continue
 
