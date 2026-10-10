@@ -62,7 +62,7 @@ from ep24_schema import (
     value as ep24_value,
 )
 
-DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen3-VL-32B-Instruct"
 DEFAULT_SAMPLE_SIZE = None
 
 # allas_filename is authoritative for the researcher-feed reprocessing corpus.
@@ -145,7 +145,7 @@ SYSTEM_PROMPT = (
     "or events. If content is static, describe it as static. Avoid repetitions, "
     "generic filler and lists of what a video is not. "
     "The first 1.0 second of the original recording has already been removed "
-    "because it contains a known feed-scroll artifact. Only mark a later scroll "
+    "because it contains the known initial feed-scroll artifact. Only mark a later scroll "
     "when it switches between distinct TikTok/Instagram posts. "
     "Conclude with OK, REPROCESS or DELETE and a brief reason. Write in English."
 )
