@@ -14,6 +14,7 @@ LOG = logging.getLogger(__name__)
 # Field order is deliberate: source speech and visible words outrank prior models.
 SOURCE_FIELDS = (
     ("asr_transcript", 9000),
+    ("videoDescription", 4500),
     ("whisper_transcript", 5000),
     ("asr_translation", 5500),
     ("asr_translated", 5500),
