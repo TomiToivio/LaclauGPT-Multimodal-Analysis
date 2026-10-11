@@ -459,8 +459,9 @@ def analyze_videos(language=None):
                     index, source_id, platform, video_id, exc,
                 )
 
-        # Verify the stage is additive before writing. Existing columns are immutable.
-        assert_source_metadata_preserved(before, df, mutable_columns=QUALITY_COLUMNS)
+        # Reprocessing may refresh Step 2-owned output columns already present in
+        # cumulative input. All other incoming source/upstream fields stay immutable.
+        assert_source_metadata_preserved(before, df, mutable_columns=OUTPUT_COLUMNS)
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output, index=False, encoding="utf-8")
         logger.info("output_saved path=%s rows=%d columns=%d", output, len(df), len(df.columns))
