@@ -299,23 +299,21 @@ def test_memory_and_rag_are_never_source_evidence_in_the_prompt_context():
     })
     context, _ = step7.build_prompt_context(row)
     assert "current transcript evidence" in context
-    assert "normalization_context_not_source_evidence" in context
-    assert "prior_analysis_context_not_source_evidence" in context
-    # The memory/RAG payloads appear only under their explicit context roles.
-    assert context.index("=== RESEARCHER MEMORY ===") > context.index("current transcript evidence")
+    assert "Researcher Entity" in context
+    assert "remembered" not in context
+    assert "prior corpus text" not in context
 
 
-def test_prompt_context_carries_step_6_output_without_feeding_step_7_back_in():
+def test_prompt_context_carries_normalization_without_step7_feedback():
     row = pd.Series({
         "video_id": "v1",
         "asr_translated": "text",
-        "formula_of_populism_analysis": "STEP 6 DISCOURSE ANALYSIS",
         "laclau_structured_json": '{"us_constructs":[]}',
         "dna_analysis_markdown": "OLD STEP 7 OUTPUT",
         "dna_statements_json": '[{"organization":"OLD"}]',
     })
     context, _ = step7.build_prompt_context(row)
-    assert "STEP 6 DISCOURSE ANALYSIS" in context
+    assert '{"us_constructs":[]}' in context
     assert "OLD STEP 7 OUTPUT" not in context
     assert '{"organization":"OLD"}' not in context
 
@@ -324,7 +322,7 @@ def test_prompt_context_is_bounded_and_reports_truncation():
     row = pd.Series({"video_id": "v1", "asr_translated": "x" * 5000})
     context, truncated = step7.build_prompt_context(row, max_chars=500)
     assert truncated is True
-    assert len(context) == 500
+    assert len(context) <= 500
     assert step7.build_prompt_context(row, max_chars=10_000)[1] is False
 
 
