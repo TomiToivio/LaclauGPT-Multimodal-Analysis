@@ -58,7 +58,7 @@ def test_run_language_processes_a_row_instead_of_raising_unbound_local(
     csv_path = tmp_path / "ep24_fi.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(
-            handle, fieldnames=["video_id", "allas_filename", "country", "summary_analysis"]
+            handle, fieldnames=["video_id", "allas_filename", "country", "summary_analysis", "asr_transcript"]
         )
         writer.writeheader()
         writer.writerow(
@@ -67,6 +67,7 @@ def test_run_language_processes_a_row_instead_of_raising_unbound_local(
                 "allas_filename": "a.mp4",
                 "country": "Finland",
                 "summary_analysis": "evidence",
+                "asr_transcript": "A mentioned B in a public statement.",
             }
         )
     monkeypatch.setenv("LACLAUGPT_INPUT_CSV", str(csv_path))
@@ -79,7 +80,7 @@ def test_run_language_processes_a_row_instead_of_raising_unbound_local(
                 "target_actor": "B",
                 "relation_type": "mention",
                 "directed": True,
-                "evidence_quote": "q",
+                "evidence_quote": "A mentioned B in a public statement.",
                 "confidence": 0.5,
             }
         ],
