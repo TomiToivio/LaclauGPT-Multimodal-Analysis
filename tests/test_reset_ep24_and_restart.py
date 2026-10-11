@@ -12,7 +12,6 @@ spec.loader.exec_module(module)
 
 def test_targets_only_dataset_country_and_excludes_curated_and_prior_archives():
     cfg = SimpleNamespace(prefix="laclaugpt_ep2024_reprocess_finland")
-    cfg.__class__ = type("Config", (), {"prefix": "laclaugpt_ep2024_reprocess_finland"})
     class DB:
         def list_collection_names(self):
             return [
