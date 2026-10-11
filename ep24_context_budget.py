@@ -34,8 +34,9 @@ import hashlib
 import json
 import os
 import re
-from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 #: Characters per token used for the estimate. Deliberately crude and stated: it is a *budget
 #: signal*, not a tokenizer. A real tokenizer would add a dependency to every stage, and the
