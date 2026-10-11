@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,7 +40,7 @@ from ep24_sna import (
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG = logging.getLogger("step_8_roihu_social_network_analysis")
 
-PROMPT_VERSION = "ep24-sna-extraction/2.1-source-first"
+PROMPT_VERSION = "ep24-sna-extraction/2.2-source-quote-check"
 CASTELLS_PROMPT_VERSION = "ep24-sna-castells/1.0"
 
 EXTRACTION_SYSTEM = """You extract evidence-supported social/communication network relations
@@ -47,8 +48,9 @@ from an EP24 social-media analysis. Create an edge only when supplied evidence e
 supports a relation between two actors or organizations. Do not infer friendship,
 ideology, coordination, influence, hidden ties, or causality. Distinguish mention,
 reply, support, opposition, affiliation, co-appearance, quotation, and other explicit
-relation types only where justified. The edge list is empirical coding: theory must not
-change topology. Return a concise empirical Markdown summary and structured edges."""
+relation types only where justified. Copy a VERBATIM evidence_quote from the
+supplied source/DNA packet for every edge. Never invent or paraphrase a quote.
+The edge list is empirical coding: theory must not change topology. Return a concise empirical Markdown summary and structured edges."""
 
 CASTELLS_SYSTEM = """Interpret the supplied, already-constructed social network through a
 limited Manuel Castells network-society / Communication Power lens. The graph topology is
@@ -177,6 +179,30 @@ def sna_evidence_report(row, *, model: str | None = None) -> tuple[str, dict, st
         {"temperature": 0.0, "num_ctx": 8192},
     )
     return packet, report, digest
+
+
+def _grounded_edge_candidates(edges, evidence: str):
+    """Drop model-proposed relationships without a verbatim, visible quotation.
+
+    Only quotes appearing inside the supplied bounded packet can support an
+    edge; unrelated memory/RAG is not in that packet. This is a necessary, not
+    sufficient, condition for a real-world relation.
+    """
+    normalized = re.sub(r"\s+", " ", evidence).casefold()
+    accepted = []
+    for edge in edges:
+        quote = re.sub(r"\s+", " ", str(edge.evidence_quote or "")).strip()
+        if (len(quote) < 12 or quote.casefold() not in normalized
+                or not str(edge.source_actor).strip()
+                or not str(edge.target_actor).strip()
+                or fold_key(edge.source_actor) == fold_key(edge.target_actor)):
+            LOG.warning(
+                "sna_unsubstantiated_edge source=%s target=%s quote_chars=%d",
+                edge.source_actor, edge.target_actor, len(quote),
+            )
+            continue
+        accepted.append(edge)
+    return accepted
 
 
 def build_sna_evidence(row) -> str:
@@ -328,7 +354,7 @@ def run_language(lang: str) -> Path | None:
                 options={"temperature": 0.0, "num_ctx": 8192},
             )
             extracted = SNAResult.model_validate_json(response["message"]["content"])
-            raw_edges = _enrich_edges(extracted.edges, row)
+            raw_edges = _enrich_edges(_grounded_edge_candidates(extracted.edges, evidence), row)
             nodes, edges = graph_from_edges(raw_edges, row)
             # Issue #197: enrichment only supplies a canonical id when the mention
             # matches a resolved label exactly, so a bare surname, a title-prefixed
