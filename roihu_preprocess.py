@@ -27,7 +27,7 @@ from pathlib import Path
 import cv2
 import pandas as pd
 
-from asr_backend import describe_backend, language_hint, load_asr_model
+from asr_backend import ASRResult, NoAudioStreamError, describe_backend, language_hint, load_asr_model
 from ep24_pipeline import assert_source_metadata_preserved, local_media_path
 from ep24_schema import value as ep24_value
 from ep24_db import country_storage
@@ -595,7 +595,17 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                         analysis_clip,
                     )
                     asr_started = time.perf_counter()
-                    result = asr.transcribe(str(analysis_clip), language_hint(country))
+                    no_audio_stream = False
+                    try:
+                        result = asr.transcribe(str(analysis_clip), language_hint(country))
+                    except NoAudioStreamError:
+                        no_audio_stream = True
+                        result = ASRResult("", language_hint(country), "")
+                        LOG.warning(
+                            "asr_no_audio_stream country=%s video_id=%s clip=%s; "
+                            "preserving frame OCR and flagging audio absence",
+                            country, video_id, analysis_clip,
+                        )
                     asr_ms = (time.perf_counter() - asr_started) * 1000.0
                     LOG.debug(
                         "asr_complete country=%s video_id=%s backend=%s model=%s runtime_ms=%.1f "
@@ -610,7 +620,7 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                         len(result.translated),
                     )
 
-                    if not result.transcript.strip():
+                    if not result.transcript.strip() and not no_audio_stream:
                         LOG.warning(
                             "asr_empty_transcript country=%s video_id=%s backend=%s "
                             "clip=%s; preserving visual evidence and skipping restart cache",
@@ -643,6 +653,11 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                     )
                     if result.transcript.strip():
                         save_cached(conn, key, values)
+                    elif no_audio_stream:
+                        out.at[index, "preprocess_note"] += (
+                            " WARNING: analysis clip contains no audio stream; OCR/frame "
+                            "preserved, transcript unavailable. Review original audio if unexpected."
+                        )
                     else:
                         out.at[index, "preprocess_note"] += (
                             " WARNING: ASR returned an empty transcript; verify source audio "

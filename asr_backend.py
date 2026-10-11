@@ -56,6 +56,10 @@ def language_hint(country: str | None) -> str:
     return COUNTRY_LANGUAGE_HINTS.get(str(country or "").strip().casefold(), "")
 
 
+class NoAudioStreamError(RuntimeError):
+    """The analysis clip has no audio stream; not an ASR model failure."""
+
+
 def _nemo_audio_path(path: str, directory: str) -> str:
     """Decode a trimmed video once to PCM WAV for Lhotse's soundfile backend.
 
@@ -70,8 +74,10 @@ def _nemo_audio_path(path: str, directory: str) -> str:
         check=False, capture_output=True, text=True,
     )
     if completed.returncode or not destination.is_file() or destination.stat().st_size <= 44:
-        raise RuntimeError("Cannot decode analysis audio to PCM WAV: " +
-                           (completed.stderr or "").strip()[:500])
+        diagnostic = (completed.stderr or "").strip()
+        if "Output file #0 does not contain any stream" in diagnostic:
+            raise NoAudioStreamError(f"Analysis clip has no audio stream: {path}")
+        raise RuntimeError("Cannot decode analysis audio to PCM WAV: " + diagnostic[:500])
     return str(destination)
 
 
