@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cheap fail-fast checks before EP24 steps 1-6 consume a GH200 allocation."""
+"""Cheap fail-fast checks before EP24 steps 1-8 consume a GH200 allocation."""
 from __future__ import annotations
 
 import argparse
@@ -17,6 +17,8 @@ STEP_IMPORTS = {
     4: ("ollama",),
     5: ("ollama", "pydantic"),
     6: ("ollama", "pydantic"),
+    7: ("ollama", "pydantic"),
+    8: ("ollama", "pydantic"),
 }
 COUNTRIES = {"finland", "poland", "portugal", "germany", "spain", "hungary", "croatia", "france", "bulgaria", "sweden"}
 
@@ -36,7 +38,7 @@ def require_imports(names: tuple[str, ...]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--step", type=int, choices=range(1, 7), required=True)
+    parser.add_argument("--step", type=int, choices=range(1, 9), required=True)
     parser.add_argument("--country")
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
