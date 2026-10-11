@@ -43,8 +43,10 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
 from ep24_models import ollama_model
-from ep24_schema import EP24_REPROCESS_COLUMNS, value as ep24_value
+from ep24_schema import EP24_REPROCESS_COLUMNS
+from ep24_schema import value as ep24_value
 
 os.makedirs("./logs", exist_ok=True)
 
@@ -411,7 +413,9 @@ def document_node(row: dict, language: str, index: int) -> tuple[str, str]:
     canonical source identity, and the numeric row index is only a fallback for
     legacy rows that carry no identifiers.
     """
-    author = ep24_value(row, "author_username")
+    # `author_username` is deliberately NOT part of document identity: the canonical rule is
+    # source URL / video id / row fallback, and folding a mutable byline in would re-identify
+    # a document when its post is edited.
     video_id = ep24_value(row, "video_id")
     allas_filename = ep24_value(row, "allas_filename")
 
