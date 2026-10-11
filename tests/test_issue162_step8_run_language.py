@@ -79,7 +79,7 @@ def test_run_language_processes_a_row_instead_of_raising_unbound_local(
                 "target_actor": "B",
                 "relation_type": "mention",
                 "directed": True,
-                "evidence_quote": "q",
+                "evidence_quote": "A mentioned B in a public statement.",
                 "confidence": 0.5,
             }
         ],
