@@ -693,7 +693,9 @@ def process_csv(input_csv: Path, output_csv: Path) -> None:
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
     expected = df.head(max_rows).copy() if max_rows > 0 else df
     result = preprocess_dataframe(df, source_csv=input_csv)
-    assert_source_metadata_preserved(expected, result)
+    # Reprocessing is allowed to refresh Step 1's own result columns, but
+    # source media identifiers and researcher annotations remain immutable.
+    assert_source_metadata_preserved(expected, result, mutable_columns=PREPROCESS_COLUMNS)
     persist_shared_state(result, source_csv=input_csv)
     backup_and_write(result, output_csv)
 
