@@ -217,7 +217,13 @@ def _row_context(row: pd.Series) -> tuple[str, str]:
         "asr_transcript", "asr_translated", "preprocess_status",
     )
     parts = []
-    remaining = budget
+    prefix = (
+        "EP24 SINGLE-FRAME EVIDENCE AND PROVENANCE. Researcher annotations "
+        "are not model ground truth. OCR and ASR are upstream estimates. "
+        "Full cumulative metadata, memory and RAG retrieval are retained "
+        "outside this bounded prompt.\\n"
+    )
+    remaining = budget - len(prefix)
     excluded = {"rag_context_json", "memory_context_json",
                 "codebook_context_json", "entity_normalization_json",
                 "theme_normalization_json"}
@@ -233,18 +239,16 @@ def _row_context(row: pd.Series) -> tuple[str, str]:
         label = f"- {key}: "
         if remaining <= len(label) + 30:
             break
-        cap = min(len(value), remaining - len(label) - 1)
-        piece = label + value[:cap]
-        if cap < len(value):
-            piece += " [TRUNCATED FOR MODEL CONTEXT; ORIGINAL PRESERVED]"
+        suffix = " [TRUNCATED FOR MODEL CONTEXT; ORIGINAL PRESERVED]"
+        available = remaining - len(label) - 1
+        if len(value) > available:
+            cap = max(0, available - len(suffix))
+            piece = label + value[:cap] + suffix
+        else:
+            piece = label + value
         parts.append(piece)
         remaining -= len(piece) + 1
-    context = (
-        "EP24 SINGLE-FRAME EVIDENCE AND PROVENANCE. Researcher annotations "
-        "are not model ground truth. OCR and ASR are upstream estimates. "
-        "Full cumulative metadata, memory and RAG retrieval are retained "
-        "outside this bounded prompt.\n" + "\n".join(parts)
-    )
+    context = prefix + "\n".join(parts)
     digest = hashlib.sha256((FRAME_PROMPT_VERSION + "\\n" + context).encode("utf-8")).hexdigest()
     logger.info("frame_context_budget chars=%d limit=%d full_context_chars=%d",
                 len(context), budget, len(metadata_context(row, include_model_fields=True)))
