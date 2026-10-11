@@ -16,6 +16,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Direct script invocation places scripts/roihu on sys.path, not repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from ep24_bootstrap import country_slug, ordered_country_files
 from ep24_cli import normalize_country
 from ep24_settings import load_private_env, private_root
@@ -87,6 +90,16 @@ def main(argv=None) -> int:
     archive_root = private_root().resolve() / "reset-archives" / stamp
     if args.execute and shutil.which("sbatch") is None and not args.no_submit:
         raise RuntimeError("sbatch unavailable; use --no-submit to reimport without submitting")
+
+    # Refuse to reset while this user's EP24 jobs may be writing the same state.
+    if args.execute and shutil.which("squeue"):
+        queue = subprocess.run(
+            ["squeue", "--me", "--noheader", "--format=%j"],
+            check=True, capture_output=True, text=True,
+        ).stdout.splitlines()
+        active = [name for name in queue if "ep24" in name.casefold()]
+        if active:
+            raise RuntimeError(f"Active EP24 SLURM jobs must finish/cancel before reset: {active}")
 
     storage = MongoStorage(config)
     try:
