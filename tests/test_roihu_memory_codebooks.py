@@ -155,8 +155,8 @@ def test_populism_uses_shared_context_architecture():
     assert "codebook_context_json" in source
     assert "memory_context_json" in source
     assert "rag_context_json" in source
-    assert "normalization_context_not_source_evidence" in source
-    assert "prior_analysis_context_not_source_evidence" in source
+    assert "ep24_evidence_packets import evidence_packet" in source
+    # Memory and RAG can be stored and retrieved but must not be embedded in direct-evidence prompts.
     assert "formula_of_populism.db" not in source
 
 
