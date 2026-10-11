@@ -154,13 +154,13 @@ VIDEO_PROMPT = (
     "Describe the video's beginning, development and ending, its people, actions, "
     "important visible text or speech and EP24 political content. "
     "Mention uncertainty briefly and give a justified quality verdict. "
-    "Be detailed enough to distinguish this specific video, but do not pad. "
+    "Use 120-300 words, focusing on actual content rather than generic uncertainty. "
     "End with one JSON object containing SCROLL (boolean) and SCROLL_SECONDS "
     "(list of approximate timestamps on the ORIGINAL video timeline, including "
     "the initial 1.0-second offset). If there are no additional post-to-post "
     "scrolls, write exactly: {\"SCROLL\": false, \"SCROLL_SECONDS\": []}."
 )
-PROMPT_VERSION = "ep24-vllm-video-description-v2-32b"
+PROMPT_VERSION = "ep24-vllm-video-description-v3-concise"
 PROMPT_TEXT = f"{SYSTEM_PROMPT}\\n\\n{VIDEO_PROMPT}"
 PROMPT_SHA256 = hashlib.sha256(PROMPT_TEXT.encode("utf-8")).hexdigest()
 
@@ -715,8 +715,11 @@ def bounded_video_context(row: pd.Series | None) -> str:
 def validate_video_analysis(text: str) -> tuple[bool, str]:
     """Reject malformed, generic and repetition-loop text before marking complete."""
     body = re.sub(r'\\{\\s*"SCROLL"\\s*:\\s*(?:true|false).*', "", text, flags=re.I | re.S).strip()
-    if len(body) < 220:
+    if len(body) < 140:
         return False, "analysis_too_short"
+    # Reject responses with no content beyond a verdict and uncertainty boilerplate.
+    if re.match(r"^\\s*(?:\\*\\*)?OK(?:\\*\\*)?\\s*[\\n\\r]+\\s*Uncertainty:", body, re.I):
+        return False, "missing_video_description"
     # Reject loops of repeated long phrases even when overall length is large.
     normalized = re.sub(r"\\s+", " ", body.lower())
     words = normalized.split()
@@ -1141,11 +1144,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     parser.add_argument("--max-model-len", type=int, default=32768)
     parser.add_argument("--max-tokens", type=int, default=2048)
-    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--top-p", type=float, default=0.8)
     parser.add_argument("--top-k", type=int, default=20)
-    parser.add_argument("--repetition-penalty", type=float, default=1.0)
-    parser.add_argument("--presence-penalty", type=float, default=1.5)
+    parser.add_argument("--repetition-penalty", type=float, default=1.12)
+    parser.add_argument("--presence-penalty", type=float, default=0.0)
     parser.add_argument("--video-min-pixels", type=int, default=4 * 32 * 32)
     parser.add_argument("--video-max-pixels", type=int, default=256 * 32 * 32)
     parser.add_argument("--video-total-pixels", type=int, default=20480 * 32 * 32)
