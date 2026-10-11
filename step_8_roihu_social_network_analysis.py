@@ -136,18 +136,17 @@ def sna_evidence_report(row, *, model: str | None = None) -> tuple[str, dict, st
     fields = [("asr_transcript", 5000), ("asr_translation", 1500),
               ("ocr_1", 1600), *SNA_FIELDS, *META_FIELDS]
     sections = {}
-    for match in re.finditer(r"\\n\\[([^\\]|]+) \\| [^\\]]+\\]\\n", packet):
+    pattern = re.compile(r"\n\[([^|\]]+) \| [^\]]+\]\n")
+    matches = list(pattern.finditer(packet))
+    for i, match in enumerate(matches):
         name = match.group(1)
-        end = packet.find("\\n\\n[", match.end())
-        # evidence_packet joins sections with a newline, not a blank line.
-        if end < 0:
-            following = re.search(r"\\n\\[([^\\]|]+) \\| [^\\]]+\\]\\n", packet[match.end():])
-            end = match.end() + following.start() if following else len(packet)
-        rendered = packet[match.end():end].rstrip("\\n")
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(packet)
+        rendered = packet[match.end():end].rstrip("\n")
         marker = " [TRUNCATED]"
         if rendered.endswith(marker):
             rendered = rendered[:-len(marker)]
         sections[name] = len(rendered)
+
     by_field = {}
     for name, _ in fields:
         raw = row.get(name, "")
@@ -173,7 +172,7 @@ def sna_evidence_report(row, *, model: str | None = None) -> tuple[str, dict, st
     }
     digest = effective_prompt_fingerprint(
         EXTRACTION_SYSTEM,
-        f"{PROMPT_VERSION}\\n{packet}",
+        f"{PROMPT_VERSION}\n{packet}",
         model or ollama_model(),
         {"temperature": 0.0, "num_ctx": 8192},
     )
