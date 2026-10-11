@@ -18,7 +18,6 @@ STEP_IMPORTS = {
     5: ("ollama", "pydantic"),
     6: ("ollama", "pydantic"),
     7: ("ollama", "pydantic"),
-    8: ("ollama", "pydantic"),
 }
 COUNTRIES = {"finland", "poland", "portugal", "germany", "spain", "hungary", "croatia", "france", "bulgaria", "sweden"}
 
@@ -38,7 +37,7 @@ def require_imports(names: tuple[str, ...]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--step", type=int, choices=range(1, 9), required=True)
+    parser.add_argument("--step", type=int, choices=range(1, 8), required=True)
     parser.add_argument("--country")
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
