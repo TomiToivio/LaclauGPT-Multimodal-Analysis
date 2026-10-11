@@ -513,6 +513,13 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                 )
 
                 cached = load_cached(conn, key)
+                if cached and not str(cached.get("asr_transcript", "") or "").strip():
+                    LOG.warning(
+                        "cache_empty_asr_retry country=%s video_id=%s; "
+                        "re-running Step 1 instead of accepting cached silence",
+                        country, video_id,
+                    )
+                    cached = None
                 if cached:
                     for column, value in cached.items():
                         out.at[index, column] = value
