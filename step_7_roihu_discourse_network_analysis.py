@@ -53,7 +53,7 @@ from ep24_schema import stable_source_id
 
 LOG = logging.getLogger("ep24.step7")
 
-PROMPT_VERSION = "ep24-dna-leifeld-v1"
+PROMPT_VERSION = "ep24-dna-leifeld-v2-evidence-packet"
 DEFAULT_MAX_CONTEXT_CHARS = 28000
 DEFAULT_NUM_CTX = 16384
 DEFAULT_NUM_PREDICT = 4096
@@ -205,73 +205,10 @@ def _external_context(row: pd.Series, column: str, heading: str, role: str) -> s
 
 
 def build_prompt_context(row: pd.Series, *, max_chars: int | None = None) -> tuple[str, bool]:
-    """Build deterministic context, preserving the theoretically important fields.
+    """Evidence-first, stage-specific input; preserves entire cumulative record."""
+    from ep24_evidence_packets import evidence_packet
 
-    Unlike the previous stub this does not hand the model a five-field subset: it
-    classifies the whole cumulative row by provenance and keeps every non-empty
-    field, truncating only once, at a documented budget (issue #182 s7).
-    """
-    max_chars = max_chars or int(
-        os.getenv("LACLAUGPT_STEP7_MAX_CONTEXT_CHARS", DEFAULT_MAX_CONTEXT_CHARS)
-    )
-    researcher = {"entities", "themes", "political_preference", "researcher_note"}
-    source_representation_prefixes = ("asr_", "ocr_", "preprocess_")
-    prior_analysis_prefixes = (
-        "frame_analysis_", "vllm_", "summary_", "postprocess_", "ep24_entity_",
-        "ep24_theme_", "ep24_memory_", "ep24_seed_", "ep24_sentiment_",
-        "formula_of_populism_", "laclau_", "sna_",
-    )
-    source_representation_exact = {
-        "frame_file", "frame_timestamp_seconds", "video_duration_seconds",
-        "whisper_transcript", "whisper_translated", "whisperResult",
-    }
-    prior_analysis_exact = {
-        "metadata", "positive", "neutral", "negative", "video_analysis",
-        "frame_analysis_1", "summary_analysis",
-    }
-
-    step7_owned = set(DNA_COLUMNS)
-    source_meta, source_repr, researcher_fields, prior_analysis = [], [], [], []
-    for name in row.index:
-        if name in step7_owned or name in EXTERNAL_CONTEXT_COLUMNS:
-            # Never feed Step 7's own prior output back in: keeps the context hash
-            # stable and prevents circular reinforcement on a rerun.
-            continue
-        if name in researcher:
-            researcher_fields.append(name)
-        elif name in source_representation_exact or name.startswith(source_representation_prefixes):
-            source_repr.append(name)
-        elif name in prior_analysis_exact or name.startswith(prior_analysis_prefixes):
-            prior_analysis.append(name)
-        else:
-            source_meta.append(name)
-
-    sections = [
-        "=== CURRENT SOURCE METADATA ===\nROLE: recorded source context\n"
-        + _render_fields(row, source_meta),
-        "=== CURRENT SOURCE-DERIVED REPRESENTATIONS ===\n"
-        "ROLE: ASR/OCR/media-derived cues; usable as current-document evidence with "
-        "normal model-error caution\n" + _render_fields(row, source_repr),
-        "=== HUMAN RESEARCHER ANNOTATION ===\n"
-        "ROLE: authoritative canonical seeds for normalization; not proof of a claim\n"
-        + _render_fields(row, researcher_fields),
-        "=== DERIVED PRIOR-STAGE ANALYSIS ===\n"
-        "ROLE: derived_prior_stage_analysis_not_source_evidence\n"
-        + _render_fields(row, prior_analysis),
-        _external_context(
-            row, "codebook_context_json", "=== RESEARCHER/CODEBOOK CONTEXT ===",
-            "background_context_not_source_evidence",
-        ),
-        _external_context(
-            row, "memory_context_json", "=== RESEARCHER MEMORY ===",
-            "normalization_context_not_source_evidence",
-        ),
-        _external_context(
-            row, "rag_context_json", "=== RETRIEVED CORPUS CONTEXT ===",
-            "prior_analysis_context_not_source_evidence",
-        ),
-    ]
-    return _bounded("\n\n".join(sections), max_chars)
+    return evidence_packet(row, stage=7, max_chars=max_chars)
 
 
 def _prompt_hash(context: str) -> str:
