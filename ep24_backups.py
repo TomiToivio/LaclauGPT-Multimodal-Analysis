@@ -19,6 +19,32 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sqlite_safe_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert nested Mongo-derived cells to JSON for SQLite checkpointing.
+
+    Do not mutate the source frame: MongoDB must retain structured values.
+    JSON strings are readable and can be reconstructed with json.loads.
+    """
+    result = df.copy()
+    for column in result.columns:
+        if result[column].dtype != object:
+            continue
+        if not result[column].map(
+            lambda value: isinstance(value, (dict, list, tuple, set))
+        ).any():
+            continue
+        result[column] = result[column].map(
+            lambda value: json.dumps(
+                sorted(value, key=str) if isinstance(value, set) else value,
+                ensure_ascii=False,
+                default=str,
+            )
+            if isinstance(value, (dict, list, tuple, set))
+            else value
+        )
+    return result
+
+
 def write_checkpoint(df: pd.DataFrame, csv_path: str | Path, *, stage: str, country: str) -> dict:
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -31,7 +57,7 @@ def write_checkpoint(df: pd.DataFrame, csv_path: str | Path, *, stage: str, coun
     if sqlite_tmp.exists():
         sqlite_tmp.unlink()
     with sqlite3.connect(sqlite_tmp) as db:
-        df.to_sql("records", db, index=False, if_exists="replace")
+        _sqlite_safe_dataframe(df).to_sql("records", db, index=False, if_exists="replace")
     os.replace(sqlite_tmp, sqlite_path)
 
     manifest = {
