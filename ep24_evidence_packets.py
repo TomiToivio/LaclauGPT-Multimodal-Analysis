@@ -40,8 +40,8 @@ def evidence_packet(row, *, stage: int, max_chars: int | None = None) -> tuple[s
     budget = max_chars if max_chars is not None else int(
         os.getenv(f"LACLAUGPT_STEP{stage}_MAX_CONTEXT_CHARS", str(defaults[stage]))
     )
-    if budget < 512:
-        raise ValueError("context budget must be >=512")
+    if budget < 128:
+        raise ValueError("context budget must be >=128")
     sections = ["EP24 current-document evidence; prior model output is descriptive context, not direct speech."]
     fields = list(SOURCE_FIELDS) + list(META_FIELDS)
     if stage in (6, 7):
