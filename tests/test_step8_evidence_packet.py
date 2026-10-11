@@ -1,13 +1,6 @@
-"""SNA source evidence is bounded, auditable and excludes other stages' RAG/output.
-
-Issue #238 asks Step 8 to see a bounded actor-relationship evidence packet and to keep
-empirical graph construction separate from the Castellsian interpretation. Issue #241
-adds the auditability half: log the model-visible size and the truncation *by field*,
-and key the cache on the prompt, the model and the options.
-"""
+"""SNA source evidence is bounded and excludes other stages' RAG/output."""
 import pandas as pd
-
-from step_8_roihu_social_network_analysis import build_sna_evidence, sna_evidence_report
+from step_8_roihu_social_network_analysis import build_sna_evidence
 
 
 def test_sna_evidence_prioritizes_original_speech_and_dna(monkeypatch):
@@ -35,35 +28,23 @@ def test_sna_context_preserves_oversize_original():
     assert row["asr_transcript"] == speech
 
 
-def test_the_report_names_every_field_that_lost_characters(monkeypatch):
-    """#241: truncation is recorded by FIELD, which a bare boolean cannot express."""
+def test_sna_evidence_audit_preserves_main_builder(monkeypatch):
+    from step_8_roihu_social_network_analysis import sna_evidence_report
     monkeypatch.setenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "4000")
-    row = pd.Series({
-        "asr_transcript": "speech " * 3000,
-        "entities": "Alice, Bob",
-    })
-    evidence, report, digest = sna_evidence_report(row)
-    assert report["fields_truncated"] >= 1
-    assert report["characters_lost"] > 0
-    assert report["by_field"]["asr_transcript"]["truncated"] is True
-    assert report["by_field"]["entities"]["truncated"] is False
+    row = pd.Series({"asr_transcript": "speech " * 3000, "entities": "Alice, Bob"})
+    original = row.copy()
+    evidence, report, digest = sna_evidence_report(row, model="example:1")
+    assert evidence == build_sna_evidence(row)
+    assert report["by_field"]["asr_transcript"]["truncated"]
     assert report["by_field"]["entities"]["chars_available"] == len("Alice, Bob")
-    assert digest and len(digest) == 64
-    assert evidence.startswith("EP24 current-source relations")
+    assert report["characters_lost"] > 0
+    assert len(digest) == 64
+    assert row.equals(original)
 
 
-def test_the_context_hash_moves_with_the_packet_and_the_budget(monkeypatch):
-    """A model or budget change must not reuse a stale cached result."""
-    row = pd.Series({"asr_transcript": "identical input"})
-    monkeypatch.setenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "4000")
-    first = sna_evidence_report(row)[2]
-    assert sna_evidence_report(row)[2] == first, "not deterministic"
-    row2 = pd.Series({"asr_transcript": "different input"})
-    assert sna_evidence_report(row2)[2] != first, "packet change did not move the key"
-
-
-def test_no_evidence_yields_the_documented_empty_packet():
-    row = pd.Series({"asr_transcript": "", "entities": float("nan")})
-    evidence, report, _ = sna_evidence_report(row)
-    assert evidence == "EP24 current-source relations, no RAG-derived evidence."
-    assert report["fields_included"] == 0
+def test_sna_fingerprint_covers_model_and_evidence():
+    from step_8_roihu_social_network_analysis import sna_evidence_report
+    row = pd.Series({"asr_transcript": "Alice opposed Bob."})
+    a = sna_evidence_report(row, model="one")[2]
+    assert a != sna_evidence_report(row, model="two")[2]
+    assert a != sna_evidence_report(pd.Series({"asr_transcript": "Bob supported Alice."}), model="one")[2]

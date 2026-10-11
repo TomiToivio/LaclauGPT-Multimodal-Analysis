@@ -20,7 +20,7 @@ import pandas as pd
 from ep24_cli import configure_step_cli
 from ep24_entities import fold_key, resolution_lookup
 from ep24_models import ollama_model, ollama_model_source
-from ep24_prompt_contract import prompt_hash, truncation_entry, truncation_report
+from ep24_prompt_contract import effective_prompt_fingerprint
 from ep24_pipeline import (
     load_cumulative_csv,
     metadata_context,
@@ -39,7 +39,7 @@ from ep24_sna import (
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG = logging.getLogger("step_8_roihu_social_network_analysis")
 
-PROMPT_VERSION = "ep24-sna-extraction/2.0"
+PROMPT_VERSION = "ep24-sna-extraction/2.1-source-first"
 CASTELLS_PROMPT_VERSION = "ep24-sna-castells/1.0"
 
 EXTRACTION_SYSTEM = """You extract evidence-supported social/communication network relations
@@ -116,58 +116,78 @@ def _enrich_edges(edges, row) -> list[dict]:
     return enriched
 
 
-def sna_evidence_report(row) -> tuple[str, dict, str]:
-    """Bounded, provenance-labelled packet plus its audit record (#238, #241).
+def sna_evidence_report(row, *, model: str | None = None) -> tuple[str, dict, str]:
+    """Current Step 8 evidence plus field-level visibility audit and prompt fingerprint.
 
-    Returns ``(evidence, report, sha256)``. The report is the per-field truncation
-    record -- what the model did *not* see -- which a bare boolean cannot express
-    (#241: "log model-visible chars/token estimates and truncation by field"), and the
-    digest covers the prompt version, model, system prompt and effective packet, so a
-    model or settings change cannot reuse a stale result.
+    Preserve the shared evidence_packet builder on main. Its labeled sections
+    identify which source/derived fields the model actually sees. Fields that
+    exceed the packet budget are explicitly marked as dropped, without changing
+    the authoritative input row.
     """
-    max_chars = max(3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000")))
-    fields = (
-        ("asr_transcript", 3000),
-        ("dna_statements_json", 3000),
-        ("summary_analysis", 2500),
-        ("entities", 600),
-        ("researcher_note", 400),
-        ("ocr_1", 650),
-        ("country", 100),
-        ("video_id", 150),
-        ("source_recording", 150),
+    import re
+
+    from ep24_evidence_packets import META_FIELDS, SNA_FIELDS, evidence_packet
+
+    packet, _ = evidence_packet(
+        row, stage=8, max_chars=max(
+            3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000"))
+        )
     )
-    parts = ["EP24 current-source relations, no RAG-derived evidence."]
-    entries: list[dict] = []
-    remaining = max_chars - len(parts[0])
-    for field, cap in fields:
-        raw = row.get(field, "")
-        if raw is None:
+    fields = [("asr_transcript", 5000), ("asr_translation", 1500),
+              ("ocr_1", 1600), *SNA_FIELDS, *META_FIELDS]
+    sections = {}
+    for match in re.finditer(r"\\n\\[([^\\]|]+) \\| [^\\]]+\\]\\n", packet):
+        name = match.group(1)
+        end = packet.find("\\n\\n[", match.end())
+        # evidence_packet joins sections with a newline, not a blank line.
+        if end < 0:
+            following = re.search(r"\\n\\[([^\\]|]+) \\| [^\\]]+\\]\\n", packet[match.end():])
+            end = match.end() + following.start() if following else len(packet)
+        rendered = packet[match.end():end].rstrip("\\n")
+        marker = " [TRUNCATED]"
+        if rendered.endswith(marker):
+            rendered = rendered[:-len(marker)]
+        sections[name] = len(rendered)
+    by_field = {}
+    for name, _ in fields:
+        raw = row.get(name, "")
+        value = "" if raw is None else str(raw).strip()
+        if value.lower() in ("nan", "none", "[]", "{}"):
+            value = ""
+        if not value:
             continue
-        value = str(raw).strip()
-        if not value or value.lower() == "nan":
-            continue
-        label = f"\n{field}: "
-        take = min(len(value), cap, max(0, remaining - len(label) - 40))
-        if take <= 0:
-            break
-        entries.append(truncation_entry(field, len(value), take))
-        part = label + value[:take]
-        if take < len(value):
-            part += " [TRUNCATED; original preserved]"
-        parts.append(part)
-        remaining -= len(part)
-    evidence = "".join(parts)
-    return (
-        evidence,
-        truncation_report(entries),
-        prompt_hash(8, PROMPT_VERSION, ollama_model(), EXTRACTION_SYSTEM, evidence),
+        taken = sections.get(name, 0)
+        by_field[name] = {
+            "chars_available": len(value),
+            "chars_included": taken,
+            "truncated": taken < len(value),
+            "dropped": name not in sections,
+        }
+    report = {
+        "fields_included": sum(not x["dropped"] for x in by_field.values()),
+        "fields_truncated": sum(x["truncated"] for x in by_field.values()),
+        "characters_lost": sum(x["chars_available"] - x["chars_included"] for x in by_field.values()),
+        "by_field": by_field,
+        "packet_chars": len(packet),
+        "estimated_tokens": (len(packet) + 3) // 4,
+    }
+    digest = effective_prompt_fingerprint(
+        EXTRACTION_SYSTEM,
+        f"{PROMPT_VERSION}\\n{packet}",
+        model or ollama_model(),
+        {"temperature": 0.0, "num_ctx": 8192},
     )
+    return packet, report, digest
 
 
 def build_sna_evidence(row) -> str:
-    """Bound model input to current-source actor/relation evidence."""
-    return sna_evidence_report(row)[0]
+    """Backward-compatible interface for source-grounded Step 8 evidence."""
+    from ep24_evidence_packets import evidence_packet
+    return evidence_packet(
+        row, stage=8, max_chars=max(
+            3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000"))
+        )
+    )[0]
 
 
 def _castells_interpretation(ollama, model: str, nodes, edges, metrics) -> str:
@@ -290,16 +310,13 @@ def run_language(lang: str) -> Path | None:
     all_edges: list[dict] = []
 
     for index, row in selected.iterrows():
-        evidence, truncation, context_hash = sna_evidence_report(row)
-        if evidence == "EP24 current-source relations, no RAG-derived evidence.":
+        evidence, truncation, context_hash = sna_evidence_report(row, model=model)
+        LOG.info("step8 row=%s context_sha256=%s packet_chars=%d tokens_est=%d fields_truncated=%d characters_lost=%d",
+                 index, context_hash, len(evidence), truncation["estimated_tokens"],
+                 truncation["fields_truncated"], truncation["characters_lost"])
+        if not any(str(row.get(name) or "").strip() for name in ("asr_transcript", "asr_translation", "ocr_1", "dna_statements_json")):
             df.at[index, "sna_status"] = "no_evidence"
             continue
-        LOG.info(
-            "step8 row=%s model=%s prompt=%s context_sha256=%s packet_chars=%d "
-            "fields_truncated=%s characters_lost=%s",
-            index, model, PROMPT_VERSION, context_hash, len(evidence),
-            truncation["fields_truncated"], truncation["characters_lost"],
-        )
 
         try:
             response = ollama.chat(

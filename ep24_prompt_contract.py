@@ -1,152 +1,278 @@
-"""Cross-stage prompt/context contract for the numbered EP24 Roihu steps (issue #241).
+"""Shared model-visible prompt/context contract for EP24 Steps 4-8 (issue #241).
 
-Issue #241 asks for one policy shared by Steps 4-8 rather than five separate
-conventions: direct-source evidence first, stage-specific context packets, no stage
-reading its own earlier output back in, no source information deletion, no unmanaged
-RAG flood, logged model-visible size and truncation, and a cache key that changes when
-the prompt, the model or the options change.
+One place to answer the four questions every stage was otherwise answering differently:
 
-Steps 5-8 each grew a bounded builder independently and they agree on most of that by
-convention. This module makes the *shared* part explicit and testable, and leaves the
-genuinely stage-specific part -- which fields matter, and in what order -- in the step,
-where it belongs.
+* how large the model-visible packet may be, and how much is held back for the reply;
+* which streams are capped independently, and what happens when the whole packet overflows;
+* which streams are *source evidence* and which are continuity context that must never be
+  presented as evidence;
+* what exactly the cache key covers, so a prompt/model/option change cannot reuse a stale answer.
 
-What lives here:
-
-``STEPS``
-    The registry: for each step, the module that implements it, the environment
-    variable that overrides its budget, and the documented default. Tests import the
-    builders through this registry, so a step that stops honouring the contract fails
-    there rather than quietly shipping a different policy.
-
-``budget(step)``
-    The effective character budget, environment first, documented default second.
-
-``prompt_hash(step, version, model, system_prompt, context)``
-    The cache fingerprint. It covers the step's prompt version, the selected model, the
-    system prompt and the effective context -- so a change to any of them changes the
-    key. Hashing the context alone would let a system-prompt edit reuse stale results.
-
-``EXCLUDED_COLUMNS``
-    Columns that must never reach a model prompt: another stage's generated analysis,
-    the RAG context, and the memory context. A step may *read* them for provenance, but
-    feeding them back is what #241 rules out ("no own outputs fed back", "no unmanaged
-    RAG flood").
-
-``truncation_entry(...)`` and ``truncation_report(...)``
-    The per-field truncation record. #241 asks for truncation "by field", which a bare
-    boolean cannot express, so steps that adopt this emit one entry per field that lost
-    characters -- enough to answer "what did the model not see?" after the fact. The
-    original column is never modified; the record describes the packet, not the data.
+The Step 4 shape landed in #244 (``ep24_summary_evidence.build_packet``) is the precedent: bounded
+per-stream caps, an explicit truncation marker, and retrieval context off by default. This module
+generalises that shape into a named, per-stage contract. It deliberately does **not** change any
+stage's own evidence selection -- adopting it is a separate, per-stage change (#236/#238/#239/#240).
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+
+# The two kinds a stream may declare. The distinction is the whole point of the contract:
+# context (memory, RAG, earlier analyses) may aid continuity and normalization, but it is not
+# evidence and must never be labelled or treated as such (ep24_context.py says the same).
+EVIDENCE = "evidence"
+CONTEXT = "context"
+
+TRUNCATION_MARKER = "\n[TRUNCATED: stream exceeded its budget]"
+NO_EVIDENCE = (
+    "No usable source evidence supplied. Report this limitation; do not invent a narrative."
+)
+
+# Characters per token is a coarse estimate, good enough to log and to compare runs. It is not a
+# tokenizer and the contract never promises an exact count (issue #241 asks for "token estimates").
+CHARS_PER_TOKEN = 4
 
 
 @dataclass(frozen=True)
-class StepContract:
-    """One numbered step's place in the shared prompt/context policy."""
+class StageBudget:
+    """A stage's character budget, its reply reserve, and its default per-stream caps."""
 
-    step: int
-    module: str
-    builder: str
-    env: str
-    default_budget: int
-    #: Fields that carry direct or explicitly-labelled evidence for this step.
-    primary_fields: tuple[str, ...] = ()
-    notes: str = field(default="")
+    name: str
+    total_chars: int
+    output_reserve_chars: int
+    stream_caps: Mapping[str, int] = field(default_factory=dict)
+
+    @property
+    def evidence_chars(self) -> int:
+        """Chars the model may see, after holding back room for the reply/JSON schema."""
+        return max(0, self.total_chars - self.output_reserve_chars)
+
+    def cap_for(self, stream: str, total_streams: Iterable[str]) -> int:
+        """A stream's cap, or an equal share of the budget when the stage names no cap."""
+        if stream in self.stream_caps:
+            return int(self.stream_caps[stream])
+        names = list(total_streams)
+        return max(500, self.evidence_chars // max(1, len(names)))
 
 
-#: The documented budgets. Keep the defaults in step with the step modules; the test
-#: asserts the registry and the module agree rather than trusting this table.
-STEPS: Mapping[int, StepContract] = {
-    5: StepContract(
-        step=5, module="roihu_postprocess", builder="build_postprocess_prompt",
-        env="LACLAUGPT_STEP5_MAX_PROMPT_CHARS", default_budget=12000,
-        notes="Evidence-grounded postprocess extraction.",
+# Ranges as stated in #236 (16-24k), #239 (24-32k, 4k output), #240 (16-24k) and #238 (8-16k plus
+# room for the JSON schema). Defaults sit inside each range; every value is overridable by env.
+STAGE_BUDGETS: dict[str, StageBudget] = {
+    "step4": StageBudget(
+        "step4", 20000, 6000,
+        {"video": 8000, "asr_original": 5000, "asr_english": 3500,
+         "frame": 3500, "ocr": 1500, "metadata": 1200},
     ),
-    6: StepContract(
-        step=6, module="roihu_populism", builder="build_prompt_context",
-        env="LACLAUGPT_STEP6_MAX_CONTEXT_CHARS", default_budget=28000,
-        notes="Theory locked (Laclau/Palonen); evidence selection only.",
+    "step6": StageBudget(
+        "step6", 32000, 4000,
+        {"speech": 12000, "signs": 6000, "fusion": 6000,
+         "annotations": 3000, "codebook": 2000},
     ),
-    7: StepContract(
-        step=7, module="step_7_roihu_discourse_network_analysis", builder="build_prompt_context",
-        env="LACLAUGPT_STEP7_MAX_CONTEXT_CHARS", default_budget=28000,
-        notes="DNA statement-level evidence; theory locked.",
+    "step7": StageBudget(
+        "step7", 24000, 6000,
+        {"utterances": 12000, "actors": 3000, "concepts": 3000, "codebook": 2000},
     ),
-    8: StepContract(
-        step=8, module="step_8_roihu_social_network_analysis", builder="build_sna_evidence",
-        env="LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", default_budget=12000,
-        notes="Actor-relation evidence only; no inferred hidden ties.",
+    "step8": StageBudget(
+        "step8", 16000, 6000,
+        {"source_context": 6000, "actor_mentions": 4000, "quotes": 3000, "dna": 2000},
     ),
 }
 
-#: Columns that must never be fed to a model. Another stage's generated analysis is
-#: circularity; the RAG and memory contexts are the unmanaged flood #241 names.
-EXCLUDED_COLUMNS: tuple[str, ...] = (
-    "rag_context_json",
-    "memory_context_json",
-    "laclau_analysis_json",
-    "formula_of_populism_analysis",
-    "dna_analysis_json",
-    "sna_analysis_json",
-    "postprocess_analysis",
-)
 
-
-def budget(step: int) -> int:
-    """The effective character budget for ``step``: environment, else the default."""
-    contract = STEPS[step]
-    raw = os.getenv(contract.env)
-    if raw is None or str(raw).strip() == "":
-        return contract.default_budget
+def _env_override(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
     try:
-        value = int(str(raw).strip())
+        return int(raw)
     except ValueError:
-        return contract.default_budget
-    return value if value > 0 else contract.default_budget
+        return default
 
 
-def prompt_hash(
-    step: int,
-    version: str,
-    model: str,
-    system_prompt: str,
-    context: str,
-) -> str:
-    """Cache fingerprint covering the prompt version, model, system prompt and context.
+def stage_budget(stage: str) -> StageBudget:
+    """The budget for a stage, with env overrides applied.
 
-    Deliberately not a hash of the context alone: #241 requires the key to move when
-    the model or the settings change, otherwise a model swap silently reuses results
-    produced by the previous one.
+    ``LACLAUGPT_<STAGE>_EVIDENCE_CHARS`` overrides the total and
+    ``LACLAUGPT_<STAGE>_OUTPUT_RESERVE`` the reserve, so a rerun can be tuned without code change.
     """
-    payload = f"step={step}\nversion={version}\nmodel={model}\n{system_prompt}\n{context}"
+    key = stage.strip().casefold()
+    if key not in STAGE_BUDGETS:
+        raise KeyError(f"unknown EP24 stage {stage!r}; known: {sorted(STAGE_BUDGETS)}")
+    base = STAGE_BUDGETS[key]
+    upper = key.upper()
+    return StageBudget(
+        base.name,
+        _env_override(f"LACLAUGPT_{upper}_EVIDENCE_CHARS", base.total_chars),
+        _env_override(f"LACLAUGPT_{upper}_OUTPUT_RESERVE", base.output_reserve_chars),
+        base.stream_caps,
+    )
+
+
+@dataclass(frozen=True)
+class Stream:
+    """One labelled input the model may see. ``kind`` decides whether it counts as evidence."""
+
+    name: str
+    text: str
+    kind: str = EVIDENCE
+    priority: int = 0
+    cap: int | None = None
+
+
+@dataclass(frozen=True)
+class StreamReport:
+    """What actually reached the model, so truncation is auditable rather than implied."""
+
+    name: str
+    kind: str
+    cap: int
+    original_chars: int
+    kept_chars: int
+    dropped: bool
+
+    @property
+    def truncated(self) -> bool:
+        return self.kept_chars < self.original_chars and not self.dropped
+
+
+@dataclass(frozen=True)
+class Packet:
+    """The rendered packet plus the accounting the caller logs."""
+
+    stage: str
+    text: str
+    streams: tuple[StreamReport, ...]
+    budget_chars: int
+    reserve_chars: int
+
+    @property
+    def used_chars(self) -> int:
+        return len(self.text)
+
+    @property
+    def token_estimate(self) -> int:
+        return estimate_tokens(self.text)
+
+    @property
+    def evidence_chars(self) -> int:
+        return sum(r.kept_chars for r in self.streams if r.kind == EVIDENCE)
+
+    @property
+    def context_chars(self) -> int:
+        return sum(r.kept_chars for r in self.streams if r.kind == CONTEXT)
+
+    @property
+    def truncated_streams(self) -> tuple[str, ...]:
+        return tuple(r.name for r in self.streams if r.truncated)
+
+    @property
+    def dropped_streams(self) -> tuple[str, ...]:
+        return tuple(r.name for r in self.streams if r.dropped)
+
+    def log_line(self) -> str:
+        """One line for the run log: model-visible chars, estimate, truncation by field."""
+        return (
+            f"stage={self.stage} chars={self.used_chars}/{self.budget_chars} "
+            f"reserve={self.reserve_chars} tokens~{self.token_estimate} "
+            f"evidence={self.evidence_chars} context={self.context_chars} "
+            f"truncated={list(self.truncated_streams)} dropped={list(self.dropped_streams)}"
+        )
+
+
+def estimate_tokens(text: str) -> int:
+    """Coarse token estimate for logging and run-to-run comparison (not a tokenizer)."""
+    return (len(text) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN if text else 0
+
+
+def _clean(value: object) -> str:
+    """Refuse spurious Pandas nan/None strings, as the Step 4 packet does."""
+    if value is None:
+        return ""
+    raw = str(value).strip()
+    return "" if raw.casefold() in ("nan", "none", "nat", "<na>") else raw
+
+
+def _cap(value: str, limit: int) -> str:
+    if limit <= 0:
+        return ""
+    if len(value) <= limit:
+        return value
+    marker = TRUNCATION_MARKER
+    return value[: max(0, limit - len(marker))] + marker[:limit]
+
+
+def build_packet(
+    stage: str,
+    streams: Iterable[Stream],
+    *,
+    budget: StageBudget | None = None,
+    include_context: bool = True,
+) -> Packet:
+    """Lay out independently capped streams under one stage budget.
+
+    Ordering is by priority and then always evidence before context, so continuity context can
+    never displace source evidence (#239 asks exactly this for primary quotation, and #240 that
+    memory/RAG is never evidence). Inputs are never mutated. When a stream does not fit, context
+    is dropped before evidence, and any truncation is reported per field rather than implied.
+    """
+    budget = budget or stage_budget(stage)
+    ordered = sorted(
+        (s for s in streams),
+        key=lambda s: (s.kind == CONTEXT, s.priority, s.name.casefold()),
+    )
+    if not include_context:
+        ordered = [s for s in ordered if s.kind != CONTEXT]
+
+    reports: list[StreamReport] = []
+    blocks: list[str] = []
+    remaining = budget.evidence_chars
+    all_names = [s.name for s in ordered]
+
+    for stream in ordered:
+        text = _clean(stream.text)
+        original = len(text)
+        cap = int(stream.cap if stream.cap is not None else budget.cap_for(stream.name, all_names))
+        header = f"### {stream.name} [{stream.kind}]"
+        room = remaining - len(header) - 2
+        if not text or cap <= 0 or room <= 200:
+            # Never silently drop evidence: an empty or squeezed-out stream is reported.
+            reports.append(StreamReport(stream.name, stream.kind, cap, original, 0, True))
+            continue
+        kept = _cap(text, min(cap, room))
+        block = f"{header}\n{kept}"
+        blocks.append(block)
+        remaining -= len(block) + 2
+        reports.append(
+            StreamReport(stream.name, stream.kind, cap, original, len(kept), kept == "")
+        )
+
+    text = "\n\n".join(blocks) if blocks else NO_EVIDENCE
+    return Packet(stage, text, tuple(reports), budget.evidence_chars, budget.output_reserve_chars)
+
+
+def effective_prompt_fingerprint(
+    system_prompt: str,
+    user_prompt: str,
+    model: str,
+    options: Mapping[str, object] | None = None,
+) -> str:
+    """Cache key over everything that changes the answer: prompt, model and generation options.
+
+    Generalises the Step 4 fix in #244, where the key had to start covering the effective Ollama
+    options so a ``num_ctx``/``num_predict`` change could not reuse a stale cached answer.
+    """
+    payload = json.dumps(
+        {
+            "model": model,
+            "system": system_prompt,
+            "user": user_prompt,
+            "options": dict(options or {}),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def truncation_entry(field_name: str, had: int, taken: int) -> dict[str, Any]:
-    """One field's truncation record. ``had`` and ``taken`` are character counts."""
-    return {
-        "field": field_name,
-        "chars_available": int(had),
-        "chars_included": int(taken),
-        "truncated": int(taken) < int(had),
-    }
-
-
-def truncation_report(entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Collapse per-field entries into the record stored beside a result."""
-    lost = [e for e in entries if e.get("truncated")]
-    return {
-        "fields_included": len(entries),
-        "fields_truncated": len(lost),
-        "characters_lost": sum(
-            int(e["chars_available"]) - int(e["chars_included"]) for e in lost
-        ),
-        "by_field": {str(e["field"]): dict(e) for e in entries},
-    }

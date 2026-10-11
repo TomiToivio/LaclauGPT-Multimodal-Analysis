@@ -19,7 +19,7 @@ from ep24_redis import RedisCoordinator
 
 LOG = logging.getLogger("ep24.step6")
 
-PROMPT_VERSION = "ep24-laclau-palonen-v2"
+PROMPT_VERSION = "ep24-laclau-palonen-v3-evidence-packet"
 DEFAULT_MAX_CONTEXT_CHARS = 28000
 DEFAULT_NUM_CTX = 16384
 DEFAULT_NUM_PREDICT = 4096
@@ -233,71 +233,10 @@ def _render_fields(row: pd.Series, names: list[str]) -> str:
 
 
 def build_prompt_context(row: pd.Series, *, max_chars: int | None = None) -> tuple[str, bool]:
-    """Build deterministic context while keeping evidence classes inspectable."""
-    max_chars = max_chars or int(os.getenv("LACLAUGPT_STEP6_MAX_CONTEXT_CHARS", DEFAULT_MAX_CONTEXT_CHARS))
-    external = {
-        "codebook_context_json", "memory_context_json", "rag_context_json",
-        "entity_normalization_json", "theme_normalization_json", "context_evidence_role",
-    }
-    researcher = {"entities", "themes", "political_preference", "researcher_note"}
-    source_representation_prefixes = ("asr_", "ocr_", "preprocess_")
-    prior_analysis_prefixes = (
-        "frame_analysis_", "vllm_", "summary_", "postprocess_", "ep24_entity_",
-        "ep24_theme_", "ep24_memory_", "ep24_seed_", "ep24_sentiment_",
-        "formula_of_populism_", "laclau_", "dna_", "sna_",
-    )
-    source_representation_exact = {
-        "frame_file", "frame_timestamp_seconds", "video_duration_seconds",
-        "whisper_transcript", "whisper_translated", "whisperResult",
-    }
-    prior_analysis_exact = {
-        "metadata", "positive", "neutral", "negative", "video_analysis",
-        "frame_analysis_1", "summary_analysis",
-    }
+    """Evidence-first, stage-specific input; preserves entire cumulative record."""
+    from ep24_evidence_packets import evidence_packet
 
-    source_meta, source_repr, researcher_fields, prior_analysis = [], [], [], []
-    step6_owned = set(STEP6_COLUMNS)
-    for name in row.index:
-        if name in step6_owned:
-            # Never feed Step 6's own prior output back into a rerun prompt.
-            # This keeps context hashes stable and prevents circular reinforcement.
-            continue
-        if name in external:
-            continue
-        if name in researcher:
-            researcher_fields.append(name)
-        elif name in source_representation_exact or name.startswith(source_representation_prefixes):
-            source_repr.append(name)
-        elif name in prior_analysis_exact or name.startswith(prior_analysis_prefixes):
-            prior_analysis.append(name)
-        else:
-            source_meta.append(name)
-
-    sections = [
-        "=== CURRENT SOURCE METADATA ===\nROLE: recorded source context\n" + _render_fields(row, source_meta),
-        "=== CURRENT SOURCE-DERIVED REPRESENTATIONS ===\nROLE: ASR/OCR/media-derived cues; usable as current-document evidence with normal model-error caution\n" + _render_fields(row, source_repr),
-        "=== HUMAN RESEARCHER ANNOTATION ===\nROLE: authoritative canonical seeds for normalization; not proof of a theoretical relation\n" + _render_fields(row, researcher_fields),
-        "=== DERIVED PRIOR-STAGE ANALYSIS ===\nROLE: derived_prior_stage_analysis_not_source_evidence\n" + _render_fields(row, prior_analysis),
-        _external_context(
-            row,
-            "codebook_context_json",
-            "=== RESEARCHER/CODEBOOK CONTEXT ===",
-            "background_context_not_source_evidence",
-        ),
-        _external_context(
-            row,
-            "memory_context_json",
-            "=== RESEARCHER MEMORY ===",
-            "normalization_context_not_source_evidence",
-        ),
-        _external_context(
-            row,
-            "rag_context_json",
-            "=== RETRIEVED CORPUS CONTEXT ===",
-            "prior_analysis_context_not_source_evidence",
-        ),
-    ]
-    return _bounded("\n\n".join(sections), max_chars)
+    return evidence_packet(row, stage=6, max_chars=max_chars)
 
 
 def _prompt_hash(context: str) -> str:

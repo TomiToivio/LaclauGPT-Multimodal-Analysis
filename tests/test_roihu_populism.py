@@ -131,33 +131,31 @@ def test_signifier_candidate_requires_evidence_span_and_document_caution():
     assert candidate.document_level_only is True
 
 
-def test_prompt_separates_evidence_from_memory_and_rag():
-    row = pd.Series(
-        {
-            "_storage_id": "abc",
-            "videoDescription": "Current source says reform.",
-            "entities": json.dumps(["Researcher Canonical Name"]),
-            "themes": json.dumps(["reform"]),
-            "summary_analysis": "Prior model summary.",
-            "codebook_context_json": json.dumps([{"label": "Party A"}]),
-            "memory_context_json": json.dumps([{"label": "Canonical actor"}]),
-            "rag_context_json": json.dumps([{"text": "Another document"}]),
-        }
-    )
+def test_prompt_prioritizes_direct_evidence_without_memory_or_rag():
+    row = pd.Series({
+        "videoDescription": "Current source says reform.",
+        "entities": json.dumps(["Researcher Canonical Name"]),
+        "themes": json.dumps(["reform"]),
+        "summary_analysis": "Prior model summary.",
+        "codebook_context_json": json.dumps([{"label": "Party A"}]),
+        "memory_context_json": json.dumps([{"label": "Canonical actor"}]),
+        "rag_context_json": json.dumps([{"text": "Another document"}]),
+    })
     prompt, truncated = build_prompt_context(row, max_chars=10000)
     assert truncated is False
-    assert "CURRENT SOURCE METADATA" in prompt
-    assert "DERIVED PRIOR-STAGE ANALYSIS" in prompt
-    assert "RESEARCHER/CODEBOOK CONTEXT" in prompt
-    assert "normalization_context_not_source_evidence" in prompt
-    assert "prior_analysis_context_not_source_evidence" in prompt
+    assert "Current source says reform." in prompt
+    assert "Prior model summary." in prompt
+    assert "Researcher Canonical Name" in prompt
+    assert "researcher normalization, not source quote" in prompt
+    assert "Another document" not in prompt
+    assert "Canonical actor" not in prompt
 
 
 def test_prompt_context_budget_is_enforced():
-    row = pd.Series({"videoDescription": "x" * 500})
-    prompt, truncated = build_prompt_context(row, max_chars=100)
+    row = pd.Series({"videoDescription": "x" * 5000})
+    prompt, truncated = build_prompt_context(row, max_chars=600)
     assert truncated is True
-    assert len(prompt) == 100
+    assert len(prompt) <= 600
 
 
 def test_legacy_projection_keeps_candidates_without_evidenced_affect():

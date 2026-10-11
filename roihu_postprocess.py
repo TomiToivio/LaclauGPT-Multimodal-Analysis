@@ -128,8 +128,6 @@ def _prompt_context(row: pd.Series) -> str:
         if not value or value.lower() == "nan":
             continue
         prefix = f"\\n{field} [upstream evidence/context]: "
-        # The marker is appended AFTER the slice, so its length must be reserved or the
-        # packet overshoots its own documented budget (#241: the bound is a bound).
         marker = " [TRUNCATED; original stored unchanged]"
         take = min(len(value), cap, max(0, remaining - len(prefix) - len(marker)))
         if take <= 0:

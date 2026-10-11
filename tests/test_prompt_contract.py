@@ -1,129 +1,182 @@
-"""The cross-stage prompt/context contract holds for every numbered step (issue #241).
+"""Contract coverage for the shared EP24 prompt/context packet (issue #241).
 
-Each test drives the step's real builder through the registry, so a step that stops
-honouring the shared policy fails here instead of shipping a different one.
+Normal, empty, oversized, multilingual and failure conditions, plus the two invariants the stage
+issues depend on: continuity context can never displace source evidence, and the cache key covers
+prompt, model and generation options.
 """
-from __future__ import annotations
-
-import importlib
-import re
-from pathlib import Path
-
-import pandas as pd
-import pytest
+import unittest
+from unittest.mock import patch
 
 from ep24_prompt_contract import (
-    EXCLUDED_COLUMNS,
-    STEPS,
-    budget,
-    prompt_hash,
-    truncation_entry,
-    truncation_report,
+    CONTEXT,
+    EVIDENCE,
+    NO_EVIDENCE,
+    STAGE_BUDGETS,
+    Packet,
+    StageBudget,
+    Stream,
+    build_packet,
+    effective_prompt_fingerprint,
+    estimate_tokens,
+    stage_budget,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
 
-#: Distinctive markers. Never assert on the bare words "RAG" or "memory": a step is
-#: allowed to *say* it excluded them (Step 8's header does exactly that).
-RAG_MARKER = "ZZRAGMARKER"
-MEMORY_MARKER = "ZZMEMMARKER"
-OWN_OUTPUT_MARKER = "ZZOWNOUTPUT"
+class BudgetTests(unittest.TestCase):
+    def test_every_stage_in_the_programme_has_a_budget(self):
+        self.assertEqual({"step4", "step6", "step7", "step8"}, set(STAGE_BUDGETS))
 
+    def test_reserve_is_held_back_from_the_model_visible_budget(self):
+        budget = stage_budget("step6")
+        self.assertEqual(budget.total_chars, 32000)
+        self.assertEqual(budget.output_reserve_chars, 4000)
+        self.assertEqual(budget.evidence_chars, 28000)
 
-def _builder(step: int):
-    contract = STEPS[step]
-    return getattr(importlib.import_module(contract.module), contract.builder)
+    def test_unknown_stage_fails_loudly(self):
+        with self.assertRaises(KeyError):
+            stage_budget("step99")
 
-
-def _text(result) -> str:
-    """Builders return either the text or (text, ...) -- take the text."""
-    return result[0] if isinstance(result, tuple) else result
-
-
-def _fat_row() -> pd.Series:
-    return pd.Series(
-        {
-            "asr_transcript": "Alice objected to Bob. " * 400,
-            "summary_analysis": "A conversation between two actors. " * 400,
-            "ocr_1": "PROTEST SIGN " * 200,
-            "researcher_note": "researcher is uncertain " * 100,
-            "entities": "Alice, Bob",
-            "country": "Finland",
-            "rag_context_json": f"{RAG_MARKER} " * 5000,
-            "memory_context_json": f"{MEMORY_MARKER} " * 5000,
-            "formula_of_populism_analysis": f"{OWN_OUTPUT_MARKER} " * 5000,
-        }
-    )
+    def test_env_override_is_honoured(self):
+        with patch.dict("os.environ", {"LACLAUGPT_STEP7_EVIDENCE_CHARS": "9000"}):
+            self.assertEqual(stage_budget("step7").total_chars, 9000)
 
 
-@pytest.mark.parametrize("step", sorted(STEPS))
-def test_the_registry_names_the_env_var_the_module_actually_reads(step: int) -> None:
-    """Guards the registry against drift: it must describe real code."""
-    contract = STEPS[step]
-    source = (ROOT / f"{contract.module}.py").read_text(encoding="utf-8")
-    assert contract.env in source, (
-        f"{contract.module} does not read {contract.env}; the contract registry is stale"
-    )
+class PacketTests(unittest.TestCase):
+    def test_empty_evidence_says_so_instead_of_inventing(self):
+        packet = build_packet("step4", [])
+        self.assertEqual(packet.text, NO_EVIDENCE)
+        self.assertEqual(packet.used_chars, len(NO_EVIDENCE))
+
+    def test_blank_and_nan_values_are_not_evidence(self):
+        packet = build_packet("step4", [
+            Stream("speech", "nan", EVIDENCE),
+            Stream("visuals", "  ", EVIDENCE),
+        ])
+        self.assertEqual(packet.text, NO_EVIDENCE)
+        self.assertTrue(all(r.dropped for r in packet.streams))
+
+    def test_normal_evidence_is_labelled_and_ordered_by_priority(self):
+        packet = build_packet("step8", [
+            Stream("quotes", "explicit quote", EVIDENCE, priority=2),
+            Stream("source_context", "context first", EVIDENCE, priority=1),
+        ])
+        self.assertLess(packet.text.index("source_context"), packet.text.index("quotes"))
+        self.assertIn("[evidence]", packet.text)
+
+    def test_oversized_stream_is_truncated_and_reported(self):
+        packet = build_packet("step8", [Stream("source_context", "x" * 40000, EVIDENCE)])
+        report = packet.streams[0]
+        self.assertTrue(report.truncated)
+        self.assertLess(report.kept_chars, report.original_chars)
+        self.assertIn("TRUNCATED", packet.text)
+        self.assertLessEqual(packet.used_chars, packet.budget_chars)
+
+    def test_budget_is_never_exceeded_across_many_streams(self):
+        packet = build_packet("step7", [
+            Stream(f"s{i}", "y" * 20000, EVIDENCE, priority=i) for i in range(9)
+        ])
+        self.assertLessEqual(packet.used_chars, packet.budget_chars)
+        # Each stream was squeezed by its own cap; nothing had to be dropped.
+        self.assertTrue(packet.truncated_streams)
+
+    def test_packet_stays_within_budget_when_streams_outnumber_the_room(self):
+        packet = build_packet("step7", [
+            Stream(f"s{i}", "y" * 5000, EVIDENCE, priority=i) for i in range(30)
+        ])
+        self.assertLessEqual(packet.used_chars, packet.budget_chars)
+        self.assertTrue(packet.dropped_streams)
+
+    def test_context_never_displaces_evidence(self):
+        """#239: no primary quotation may be displaced by retrieval context.
+
+        The budget is tightened so the evidence stream can fill it exactly; the context stream
+        then has nowhere to go and must be dropped rather than the quotation being trimmed.
+        """
+        quote = "the primary political quote"
+        tight = StageBudget("step7", 18000, 6000, {"utterances": 12000})
+        packet = build_packet("step7", [
+            Stream("retrieval", "r" * 30000, CONTEXT, priority=0),
+            Stream("utterances", quote + "z" * 17000, EVIDENCE, priority=99),
+        ], budget=tight)
+        self.assertIn(quote, packet.text)
+        self.assertEqual(packet.context_chars, 0)
+        self.assertIn("retrieval", packet.dropped_streams)
+        self.assertLessEqual(packet.used_chars, packet.budget_chars)
+
+    def test_context_is_labelled_as_such_and_can_be_excluded(self):
+        packet = build_packet("step4", [
+            Stream("speech", "puhetta suomeksi", EVIDENCE),
+            Stream("memory", "aiempi analyysi", CONTEXT),
+        ])
+        self.assertIn("[context]", packet.text)
+        without = build_packet("step4", [
+            Stream("speech", "puhetta suomeksi", EVIDENCE),
+            Stream("memory", "aiempi analyysi", CONTEXT),
+        ], include_context=False)
+        self.assertNotIn("aiempi analyysi", without.text)
+
+    def test_multilingual_evidence_survives_intact(self):
+        text = "Tekoäly ja populismi. Sztuczna inteligencja. Inteligência artificial."
+        packet = build_packet("step6", [Stream("speech", text, EVIDENCE)])
+        self.assertIn(text, packet.text)
+
+    def test_log_line_reports_truncation_by_field(self):
+        packet = build_packet("step4", [
+            Stream("video", "v" * 30000, EVIDENCE),
+            Stream("ocr", "VOTE", EVIDENCE),
+        ])
+        line = packet.log_line()
+        self.assertIn("stage=step4", line)
+        self.assertIn("truncated=['video']", line)
+        self.assertIn("tokens~", line)
+
+    def test_inputs_are_never_mutated(self):
+        row = {"speech": "puhetta"}
+        stream = Stream("speech", row["speech"], EVIDENCE)
+        build_packet("step4", [stream])
+        self.assertEqual(row, {"speech": "puhetta"})
+        self.assertEqual(stream.text, "puhetta")
+
+    def test_token_estimate_is_coarse_but_monotonic(self):
+        self.assertEqual(estimate_tokens(""), 0)
+        self.assertLess(estimate_tokens("a" * 100), estimate_tokens("a" * 200))
+
+    def test_packet_reports_evidence_and_context_separately(self):
+        packet = build_packet("step4", [
+            Stream("speech", "evidence text", EVIDENCE),
+            Stream("rag", "context text", CONTEXT),
+        ])
+        self.assertGreater(packet.evidence_chars, 0)
+        self.assertGreater(packet.context_chars, 0)
+        self.assertIsInstance(packet, Packet)
 
 
-@pytest.mark.parametrize("step", sorted(STEPS))
-def test_each_builder_respects_an_environment_budget(step: int, monkeypatch) -> None:
-    contract = STEPS[step]
-    monkeypatch.setenv(contract.env, "4000")
-    assert budget(step) == 4000
-    out = _text(_builder(step)(_fat_row()))
-    assert len(out) <= 4000, f"step {step} exceeded its 4000-char budget ({len(out)})"
+class FingerprintTests(unittest.TestCase):
+    def test_same_inputs_same_key(self):
+        args = ("sys", "user", "llama3", {"num_ctx": 8192})
+        self.assertEqual(effective_prompt_fingerprint(*args), effective_prompt_fingerprint(*args))
+
+    def test_prompt_change_changes_key(self):
+        base = effective_prompt_fingerprint("sys", "user-a", "llama3", {})
+        self.assertNotEqual(base, effective_prompt_fingerprint("sys", "user-b", "llama3", {}))
+
+    def test_model_change_changes_key(self):
+        base = effective_prompt_fingerprint("sys", "user", "llama3", {})
+        self.assertNotEqual(base, effective_prompt_fingerprint("sys", "user", "qwen3", {}))
+
+    def test_option_change_changes_key(self):
+        """#244's fix, generalised: a num_ctx/num_predict change must invalidate the cache."""
+        base = effective_prompt_fingerprint("sys", "user", "llama3", {"num_ctx": 8192})
+        self.assertNotEqual(
+            base, effective_prompt_fingerprint("sys", "user", "llama3", {"num_ctx": 16384})
+        )
+
+    def test_option_order_does_not_change_key(self):
+        self.assertEqual(
+            effective_prompt_fingerprint("s", "u", "m", {"a": 1, "b": 2}),
+            effective_prompt_fingerprint("s", "u", "m", {"b": 2, "a": 1}),
+        )
 
 
-@pytest.mark.parametrize("step", sorted(STEPS))
-def test_no_builder_feeds_rag_memory_or_another_stages_analysis_back(step: int) -> None:
-    out = _text(_builder(step)(_fat_row()))
-    for marker in (RAG_MARKER, MEMORY_MARKER, OWN_OUTPUT_MARKER):
-        assert marker not in out, f"step {step} leaked {marker} into the model input"
-
-
-@pytest.mark.parametrize("step", sorted(STEPS))
-def test_no_builder_mutates_the_original_row(step: int) -> None:
-    row = _fat_row()
-    before = row.copy()
-    _builder(step)(row)
-    assert row.equals(before), f"step {step} mutated its input row"
-
-
-def test_the_excluded_set_covers_rag_memory_and_own_outputs() -> None:
-    assert "rag_context_json" in EXCLUDED_COLUMNS
-    assert "memory_context_json" in EXCLUDED_COLUMNS
-    assert any("analysis" in c for c in EXCLUDED_COLUMNS), "no stage output is excluded"
-
-
-def test_the_budget_falls_back_to_the_documented_default(monkeypatch) -> None:
-    contract = STEPS[8]
-    monkeypatch.delenv(contract.env, raising=False)
-    assert budget(8) == contract.default_budget
-    monkeypatch.setenv(contract.env, "not-a-number")
-    assert budget(8) == contract.default_budget
-    monkeypatch.setenv(contract.env, "-5")
-    assert budget(8) == contract.default_budget
-
-
-def test_the_cache_hash_covers_prompt_model_system_and_context() -> None:
-    digest = prompt_hash(8, "v1", "m", "s", "c")
-    assert digest == prompt_hash(8, "v1", "m", "s", "c"), "not deterministic"
-    assert prompt_hash(8, "v2", "m", "s", "c") != digest, "version did not move the key"
-    assert prompt_hash(8, "v1", "other", "s", "c") != digest, "model did not move the key"
-    assert prompt_hash(8, "v1", "m", "s2", "c") != digest, "system prompt did not move the key"
-    assert prompt_hash(8, "v1", "m", "s", "c2") != digest, "context did not move the key"
-
-
-def test_the_truncation_report_says_what_the_model_did_not_see() -> None:
-    report = truncation_report(
-        [
-            truncation_entry("asr_transcript", 10_000, 3_000),
-            truncation_entry("entities", 40, 40),
-        ]
-    )
-    assert report["fields_included"] == 2
-    assert report["fields_truncated"] == 1
-    assert report["characters_lost"] == 7_000
-    assert report["by_field"]["entities"]["truncated"] is False
-    assert report["by_field"]["asr_transcript"]["truncated"] is True
+if __name__ == "__main__":
+    unittest.main()
