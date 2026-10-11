@@ -31,10 +31,10 @@ from ep24_pipeline import (
 )
 from ep24_schema import stable_source_id, value as ep24_value
 from ep24_video import VIDEO_INITIAL_SKIP_SECONDS
-from laclaugpt_quality import QUALITY_COLUMNS, merge_status, quality_decision_from_analysis
+from laclaugpt_quality import QUALITY_COLUMNS, frame_quality_decision, merge_status, quality_decision_from_analysis
 
 FRAME_TIMESTAMP_SECONDS = 1.0
-FRAME_PROMPT_VERSION = "ep24-frame-v2-concise-20261010"
+FRAME_PROMPT_VERSION = "ep24-frame-v3-placeholder-scope-20261011"
 OUTPUT_COLUMNS = (
     "frame_analysis_1",
     "frame_analysis_timestamp_seconds",
@@ -147,13 +147,16 @@ def get_analysis(frame_file, row_context=''):
     # Researcher methodology: multimodal social-semiotic pre-analysis (Halliday/SFL, Kress & van Leeuwen).\n    # These videos are from TikTok and Instagram feeds.\n    # Keep the actual model prompt lean while maintaining that methodological frame.
     system_prompt = """You are analyzing ONE keyframe at original t=1.0s from a
 TikTok/Instagram video collected around the European Parliament elections 2024
-(EP24). Perform descriptive, light multimodal social-semiotic analysis.
+(EP24), including Poland and Finland. Perform descriptive, light multimodal social-semiotic analysis.
 Describe only the image, not an imagined video narrative. Attend especially to
 people, actions, political signs, slogans, party logos, flags, campaign scenes
 and other visible election context. Distinguish denotation from cautious
 interpretation. Treat ASR/OCR/researcher notes as fallible context, not visual
 proof. Never invent identities, text, ideology, or events. Be precise, concise,
-non-repetitive, and preserve legible words in their original language."""
+non-repetitive, and preserve legible words in their original language.
+If the frame shows only a phone launcher or a loading placeholder instead of
+video content, choose REPROCESS, not OK or DELETE. Do not confuse the source
+video with an unusable 1.0s keyframe."""
 
     user_prompt = (
         "Describe the frame under these headings: (1) Visible scene and "
@@ -418,7 +421,7 @@ def analyze_videos(language=None):
                 df.at[index, "frame_analysis_status"] = status
                 df.at[index, "frame_analysis_model"] = model
                 df.at[index, "frame_analysis_context_sha256"] = context_sha256
-                frame_quality_status, frame_quality_reason = quality_decision_from_analysis(frame_response)
+                frame_quality_status, frame_quality_reason = frame_quality_decision(frame_response)
                 old_status = row.get("processing_status", "OK")
                 old_reason = row.get("processing_status_reason", "")
                 merged_status, merged_reason = merge_status(
