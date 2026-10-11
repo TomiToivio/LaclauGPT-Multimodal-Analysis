@@ -155,13 +155,19 @@ def load_ocr_backend(country: str | None = None) -> OCRBackend:
             else (["bg", "en"] if (country or "").strip().lower() in {"bulgaria", "bg"}
                   else [lang for lang in EASYOCR_LANGS if lang != "bg"])
         )
-        groups = easyocr_script_groups(languages)
-        readers = {
-            group: easyocr.Reader(
-                [l for l in languages if l in EASYOCR_SCRIPT_GROUPS[group]]
-            )
-            for group in groups
-        }
+        # Bulgarian is a single Cyrillic recognizer that also supports English.
+        # Keep explicitly configured mixed-script requests unchanged.
+        bulgarian_default = not configured and (country or "").strip().lower() in {"bulgaria", "bg"}
+        if bulgarian_default:
+            readers = {"cyrillic": easyocr.Reader(["bg", "en"])}
+        else:
+            groups = easyocr_script_groups(languages)
+            readers = {
+                group: easyocr.Reader(
+                    [l for l in languages if l in EASYOCR_SCRIPT_GROUPS[group]]
+                )
+                for group in groups
+            }
         LOG.info(
             "Loading OCR backend=easyocr groups=%s languages=%s",
             sorted(readers),
@@ -198,4 +204,6 @@ def describe_ocr_backend(country: str | None = None) -> dict[str, str]:
     languages = ([x.strip() for x in configured.split(",") if x.strip()] if configured
                  else (["bg", "en"] if (country or "").strip().lower() in {"bulgaria", "bg"}
                        else [lang for lang in EASYOCR_LANGS if lang != "bg"]))
-    return {"engine": engine, "model": f"easyocr-runtime+{'+'.join(easyocr_script_groups(languages))}"}
+    groups = (["cyrillic"] if not configured and (country or "").strip().lower() in {"bulgaria", "bg"}
+              else easyocr_script_groups(languages))
+    return {"engine": engine, "model": f"easyocr-runtime+{'+'.join(groups)}"}
