@@ -20,6 +20,7 @@ import pandas as pd
 from ep24_cli import configure_step_cli
 from ep24_entities import fold_key, resolution_lookup
 from ep24_models import ollama_model, ollama_model_source
+from ep24_prompt_contract import prompt_hash, truncation_entry, truncation_report
 from ep24_pipeline import (
     load_cumulative_csv,
     metadata_context,
@@ -115,8 +116,15 @@ def _enrich_edges(edges, row) -> list[dict]:
     return enriched
 
 
-def build_sna_evidence(row) -> str:
-    """Bound model input to current-source actor/relation evidence."""
+def sna_evidence_report(row) -> tuple[str, dict, str]:
+    """Bounded, provenance-labelled packet plus its audit record (#238, #241).
+
+    Returns ``(evidence, report, sha256)``. The report is the per-field truncation
+    record -- what the model did *not* see -- which a bare boolean cannot express
+    (#241: "log model-visible chars/token estimates and truncation by field"), and the
+    digest covers the prompt version, model, system prompt and effective packet, so a
+    model or settings change cannot reuse a stale result.
+    """
     max_chars = max(3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000")))
     fields = (
         ("asr_transcript", 3000),
@@ -130,6 +138,7 @@ def build_sna_evidence(row) -> str:
         ("source_recording", 150),
     )
     parts = ["EP24 current-source relations, no RAG-derived evidence."]
+    entries: list[dict] = []
     remaining = max_chars - len(parts[0])
     for field, cap in fields:
         raw = row.get(field, "")
@@ -138,16 +147,27 @@ def build_sna_evidence(row) -> str:
         value = str(raw).strip()
         if not value or value.lower() == "nan":
             continue
-        label = f"\\n{field}: "
+        label = f"\n{field}: "
         take = min(len(value), cap, max(0, remaining - len(label) - 40))
         if take <= 0:
             break
+        entries.append(truncation_entry(field, len(value), take))
         part = label + value[:take]
         if take < len(value):
             part += " [TRUNCATED; original preserved]"
         parts.append(part)
         remaining -= len(part)
-    return "".join(parts)
+    evidence = "".join(parts)
+    return (
+        evidence,
+        truncation_report(entries),
+        prompt_hash(8, PROMPT_VERSION, ollama_model(), EXTRACTION_SYSTEM, evidence),
+    )
+
+
+def build_sna_evidence(row) -> str:
+    """Bound model input to current-source actor/relation evidence."""
+    return sna_evidence_report(row)[0]
 
 
 def _castells_interpretation(ollama, model: str, nodes, edges, metrics) -> str:
@@ -254,6 +274,8 @@ def run_language(lang: str) -> Path | None:
         "sna_schema_version",
         "sna_prompt_version",
         "sna_castells_prompt_version",
+        "sna_context_sha256",
+        "sna_context_truncated",
         "sna_generated_at",
         "sna_status",
         "sna_error",
@@ -268,10 +290,16 @@ def run_language(lang: str) -> Path | None:
     all_edges: list[dict] = []
 
     for index, row in selected.iterrows():
-        evidence = build_sna_evidence(row)
+        evidence, truncation, context_hash = sna_evidence_report(row)
         if evidence == "EP24 current-source relations, no RAG-derived evidence.":
             df.at[index, "sna_status"] = "no_evidence"
             continue
+        LOG.info(
+            "step8 row=%s model=%s prompt=%s context_sha256=%s packet_chars=%d "
+            "fields_truncated=%s characters_lost=%s",
+            index, model, PROMPT_VERSION, context_hash, len(evidence),
+            truncation["fields_truncated"], truncation["characters_lost"],
+        )
 
         try:
             response = ollama.chat(
@@ -319,6 +347,8 @@ def run_language(lang: str) -> Path | None:
             df.at[index, "sna_metrics_json"] = json.dumps(metrics, ensure_ascii=False, sort_keys=True)
             df.at[index, "sna_schema_version"] = SNA_SCHEMA_VERSION
             df.at[index, "sna_prompt_version"] = PROMPT_VERSION
+            df.at[index, "sna_context_sha256"] = context_hash
+            df.at[index, "sna_context_truncated"] = json.dumps(truncation, ensure_ascii=False, sort_keys=True)
             df.at[index, "sna_castells_prompt_version"] = CASTELLS_PROMPT_VERSION
             df.at[index, "sna_generated_at"] = datetime.now(timezone.utc).isoformat()
             df.at[index, "sna_status"] = "ok"
