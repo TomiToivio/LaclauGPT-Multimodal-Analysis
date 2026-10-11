@@ -26,8 +26,9 @@ from roihu_storage import MongoStorage, StorageConfig
 
 PRESERVE_SUFFIXES = {"memory", "entities"}
 SQLITE_NAMES = ("preprocess_v2.db", "frame.db", "summary.db")
-STAGE1 = Path(__file__).resolve().parent / "scripts/roihu/step_1_roihu_preprocess.sbatch"
-IMPORTER = Path(__file__).resolve().parent / "step_0_roihu_import.py"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+STAGE1 = REPO_ROOT / "scripts/roihu/step_1_roihu_preprocess.sbatch"
+IMPORTER = REPO_ROOT / "step_0_roihu_import.py"
 
 
 def targets(db, config: StorageConfig) -> list[str]:
@@ -85,7 +86,7 @@ def main(argv=None) -> int:
     paths = choose_sources(root, [normalize_country(c) for c in args.country or []],
                            args.all_countries)
     if not STAGE1.is_file() or not IMPORTER.is_file():
-        raise RuntimeError("Step 0 importer or Step 1 sbatch script not found")
+        raise RuntimeError(f"Step 0 importer or Step 1 sbatch script not found: importer={IMPORTER} stage1={STAGE1}")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     archive_root = private_root().resolve() / "reset-archives" / stamp
     if args.execute and shutil.which("sbatch") is None and not args.no_submit:
