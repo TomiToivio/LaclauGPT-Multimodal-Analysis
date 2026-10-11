@@ -26,3 +26,25 @@ def test_sna_context_preserves_oversize_original():
     evidence = build_sna_evidence(row)
     assert "TRUNCATED" in evidence
     assert row["asr_transcript"] == speech
+
+
+def test_sna_evidence_audit_preserves_main_builder(monkeypatch):
+    from step_8_roihu_social_network_analysis import sna_evidence_report
+    monkeypatch.setenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "4000")
+    row = pd.Series({"asr_transcript": "speech " * 3000, "entities": "Alice, Bob"})
+    original = row.copy()
+    evidence, report, digest = sna_evidence_report(row, model="example:1")
+    assert evidence == build_sna_evidence(row)
+    assert report["by_field"]["asr_transcript"]["truncated"]
+    assert report["by_field"]["entities"]["chars_available"] == len("Alice, Bob")
+    assert report["characters_lost"] > 0
+    assert len(digest) == 64
+    assert row.equals(original)
+
+
+def test_sna_fingerprint_covers_model_and_evidence():
+    from step_8_roihu_social_network_analysis import sna_evidence_report
+    row = pd.Series({"asr_transcript": "Alice opposed Bob."})
+    a = sna_evidence_report(row, model="one")[2]
+    assert a != sna_evidence_report(row, model="two")[2]
+    assert a != sna_evidence_report(pd.Series({"asr_transcript": "Bob supported Alice."}), model="one")[2]
