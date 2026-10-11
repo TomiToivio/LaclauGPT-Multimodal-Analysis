@@ -222,6 +222,26 @@ def quality_decision_from_analysis(
     return "OK", "analysis found usable content"
 
 
+def frame_quality_decision(analysis: object) -> tuple[str, str]:
+    """Treat observed feed-loading artifacts as recoverable keyframe failures.
+
+    This concerns visual evidence at t=1s, not whether the underlying video
+    contains political material. Never delete a source solely for a placeholder.
+    """
+    raw = str(analysis or "").casefold()
+    if (
+        ("home screen" in raw or "app launcher" in raw)
+        and ("not a social" in raw or "not a video" in raw or "app icons" in raw)
+    ):
+        return "REPROCESS", "1.0s frame is a phone launcher, not the intended social-media content"
+    if (
+        any(x in raw for x in ("loading placeholder", "skeleton/loading", "skeleton loader", "loading screen"))
+        and any(x in raw for x in ("blank", "empty", "no photographic content", "no video content"))
+    ):
+        return "REPROCESS", "1.0s frame shows loading placeholders instead of video content"
+    return quality_decision_from_analysis(analysis)
+
+
 def summary_quality_decision(
     *,
     transcript: object,
