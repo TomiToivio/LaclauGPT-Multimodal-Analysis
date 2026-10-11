@@ -258,7 +258,7 @@ def cache_fingerprint(country: str) -> str:
     lookup: a changed backend, model, language hint or video rule simply
     addresses a different row, and the old row can never be hit again.
     """
-    ocr = describe_ocr_backend()
+    ocr = describe_ocr_backend(country)
     asr = describe_backend()
     parts = {
         "cache_schema": str(CACHE_SCHEMA_VERSION),
@@ -450,9 +450,11 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
     )
 
     asr = load_asr_model()
-    ocr = load_ocr_backend()
+    # Stage orchestrator runs one country at a time. Select OCR scripts accordingly.
+    ocr_country = str(out.iloc[0].get("country", "")).strip() if not out.empty else ""
+    ocr = load_ocr_backend(ocr_country)
     LOG.info("asr_backend=%s", describe_backend())
-    LOG.info("ocr_backend=%s", describe_ocr_backend())
+    LOG.info("ocr_backend=%s", describe_ocr_backend(ocr_country))
     conn = connect_cache()
     counters = {"ok": 0, "cached": 0, "missing_video": 0, "too_short": 0, "locked": 0, "error": 0}
     redis_by_country: dict[str, RedisCoordinator] = {}
@@ -601,6 +603,13 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                         len(result.translated),
                     )
 
+                    if not result.transcript.strip():
+                        LOG.warning(
+                            "asr_empty_transcript country=%s video_id=%s backend=%s "
+                            "clip=%s; preserving visual evidence and skipping restart cache",
+                            country, video_id, asr.engine, analysis_clip,
+                        )
+
                     completed = datetime.now(timezone.utc).isoformat()
                     values = {
                         "frame_file": frame_file,
@@ -625,7 +634,13 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                         "Exactly one OCR call on exactly one original-video frame at t=1.0s; "
                         "ASR processed the derived analyzable clip after the mandatory 1.0s skip."
                     )
-                    save_cached(conn, key, values)
+                    if result.transcript.strip():
+                        save_cached(conn, key, values)
+                    else:
+                        out.at[index, "preprocess_note"] += (
+                            " WARNING: ASR returned an empty transcript; verify source audio "
+                            "and retry transcription before treating this as silence."
+                        )
                     counters["ok"] += 1
                     coordinator.mark(rid, "completed")
                     LOG.debug("row_complete country=%s video_id=%s state=ok", country, video_id)
