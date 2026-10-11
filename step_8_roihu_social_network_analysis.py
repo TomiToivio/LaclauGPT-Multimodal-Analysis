@@ -38,7 +38,7 @@ from ep24_sna import (
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG = logging.getLogger("step_8_roihu_social_network_analysis")
 
-PROMPT_VERSION = "ep24-sna-extraction/2.0"
+PROMPT_VERSION = "ep24-sna-extraction/2.1-source-first"
 CASTELLS_PROMPT_VERSION = "ep24-sna-castells/1.0"
 
 EXTRACTION_SYSTEM = """You extract evidence-supported social/communication network relations
@@ -116,38 +116,15 @@ def _enrich_edges(edges, row) -> list[dict]:
 
 
 def build_sna_evidence(row) -> str:
-    """Bound model input to current-source actor/relation evidence."""
-    max_chars = max(3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000")))
-    fields = (
-        ("asr_transcript", 3000),
-        ("dna_statements_json", 3000),
-        ("summary_analysis", 2500),
-        ("entities", 600),
-        ("researcher_note", 400),
-        ("ocr_1", 650),
-        ("country", 100),
-        ("video_id", 150),
-        ("source_recording", 150),
+    """Bound source-grounded actor relations without RAG and unrelated model output."""
+    from ep24_evidence_packets import evidence_packet
+
+    packet, _ = evidence_packet(
+        row, stage=8, max_chars=max(
+            3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000"))
+        )
     )
-    parts = ["EP24 current-source relations, no RAG-derived evidence."]
-    remaining = max_chars - len(parts[0])
-    for field, cap in fields:
-        raw = row.get(field, "")
-        if raw is None:
-            continue
-        value = str(raw).strip()
-        if not value or value.lower() == "nan":
-            continue
-        label = f"\\n{field}: "
-        take = min(len(value), cap, max(0, remaining - len(label) - 40))
-        if take <= 0:
-            break
-        part = label + value[:take]
-        if take < len(value):
-            part += " [TRUNCATED; original preserved]"
-        parts.append(part)
-        remaining -= len(part)
-    return "".join(parts)
+    return packet
 
 
 def _castells_interpretation(ollama, model: str, nodes, edges, metrics) -> str:
@@ -269,7 +246,7 @@ def run_language(lang: str) -> Path | None:
 
     for index, row in selected.iterrows():
         evidence = build_sna_evidence(row)
-        if evidence == "EP24 current-source relations, no RAG-derived evidence.":
+        if not any(str(row.get(name) or "").strip() for name in ("asr_transcript", "asr_translation", "ocr_1", "dna_statements_json")):
             df.at[index, "sna_status"] = "no_evidence"
             continue
 
