@@ -119,7 +119,7 @@ def _extract_paddle_text(result) -> list[str]:
     return texts
 
 
-def load_ocr_backend() -> OCRBackend:
+def load_ocr_backend(country: str | None = None) -> OCRBackend:
     engine = os.getenv("LACLAUGPT_OCR_ENGINE", DEFAULT_ENGINE).strip().lower()
 
     if engine == "paddleocr":
@@ -152,7 +152,8 @@ def load_ocr_backend() -> OCRBackend:
         languages = (
             [x.strip() for x in configured.split(",") if x.strip()]
             if configured
-            else list(EASYOCR_LANGS)
+            else (["bg", "en"] if (country or "").strip().lower() in {"bulgaria", "bg"}
+                  else [lang for lang in EASYOCR_LANGS if lang != "bg"])
         )
         groups = easyocr_script_groups(languages)
         readers = {
@@ -186,11 +187,15 @@ def load_ocr_backend() -> OCRBackend:
     )
 
 
-def describe_ocr_backend() -> dict[str, str]:
+def describe_ocr_backend(country: str | None = None) -> dict[str, str]:
     engine = os.getenv("LACLAUGPT_OCR_ENGINE", DEFAULT_ENGINE).strip().lower()
     if engine == "paddleocr":
         return {
             "engine": engine,
             "model": os.getenv("LACLAUGPT_OCR_MODEL", DEFAULT_PADDLE_VERSION),
         }
-    return {"engine": engine, "model": "easyocr-runtime"}
+    configured = os.getenv("LACLAUGPT_OCR_LANGS")
+    languages = ([x.strip() for x in configured.split(",") if x.strip()] if configured
+                 else (["bg", "en"] if (country or "").strip().lower() in {"bulgaria", "bg"}
+                       else [lang for lang in EASYOCR_LANGS if lang != "bg"]))
+    return {"engine": engine, "model": f"easyocr-runtime+{'+'.join(easyocr_script_groups(languages))}"}
