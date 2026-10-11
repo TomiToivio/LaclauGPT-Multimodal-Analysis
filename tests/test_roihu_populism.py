@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from roihu_populism import (
+    PROMPT_VERSION,
     AffectObservation,
     EP24DiscourseAnalysis,
     FrontierConstruct,
@@ -255,7 +256,9 @@ def test_mongo_resume_requires_exact_prompt_model_and_context(monkeypatch):
     base = {
         "_storage_id": "record-1",
         "laclau_status": "ok",
-        "laclau_prompt_version": "ep24-laclau-palonen-v2",
+        # Reference the live constant: a frozen literal here goes stale every time
+        # the prompt materially changes and silently reddens CI (#239).
+        "laclau_prompt_version": PROMPT_VERSION,
         "laclau_context_sha256": "ctx-a",
         "laclau_model_metadata_json": json.dumps({"model": "model-a"}),
         "laclau_structured_json": "{}",

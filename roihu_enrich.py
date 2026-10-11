@@ -15,11 +15,18 @@ import re
 from pathlib import Path
 from typing import Any
 
-from roihu_codebooks import COUNTRY_PROFILES, context_block, load_profile
-from roihu_codebook_sources import load_registry_from_dir
 from ep24_entities import EntityRegistry, ollama_adjudicator, registry_documents, resolve_dataframe
+from roihu_codebook_sources import load_registry_from_dir
+from roihu_codebooks import COUNTRY_PROFILES, context_block, load_profile
+from roihu_identity import (
+    ENTITY_KINDS,
+    SENTIMENT_KINDS,
+    THEME_KINDS,
+    canonical_labels,
+    resolve_many,
+    seed_context_lines,
+)
 from roihu_memory import EP24Memory
-from roihu_identity import (ENTITY_KINDS, SENTIMENT_KINDS, THEME_KINDS, canonical_labels, resolve_many, seed_context_lines)
 
 EP24_FILES = {
     "FI": ("ep24_fi.csv", "fi"),

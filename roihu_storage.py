@@ -11,11 +11,12 @@ import json
 import os
 import re
 import sqlite3
-from urllib.parse import urlsplit, unquote
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
+from urllib.parse import unquote, urlsplit
 
 import pandas as pd
 
@@ -56,7 +57,7 @@ class StorageConfig:
         return f"{self.prefix}_{_slug(purpose)}"
 
     @classmethod
-    def from_env(cls) -> "StorageConfig":
+    def from_env(cls) -> StorageConfig:
         enabled = os.getenv("LACLAUGPT_MONGO_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
         uri = os.getenv("LACLAUGPT_MONGO_URI")
         # Honor the URI database when a separate database override is absent.
@@ -439,7 +440,7 @@ class Storage:
         self.backup = _PurposeStore(mongo, "backup")
 
     @classmethod
-    def from_env(cls, client: Any | None = None) -> "Storage":
+    def from_env(cls, client: Any | None = None) -> Storage:
         return cls(MongoStorage(StorageConfig.from_env(), client=client))
 
     def export_dataframe(self, purpose: str, query: Mapping[str, Any] | None = None) -> pd.DataFrame:

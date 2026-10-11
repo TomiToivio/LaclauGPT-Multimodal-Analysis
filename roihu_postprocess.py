@@ -3,14 +3,19 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import pandas as pd
-from logging.handlers import RotatingFileHandler
+
 from ep24_models import ollama_model, ollama_model_source
-from ep24_pipeline import ensure_columns, load_cumulative_csv, metadata_context, write_cumulative_csv
-from ep24_schema import stable_source_id, value as ep24_value
-from roihu_storage import MongoStorage, StorageConfig
+from ep24_pipeline import (
+    ensure_columns,
+    load_cumulative_csv,
+    write_cumulative_csv,
+)
+from ep24_schema import stable_source_id
+from ep24_schema import value as ep24_value
 from laclaugpt_quality import (
     QUALITY_COLUMNS,
     delete_audit_output_path,
@@ -20,6 +25,7 @@ from laclaugpt_quality import (
     reprocess_output_path,
     safe_delete_local_paths,
 )
+from roihu_storage import MongoStorage, StorageConfig
 
 os.makedirs('./logs', exist_ok=True)
 
@@ -128,12 +134,13 @@ def _prompt_context(row: pd.Series) -> str:
         if not value or value.lower() == "nan":
             continue
         prefix = f"\\n{field} [upstream evidence/context]: "
-        take = min(len(value), cap, max(0, remaining - len(prefix) - 30))
+        marker = " [TRUNCATED; original stored unchanged]"
+        take = min(len(value), cap, max(0, remaining - len(prefix) - len(marker)))
         if take <= 0:
             break
         piece = prefix + value[:take]
         if take < len(value):
-            piece += " [TRUNCATED; original stored unchanged]"
+            piece += marker
         lines.append(piece)
         remaining -= len(piece)
     return "".join(lines)

@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import sys
 import os
 import shutil
 import sqlite3
+import sys
 import time
 import uuid
 from contextlib import ExitStack
@@ -27,20 +27,26 @@ from pathlib import Path
 import cv2
 import pandas as pd
 
-from asr_backend import ASRResult, NoAudioStreamError, describe_backend, language_hint, load_asr_model
-from ep24_pipeline import assert_source_metadata_preserved, local_media_path
-from ep24_schema import value as ep24_value
+from asr_backend import (
+    ASRResult,
+    NoAudioStreamError,
+    describe_backend,
+    language_hint,
+    load_asr_model,
+)
 from ep24_db import country_storage
 from ep24_memory import seed_researcher_memory
+from ep24_pipeline import assert_source_metadata_preserved, local_media_path
 from ep24_rag import upsert_stage_rag
 from ep24_redis import RedisCoordinator
-from roihu_storage import dataframe_to_documents, stable_record_id
+from ep24_schema import value as ep24_value
 from ep24_video import analysis_start_seconds as video_initial_skip_seconds
 from ep24_video import (
     is_too_short,
     prepare_analysis_clip,
 )
 from ocr_backend import describe_ocr_backend, load_ocr_backend
+from roihu_storage import dataframe_to_documents, stable_record_id
 
 FRAME_TIMESTAMP_SECONDS = 1.0
 # Bump when a contracted Step 1 output changes meaning (not merely when a column

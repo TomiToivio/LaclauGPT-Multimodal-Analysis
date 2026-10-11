@@ -31,3 +31,22 @@ def test_step5_prompt_does_not_mutate_oversize_original():
     prompt = build_postprocess_prompt(row)
     assert "TRUNCATED" in prompt
     assert row["summary_analysis"] == summary
+
+
+def test_the_budget_is_a_true_bound_not_an_approximation(monkeypatch):
+    """The truncation marker is appended after the slice, so its length must be reserved.
+
+    It was not: the code reserved 30 characters and appended a 39-character marker, so an
+    oversized row pushed the packet 9 characters past its own documented budget (#239).
+    """
+    monkeypatch.setenv("LACLAUGPT_STEP5_MAX_PROMPT_CHARS", "4000")
+    row = pd.Series(
+        {
+            "summary_analysis": "evidence " * 5000,
+            "asr_transcript": "speech " * 5000,
+            "ocr_1": "SIGN " * 2000,
+        }
+    )
+    prompt = build_postprocess_prompt(row)
+    assert "TRUNCATED" in prompt, "expected the oversized fields to be truncated"
+    assert len(prompt) <= 4000, f"packet overshot its own budget: {len(prompt)} > 4000"

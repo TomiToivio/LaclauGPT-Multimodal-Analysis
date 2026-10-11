@@ -29,9 +29,14 @@ from ep24_pipeline import (
     load_cumulative_csv,
     metadata_context,
 )
-from ep24_schema import stable_source_id, value as ep24_value
-from ep24_video import VIDEO_INITIAL_SKIP_SECONDS
-from laclaugpt_quality import QUALITY_COLUMNS, frame_quality_decision, merge_status, quality_decision_from_analysis
+from ep24_schema import stable_source_id
+from ep24_schema import value as ep24_value
+from laclaugpt_quality import (
+    QUALITY_COLUMNS,
+    frame_quality_decision,
+    merge_status,
+    quality_decision_from_analysis,
+)
 
 FRAME_TIMESTAMP_SECONDS = 1.0
 FRAME_PROMPT_VERSION = "ep24-frame-v3-placeholder-scope-20261011"
