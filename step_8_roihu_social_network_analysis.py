@@ -189,10 +189,10 @@ def _grounded_edge_candidates(edges, evidence: str):
     edge; unrelated memory/RAG is not in that packet. This is a necessary, not
     sufficient, condition for a real-world relation.
     """
-    normalized = re.sub(r"\\s+", " ", evidence).casefold()
+    normalized = re.sub(r"\s+", " ", evidence).casefold()
     accepted = []
     for edge in edges:
-        quote = re.sub(r"\\s+", " ", str(edge.evidence_quote or "")).strip()
+        quote = re.sub(r"\s+", " ", str(edge.evidence_quote or "")).strip()
         if (len(quote) < 12 or quote.casefold() not in normalized
                 or not str(edge.source_actor).strip()
                 or not str(edge.target_actor).strip()
