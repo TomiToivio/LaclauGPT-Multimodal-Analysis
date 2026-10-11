@@ -33,7 +33,7 @@ def targets(db, config: StorageConfig) -> list[str]:
     return sorted(name for name in db.list_collection_names()
                   if name.startswith(prefix)
                   and name[len(prefix):] not in PRESERVE_SUFFIXES
-                  and not name[len(prefix):].startswith("reset_archive_"))
+                  and "_reset_archive_" not in name)
 
 
 def archive_name(name: str, stamp: str) -> str:
