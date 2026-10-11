@@ -23,7 +23,7 @@ _STATUS_RE = re.compile(r"\b(OK|REPROCESS(?:ED)?|DELETE(?:D)?)\b", re.IGNORECASE
 #: A bare "deleted"/"ok" in ordinary description does not count.
 _UNUSABLE_WORDS = (
     "garbage", "unusable", "meaningless", "corrupt", "no meaningful content",
-    "no useful content", "nothing useful", "unwatchable", "broken",
+    "no useful content", "nothing useful", "unwatchable",
 )
 _VERDICT_PATTERNS = (
     # emphasis / backticks: **DELETE**, `REPROCESS`
