@@ -79,3 +79,36 @@ default; do not mass-reset them just to create a pilot.
 Code for bounded Step 5 extraction is already present, and issue #237 was
 closed. This document does not reopen the issue or claim that the Roihu pilot
 has happened. Cluster execution and the manual quality gate are outstanding.
+
+
+## October 12 execution update: check eligibility before GPU allocation
+
+The Finland Step 4 log showed 24 successful/1 failed in a 25-record run; #274
+adds bounded empty-Ollama retries but Step 4 scientific acceptance still needs
+source-level review. Do not treat 24 persisted rows as automatic approval.
+
+The orchestrator accepts `--dry-run` with the same country and limit, to count
+eligible Step 5 rows without writing data (the submitted Slurm job still allocates
+resources). First check `--dry-run`, then submit the normal pilot:
+
+```bash
+cd /scratch/project_2009497/LaclauGPT-Multimodal-Analysis
+git switch main && git pull --ff-only
+export LACLAUGPT_COUNTRY=finland
+export LACLAUGPT_MAX_ROWS=10
+export LACLAUGPT_MONGO_ENABLED=1
+export LACLAUGPT_STEP5_MAX_PROMPT_CHARS=12000
+export LACLAUGPT_POSTPROCESS_NUM_CTX=32768
+export LACLAUGPT_POSTPROCESS_NUM_PREDICT=2048
+bash scripts/roihu/run_step_5.sh --country finland --limit 10 --dry-run
+# Only after Step 4 input review:
+bash scripts/roihu/run_step_5.sh --country finland --limit 10
+```
+
+Use the stage's `--retry-errors` only to retry eligible Step 5 errors after
+inspecting the failure; never use `--force` to bypass upstream checks.
+For every pilot row, verify `summary_analysis` is substantive and that structured
+JSON output contains the expected lists and OK/REPROCESS/DELETE disposition.
+Track `parse_failures`, `row_skip reason=missing_summary`,
+`STEP_ROW_FAILURES`, database writes, original annotations and matched source IDs.
+No Step 5 production run or validation is asserted by this handoff.
