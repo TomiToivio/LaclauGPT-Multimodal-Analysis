@@ -384,18 +384,31 @@ def get_llama_summary_response(system_prompt, user_prompt, *, model=None):
     logger.debug("user_prompt=%s", user_prompt)
     import ollama
 
-    response = ollama.chat(
-        model=selected_model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        options=options,
-    )
-    llama_response = str(response["message"]["content"])
-    logger.info("model_call_end model=%s response_chars=%d", selected_model, len(llama_response))
-    logger.debug("llama_response=%s", llama_response)
-    return llama_response
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    # A successful HTTP 200 can still contain empty message.content, notably
+    # with local Qwen models. Do not checkpoint/cache an empty summary.
+    retries = max(0, min(3, int(os.getenv("LACLAUGPT_SUMMARY_EMPTY_RETRIES", "2"))))
+    for attempt in range(retries + 1):
+        response = ollama.chat(model=selected_model, messages=messages, options=options)
+        message = response.get("message") or {}
+        content = message.get("content") or ""
+        llama_response = content.strip() if isinstance(content, str) else ""
+        logger.info(
+            "model_call_end model=%s attempt=%d response_chars=%d done_reason=%s",
+            selected_model, attempt + 1, len(llama_response), response.get("done_reason", "unknown"),
+        )
+        if llama_response:
+            logger.debug("llama_response=%s", llama_response)
+            return llama_response
+        if attempt < retries:
+            logger.warning(
+                "empty_summary_response model=%s attempt=%d/%d; retrying without checkpoint",
+                selected_model, attempt + 1, retries + 1,
+            )
+    raise ValueError(f"summary model returned an empty response after {retries + 1} attempts")
 
 
 def analyze_videos(language=None):
