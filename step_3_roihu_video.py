@@ -18,6 +18,15 @@ def _bridge_env() -> None:
         os.environ["LACLAUGPT_VLLM_TEST_INPUT_CSV"] = os.environ["LACLAUGPT_INPUT_CSV"]
     if os.getenv("LACLAUGPT_OUTPUT_CSV"):
         os.environ["LACLAUGPT_VLLM_TEST_OUTPUT_CSV"] = os.environ["LACLAUGPT_OUTPUT_CSV"]
+    # Keep Step 3 video logs alongside the other private EP24 stage logs.
+    # An explicit per-job log override remains supported.
+    private_root = os.getenv(
+        "LACLAUGPT_MULTIMODAL_PRIVATE_ROOT",
+        "/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess",
+    )
+    os.environ.setdefault(
+        "LACLAUGPT_VLLM_TEST_LOG", os.path.join(private_root, "logs", "video.log")
+    )
 
 
 if __name__ == "__main__":
