@@ -180,14 +180,15 @@ def persist_batch(
     collection = storage.db[storage.collection_name("dataframe")]
     completed_at = datetime.now(timezone.utc).isoformat()
     status_fields = {1: "preprocess_status", 2: "frame_analysis_status",
-                     3: "vllm_video_status", 6: "laclau_status"}
+                     3: "vllm_video_status", 6: "laclau_status", 8: "sna_status"}
     result_field = status_fields.get(step)
     failures = 0
     for _, row in output.iterrows():
         rid = str(row["_storage_id"])
         fields = {str(k): v for k, v in row.to_dict().items()}
         result = str(row.get(result_field, "")).strip().lower() if result_field else ""
-        failed = bool(result_field and result not in {"ok", "cached"})
+        accepted = {"ok", "cached", "no_evidence"} if step == 8 else {"ok", "cached"}
+        failed = bool(result_field and result not in accepted)
         pipeline_status = "error" if failed else "complete"
         fields.update(
             {
