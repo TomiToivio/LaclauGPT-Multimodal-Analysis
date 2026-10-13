@@ -82,6 +82,14 @@ PROMPT_EXCLUDE_COLUMNS = {
 }
 
 
+def select_step5_checkpoint(before: pd.DataFrame, after: pd.DataFrame, *, orchestrated: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Preserve Mongo claim IDs; retain the historical OK-only CSV export."""
+    if orchestrated:
+        return before, after
+    ok, _, _ = partition_by_status(after)
+    return before.loc[ok.index].copy(), ok
+
+
 def _result_model():
     """Build the structured output schema lazily so CLI/import stays lightweight."""
     from pydantic import BaseModel
@@ -513,8 +521,7 @@ def analyze_responses(language=None):
     # persist_batch rejects the missing IDs (claimed=25, output=15) and retries
     # the entire batch. Step 6 eligibility separately gates on quality == OK.
     orchestrated = os.getenv("LACLAUGPT_ORCHESTRATED_BATCH") == "1"
-    checkpoint = df if orchestrated else ok_df
-    checkpoint_before = before if orchestrated else before.loc[ok_df.index].copy()
+    checkpoint_before, checkpoint = select_step5_checkpoint(before, df, orchestrated=orchestrated)
     write_cumulative_csv(checkpoint_before, checkpoint, output)
     df = checkpoint
     logger.info(
