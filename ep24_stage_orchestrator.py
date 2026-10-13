@@ -54,6 +54,10 @@ def eligible_query(step: int, *, retry_errors: bool, force: bool) -> dict:
     query: dict = {}
     if step > 1:
         query[f"{status_path(step - 1)}.status"] = "complete"
+    # Step 5 preserves every claimed row in Mongo. Only quality-OK rows
+    # proceed to Step 6 and beyond; REPROCESS/DELETE remain auditable.
+    if step >= 6:
+        query["processing_status"] = {"$in": ["OK", "ok"]}
     if step == 2:
         query["preprocess_status"] = {"$in": ["ok", "cached"]}
         query["frame_file"] = {"$exists": True, "$nin": ["", None]}
@@ -254,6 +258,7 @@ def run_legacy_batch(
         env["LACLAUGPT_MAX_ROWS"] = "0"
         env["PYTHONUNBUFFERED"] = "1"
         env["LACLAUGPT_STAGE_RUN_ID"] = run_id
+        env["LACLAUGPT_ORCHESTRATED_BATCH"] = "1"
         LOG.debug(
             "exec country=%s step=%d script=%s rows=%d input_columns=%d",
             country,
