@@ -22,7 +22,7 @@ LOG = logging.getLogger("ep24.step6")
 PROMPT_VERSION = "ep24-laclau-palonen-v3-evidence-packet"
 DEFAULT_MAX_CONTEXT_CHARS = 28000
 DEFAULT_NUM_CTX = 16384
-DEFAULT_NUM_PREDICT = 4096
+DEFAULT_NUM_PREDICT = 8192
 
 STEP6_COLUMNS = (
     "formula_of_populism_analysis",
@@ -157,7 +157,7 @@ SYSTEM_PROMPT = """You are LaclauGPT, a social scientist at the University of He
 2024 European Parliament election TikTok/Instagram material using the generic
 Laclau, Mouffe and Palonen framework.
 
-Return JSON only and conform exactly to the supplied schema.
+Return JSON only and conform exactly to the supplied schema. Keep analysis_md under 200 words; avoid duplicating JSON fields in prose. Limit each evidence array to the strongest 2-3 source-grounded items, and use empty arrays when unsupported.
 
 EVIDENCE DISCIPLINE
 - Analyse the current document evidence first. Never force an Us, Frontier, affect,
@@ -260,24 +260,39 @@ def analyze_context(context: str) -> tuple[str, EP24DiscourseAnalysis]:
     import ollama
 
     metadata = _model_metadata()
-    response = ollama.chat(
-        model=metadata["model"],
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": context},
-        ],
-        format=EP24DiscourseAnalysis.model_json_schema(),
-        options={
-            "temperature": 0.0,
-            "num_ctx": metadata["num_ctx"],
-            "num_predict": metadata["num_predict"],
-        },
-    )
-    raw = response["message"]["content"]
-    try:
-        parsed = EP24DiscourseAnalysis.model_validate_json(raw)
-    except Exception as exc:
-        raise Step6ParseError(f"Step 6 structured JSON validation failed: {exc}", raw_response=raw) from exc
+    parsed = None
+    raw = ""
+    max_attempts = max(1, min(5, int(os.getenv("LACLAUGPT_STEP6_MAX_ATTEMPTS", "3"))))
+    for attempt in range(1, max_attempts + 1):
+        messages = [{"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": context}]
+        if attempt > 1:
+            messages.append({"role": "user", "content":
+                "Retry: output ONE COMPLETE schema-compliant JSON object. "
+                "Keep analysis_md below 100 words, use at most 2 items per array, "
+                "and retain abstention and uncertainty. Do not invent evidence."})
+        response = ollama.chat(
+            model=metadata["model"],
+            messages=messages,
+            format=EP24DiscourseAnalysis.model_json_schema(),
+            options={"temperature": 0.0, "num_ctx": metadata["num_ctx"],
+                     "num_predict": metadata["num_predict"]},
+        )
+        raw = response["message"]["content"] or ""
+        try:
+            parsed = EP24DiscourseAnalysis.model_validate_json(raw)
+            LOG.info("Step 6 JSON valid attempt=%s chars=%s done_reason=%s",
+                     attempt, len(raw), getattr(response, "done_reason", None))
+            break
+        except Exception as exc:
+            LOG.warning("Step 6 invalid JSON attempt=%s/%s chars=%s done_reason=%s: %s",
+                        attempt, max_attempts, len(raw),
+                        getattr(response, "done_reason", None), str(exc)[:240])
+            if attempt == max_attempts:
+                raise Step6ParseError(
+                    f"Step 6 JSON invalid after {max_attempts} attempts: {exc}",
+                    raw_response=raw) from exc
+    assert parsed is not None
 
     # Mechanical theory guard: a fluent model cannot declare the Formula's
     # minimum conditions met unless both a collective Us and an explicitly
