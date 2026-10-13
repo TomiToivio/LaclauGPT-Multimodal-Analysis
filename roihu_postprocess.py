@@ -577,6 +577,20 @@ def analyze_responses(language=None):
             )
         except Exception:
             logger.exception("mongo_normalization_failed local_checkpoint_is_safe=true")
+    except FileNotFoundError as exc:
+        # Private researcher codebooks are an optional deployment input, not
+        # evidence that the extracted Step-5 records failed. Keep the raw
+        # checkpoint and Mongo patch intact, while explicitly reporting that
+        # canonical enrichment was not performed. Do not invent a codebook.
+        logger.warning(
+            "postprocess_normalization_skipped reason=missing_private_codebooks "
+            "country=%s private_root=%s output=%s detail=%s "
+            "raw_step5_checkpoint_safe=true",
+            country,
+            private_root,
+            output,
+            exc,
+        )
     except Exception:
         stats["failed"] += 1
         logger.exception(
