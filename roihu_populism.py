@@ -19,10 +19,11 @@ from ep24_schema import stable_source_id
 
 LOG = logging.getLogger("ep24.step6")
 
-PROMPT_VERSION = "ep24-laclau-palonen-v3-evidence-packet"
+PROMPT_VERSION = "ep24-laclau-palonen-v4-bounded-json-retry"
 DEFAULT_MAX_CONTEXT_CHARS = 28000
 DEFAULT_NUM_CTX = 16384
-DEFAULT_NUM_PREDICT = 4096
+DEFAULT_NUM_PREDICT = 8192
+DEFAULT_RETRIES = 2
 
 STEP6_COLUMNS = (
     "formula_of_populism_analysis",
@@ -45,6 +46,8 @@ STEP6_COLUMNS = (
     "laclau_status",
     "laclau_error",
     "laclau_runtime_seconds",
+    "laclau_attempts",
+    "laclau_generation_diagnostics_json",
     "laclau_persistence_status",
 )
 
@@ -63,9 +66,11 @@ COUNTRY_ALIASES = {
 
 
 class Step6ParseError(ValueError):
-    def __init__(self, message: str, *, raw_response: str):
+    def __init__(self, message: str, *, raw_response: str, attempts: int = 1, diagnostics: list[dict[str, Any]] | None = None):
         super().__init__(message)
         self.raw_response = raw_response
+        self.attempts = attempts
+        self.diagnostics = diagnostics or []
 
 
 class EvidenceCandidate(BaseModel):
@@ -158,6 +163,11 @@ SYSTEM_PROMPT = """You are LaclauGPT, a social scientist at the University of He
 Laclau, Mouffe and Palonen framework.
 
 Return JSON only and conform exactly to the supplied schema.
+Keep analysis_md to 150-250 words MAXIMUM; do not reproduce the structured
+fields in prose. Keep text_span and each evidence/counter-evidence item brief.
+Usually return at most 3 items per evidence array (fewer or zero when absent).
+Prefer concise, source-grounded findings over lengthy essays. Do not fill
+arrays with speculative examples simply to use the available token budget.
 
 EVIDENCE DISCIPLINE
 - Analyse the current document evidence first. Never force an Us, Frontier, affect,
@@ -257,43 +267,88 @@ def _model_metadata() -> dict[str, Any]:
 
 
 def analyze_context(context: str) -> tuple[str, EP24DiscourseAnalysis]:
+    """Validate schema output and retry incomplete generations with tighter limits.
+
+    Never silently repair, fabricate or accept partial JSON as valid evidence.
+    """
     import ollama
 
     metadata = _model_metadata()
-    response = ollama.chat(
-        model=metadata["model"],
-        messages=[
+    retries = max(0, min(5, int(os.getenv("LACLAUGPT_STEP6_JSON_RETRIES", DEFAULT_RETRIES))))
+    diagnostics: list[dict[str, Any]] = []
+    last_raw = ""
+    for attempt in range(1, retries + 2):
+        # Keep the first full-evidence attempt; retry with the same source,
+        # but reinforce compactness if the structured response was incomplete.
+        messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": context},
-        ],
-        format=EP24DiscourseAnalysis.model_json_schema(),
-        options={
-            "temperature": 0.0,
-            "num_ctx": metadata["num_ctx"],
-            "num_predict": metadata["num_predict"],
-        },
-    )
-    raw = response["message"]["content"]
-    try:
-        parsed = EP24DiscourseAnalysis.model_validate_json(raw)
-    except Exception as exc:
-        raise Step6ParseError(f"Step 6 structured JSON validation failed: {exc}", raw_response=raw) from exc
-
-    # Mechanical theory guard: a fluent model cannot declare the Formula's
-    # minimum conditions met unless both a collective Us and an explicitly
-    # antagonistic frontier are present in its own structured evidence.
-    minimum_supported = bool(parsed.us_constructs) and any(
-        item.relation == "antagonistic_frontier"
-        for item in parsed.frontier_constructs
-    )
-    if not minimum_supported:
-        parsed.formula_minimum_conditions_met = False
-        if not parsed.formula_abstention_reason:
-            parsed.formula_abstention_reason = (
-                "Minimum conditions not met: both a collective Us and an "
-                "antagonistic frontier require current-source evidence."
+        ]
+        if attempt > 1:
+            messages.append({
+                "role": "user",
+                "content": (
+                    "Your previous response was incomplete or invalid JSON. "
+                    "Regenerate the entire JSON object from the evidence above. "
+                    "Keep analysis_md below 120 words, each list at most 2 items, "
+                    "and all text fields concise. Preserve uncertainty, abstention, "
+                    "and the required schema; do NOT manufacture evidence."
+                ),
+            })
+        try:
+            response = ollama.chat(
+                model=metadata["model"],
+                messages=messages,
+                format=EP24DiscourseAnalysis.model_json_schema(),
+                options={
+                    "temperature": 0.0,
+                    "num_ctx": metadata["num_ctx"],
+                    "num_predict": metadata["num_predict"],
+                },
             )
-    return raw, parsed
+            raw = response["message"]["content"] or ""
+            last_raw = raw
+            info = {
+                "attempt": attempt,
+                "response_chars": len(raw),
+                "done_reason": response.get("done_reason") if hasattr(response, "get") else getattr(response, "done_reason", None),
+                "eval_count": response.get("eval_count") if hasattr(response, "get") else getattr(response, "eval_count", None),
+            }
+            try:
+                parsed = EP24DiscourseAnalysis.model_validate_json(raw)
+            except Exception as exc:
+                info["validation_error"] = str(exc)[:300]
+                diagnostics.append(info)
+                LOG.warning("Step 6 invalid structured output attempt=%d/%d reason=%s chars=%d error=%s",
+                            attempt, retries + 1, info["done_reason"], len(raw), info["validation_error"])
+                if attempt > retries:
+                    raise Step6ParseError(
+                        "Step 6 structured JSON validation failed after "
+                        f"{attempt} attempts: {info['validation_error']}",
+                        raw_response=last_raw, attempts=attempt, diagnostics=diagnostics,
+                    ) from exc
+                continue
+            diagnostics.append(info)
+            LOG.info("Step 6 structured output validated attempt=%d chars=%d done_reason=%s tokens=%s",
+                     attempt, len(raw), info["done_reason"], info["eval_count"])
+            minimum_supported = bool(parsed.us_constructs) and any(
+                item.relation == "antagonistic_frontier"
+                for item in parsed.frontier_constructs
+            )
+            if not minimum_supported:
+                parsed.formula_minimum_conditions_met = False
+                if not parsed.formula_abstention_reason:
+                    parsed.formula_abstention_reason = (
+                        "Minimum conditions not met: both a collective Us and an "
+                        "antagonistic frontier require current-source evidence."
+                    )
+            # Thread-safe local diagnostics exposed without changing public return signature.
+            analyze_context.last_diagnostics = diagnostics
+            return raw, parsed
+        except Step6ParseError:
+            analyze_context.last_diagnostics = diagnostics
+            raise
+    raise AssertionError("Step 6 retry loop exhausted unexpectedly")
 
 
 def _affect_for(label: str, affects: list[AffectObservation]) -> str:
@@ -544,6 +599,9 @@ def process_country(country: str | None = None) -> Path:
                     out.at[index, "laclau_memory_context_json"] = _json_text(row.get("memory_context_json", ""))
                     out.at[index, "laclau_rag_context_json"] = _json_text(row.get("rag_context_json", ""))
                     out.at[index, "laclau_raw_response"] = raw
+                    diagnostics = getattr(analyze_context, "last_diagnostics", [])
+                    out.at[index, "laclau_attempts"] = len(diagnostics)
+                    out.at[index, "laclau_generation_diagnostics_json"] = json.dumps(diagnostics, ensure_ascii=False)
                     out.at[index, "laclau_status"] = "ok"
                     out.at[index, "laclau_error"] = ""
                     out.at[index, "laclau_runtime_seconds"] = f"{time.monotonic() - started:.3f}"
@@ -560,6 +618,8 @@ def process_country(country: str | None = None) -> Path:
                     out.at[index, "laclau_error"] = f"{type(exc).__name__}: {exc}"
                     if isinstance(exc, Step6ParseError):
                         out.at[index, "laclau_raw_response"] = exc.raw_response
+                        out.at[index, "laclau_attempts"] = exc.attempts
+                        out.at[index, "laclau_generation_diagnostics_json"] = json.dumps(exc.diagnostics, ensure_ascii=False)
                     out.at[index, "laclau_runtime_seconds"] = f"{time.monotonic() - started:.3f}"
                     if storage is not None:
                         out.at[index, "laclau_persistence_status"] = "mongo_patch:error_record"
