@@ -15,8 +15,9 @@ those annotations share one identity universe where the codebook permits it.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from difflib import SequenceMatcher
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from roihu_codebooks import CodebookEntry, identity_key
 

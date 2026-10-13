@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Standalone CSC Roihu smoke test: native whole-video analysis with vLLM.
+"""CSC Roihu native whole-video analysis engine used by EP24 Step 3.
 
-This is an **isolated experiment**, not a production stage. It does not touch the
-five-stage EP24 pipeline, `roihu_frame.py`, `roihu_summary.py`, the Ollama
-backend, or any legacy CSV contract. It answers one question:
+This module began as an isolated capability harness and is now the tested implementation behind
+the cumulative Step 3 pipeline. It preserves upstream fields and adds durable local and optional MongoDB persistence. It answers one question:
 
     Can we submit a clean sbatch job on CSC Roihu, download prepared EP24
     videos from CSC Allas, analyze each video directly with Qwen3-VL-8B through
     vLLM, and write readable CSV + debug-log output?
 
 Deliberately readable: standard library + pandas, small functions, obvious
-sequential control flow, explicit logging. No classes, no queues, no databases,
-no shared abstractions. Read it top to bottom and you have seen the whole test.
+sequential control flow, explicit logging. Production durability is explicit: CSV and SQLite are local safety copies, while MongoDB is the primary shared store when enabled.
 
 Video input is **native whole-video**, not six independent stills. The source is
 handed to vLLM as a video, and the Qwen preprocessing stack samples frames
@@ -31,6 +29,7 @@ import random
 import re
 import shutil
 import shlex
+import sqlite3
 import socket
 import subprocess
 import sys
@@ -46,6 +45,8 @@ import pandas as pd
 # the shared EP24 media contract is importable in sbatch and local runs alike.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from ep24_pipeline import assert_source_metadata_preserved, metadata_context
+from laclaugpt_quality import QUALITY_COLUMNS, merge_status, quality_decision_from_analysis
 from ep24_video import (
     VIDEO_INITIAL_SKIP_SECONDS,
     analysis_clip_path,
@@ -53,14 +54,15 @@ from ep24_video import (
     parse_scroll_metadata,
     prepare_analysis_clip,
 )
+from roihu_storage import MongoStorage, StorageConfig
 from ep24_schema import (
-    EP24_REPROCESS_COLUMNS,
     REQUIRED_MEDIA_COLUMNS,
+    source_metadata as iter_source_metadata,
     stable_source_id,
     value as ep24_value,
 )
 
-DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen3-VL-32B-Instruct"
 DEFAULT_SAMPLE_SIZE = None
 
 # allas_filename is authoritative for the researcher-feed reprocessing corpus.
@@ -100,6 +102,8 @@ OUTPUT_COLUMNS = (
     "vllm_video_runtime_seconds",
     "vllm_video_selected_index",
     "vllm_video_prompt",
+    "vllm_video_context_sha256",
+    "vllm_video_persistence_status",
     "SCROLL",
     "SCROLL_SECONDS",
     "needs_resplit",
@@ -119,6 +123,9 @@ OUTPUT_COLUMNS = (
     "vllm_peak_gpu_memory_mb",
     "vllm_structured_status",
     "vllm_structured_output",
+    "video_quality_status",
+    "video_quality_reason",
+    *QUALITY_COLUMNS,
 )
 
 # EDITABLE RESEARCHER PROMPT SECTION.
@@ -128,51 +135,33 @@ OUTPUT_COLUMNS = (
 # representation* only: no Laclau/populism, ideological, partisan, sentiment,
 # DNA or SNA analysis. Those belong downstream.
 SYSTEM_PROMPT = (
-    "You are performing a descriptive multimodal pre-analysis of one short "
-    "social-media video from the EP2024 collection.\n\n"
-    "This is an upstream observational stage. Do NOT perform political, "
-    "ideological, partisan, populism, sentiment, discourse or Laclauian "
-    "analysis. Do not classify signifiers, nodal points, chains of equivalence, "
-    "antagonisms, hegemony or political camps. Do not guess the identity of any "
-    "person. Those tasks belong to later stages.\n\n"
-    "Describe only what is observable in the video, and mark uncertainty "
-    "explicitly rather than filling gaps with plausible invention.\n\n"
-    "EP24 COLLECTION RULE: the original split clip always begins with a known "
-    "feed-scroll artifact. The application removes the first 1.0 second before "
-    "you see the video. Do not count that known initial transition as an "
-    "additional scroll. Inspect the remaining content for later TikTok/Instagram "
-    "feed scrolls that indicate the original splitter failed."
+    "You analyze social-media videos collected around the 2024 European Parliament "
+    "elections (EP24). Watch the entire video and describe its narrative in temporal "
+    "order: main scenes, what happens, who participates, and meaningful transitions. "
+    "Pay particular attention to visible or audible political content: politicians, "
+    "parties, slogans, flags, voting, rallies and election messages. "
+    "Separate what is directly visible or audible from uncertain inference and "
+    "fallible OCR, ASR or researcher context. Never invent identities, translations "
+    "or events. If content is static, describe it as static. Avoid repetitions, "
+    "generic filler and lists of what a video is not. "
+    "The first 1.0 second of the original recording has already been removed "
+    "because it contains the known initial feed-scroll artifact. Only mark a later scroll "
+    "when it switches between distinct TikTok/Instagram posts. "
+    "Conclude with OK, REPROCESS or DELETE and a brief reason. Write in English."
 )
 
 VIDEO_PROMPT = (
-    "Watch this video from beginning to end and produce an in-depth description "
-    "of its whole temporal narrative. Cover, wherever observable:\n"
-    "1. Major scenes and scene changes, in the order they occur.\n"
-    "2. Actions and events over time.\n"
-    "3. People and participants (describe them without guessing unknown "
-    "identities).\n"
-    "4. Spoken words and visible text, when you can perceive them.\n"
-    "5. Gestures, facial expressions and interactions.\n"
-    "6. Camera work and editing changes (cuts, zooms, transitions).\n"
-    "7. Graphics, captions, memes, screenshots and platform interface elements.\n"
-    "8. Important visual signs, symbols and logos.\n"
-    "9. Temporal relationships between events (what happens before, during and "
-    "after what).\n"
-    "10. A concise beginning -> middle -> end narrative summary.\n\n"
-    "Finish with a short 'Uncertainty' note listing what you could not determine "
-    "or are unsure about. Then append exactly one JSON object on its own line with "
-    "keys SCROLL and SCROLL_SECONDS. SCROLL must be true only when an additional "
-    "feed-scroll transition separates distinct TikTok/Instagram items after the "
-    "known initial artifact. Distinguish a feed scroll from normal camera motion, "
-    "cuts, pans, zooms, in-post scrolling, or animation. SCROLL_SECONDS must list "
-    "approximate timestamps in seconds on the ORIGINAL source timeline. Because "
-    "the visible analysis clip begins at original t=1.0s, add 1.0 second to visible "
-    "timestamps. If no additional feed scroll exists, output "
-    "{\"SCROLL\": false, \"SCROLL_SECONDS\": []}. Write in English. Do not identify "
-    "unknown individuals."
+    "Describe the video's beginning, development and ending, its people, actions, "
+    "important visible text or speech and EP24 political content. "
+    "Mention uncertainty briefly and give a justified quality verdict. "
+    "Use 120-300 words, focusing on actual content rather than generic uncertainty. "
+    "End with one JSON object containing SCROLL (boolean) and SCROLL_SECONDS "
+    "(list of approximate timestamps on the ORIGINAL video timeline, including "
+    "the initial 1.0-second offset). If there are no additional post-to-post "
+    "scrolls, write exactly: {\"SCROLL\": false, \"SCROLL_SECONDS\": []}."
 )
-PROMPT_VERSION = "ep24-vllm-video-description-v1"
-PROMPT_TEXT = f"{SYSTEM_PROMPT}\n\n{VIDEO_PROMPT}"
+PROMPT_VERSION = "ep24-vllm-video-description-v3-concise"
+PROMPT_TEXT = f"{SYSTEM_PROMPT}\\n\\n{VIDEO_PROMPT}"
 PROMPT_SHA256 = hashlib.sha256(PROMPT_TEXT.encode("utf-8")).hexdigest()
 
 STRUCTURED_OUTPUT_SCHEMA = {
@@ -399,8 +388,7 @@ def load_input_csv(input_csv: Path, logger: logging.Logger) -> pd.DataFrame:
     # dtype=str keeps identifiers byte-for-byte as stored.
     df = pd.read_csv(input_csv, dtype=str, keep_default_na=False)
     logger.info("read input CSV %s: %d rows x %d columns", input_csv, len(df), len(df.columns))
-    canonical_present = [name for name in EP24_REPROCESS_COLUMNS if name in df.columns]
-    logger.info("canonical EP24 metadata fields present: %s", canonical_present)
+    logger.info("EP24 source metadata fields present: %s", list(df.columns))
     if "allas_filename" not in df.columns:
         legacy_fallback = {"scrapedCountry", "authorUniqueId", "videoId"}
         if not legacy_fallback.issubset(df.columns):
@@ -515,7 +503,9 @@ def fetch_video(
 
     remote_source = build_rclone_source(args.rclone_remote, args.allas_bucket, object_path)
     operation = "copyurl" if urlsplit(remote_source).scheme in {"http", "https"} else "copyto"
-    rclone_bin = os.environ.get("RCLONE_BIN", "rclone")
+    rclone_bin = os.environ.get("RCLONE_BIN") or shutil.which("rclone")
+    if not rclone_bin:
+        raise RuntimeError("rclone executable missing in Step 3 child process; check RCLONE_BIN and Slurm export")
     command = [rclone_bin, operation, remote_source, str(local_path)]
     logger.info("download_backend=rclone command=%s", redact_sensitive(shlex.join(command)))
     result = subprocess.run(
@@ -643,6 +633,9 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
         temperature=args.temperature,
         top_p=args.top_p,
         max_tokens=args.max_tokens,
+        top_k=args.top_k,
+        repetition_penalty=args.repetition_penalty,
+        presence_penalty=args.presence_penalty,
     )
     structured_status = "off"
     if args.structured_output:
@@ -669,23 +662,74 @@ def load_model(args: argparse.Namespace, logger: logging.Logger):
 
 
 def ep24_metadata_context(row: pd.Series | None) -> str:
-    """Render real researcher-feed metadata for the model without inventing scraper fields."""
+    """Render the complete cumulative row with explicit epistemic provenance."""
     if row is None:
         return ""
-    lines = []
-    for column in EP24_REPROCESS_COLUMNS:
-        if column not in row.index:
-            continue
-        value = str(row.get(column, "") or "").strip()
-        if value:
-            lines.append(f"- {column}: {value}")
-    if not lines:
-        return ""
+    cumulative = metadata_context(row, include_model_fields=True)
     return (
-        "\n\nEP24 SOURCE METADATA (researcher-recorded feed clip; not scraper metadata):\n"
-        + "\n".join(lines)
-        + "\nTreat researcher_* fields and researcher_note as human annotation, not model output."
+        "\n\nEP24 MULTIMODAL EVIDENCE CONTRACT:\n"
+        "- PRIMARY EVIDENCE: the attached whole video after the mandatory 1.0s feed-scroll trim.\n"
+        "- SOURCE METADATA: recorded/split feed metadata; factual context, not visual evidence.\n"
+        "- RESEARCHER ANNOTATION: human research notes/context; do not present it as visible in the video.\n"
+        "- UPSTREAM MODEL / ENRICHMENT CONTEXT: ASR, OCR, frame analysis and other derived fields; "
+        "use as fallible context and resolve conflicts in favor of the primary video evidence.\n"
+        "- Never claim a contextual field was observed in the video unless the video itself supports it.\n\n"
+        + cumulative
     )
+
+def bounded_video_context(row: pd.Series | None) -> str:
+    """Keep source-specific evidence, not retrieved transcripts of other videos.
+
+    All original columns remain intact in MongoDB and cumulative checkpoints.
+    """
+    if row is None:
+        return ""
+    budget = max(1000, int(os.getenv("LACLAUGPT_VIDEO_CONTEXT_MAX_CHARS", "3500")))
+    keys = ("video_id", "country", "source_type", "source_recording", "author_username",
+            "political_preference", "entities", "themes", "researcher_note",
+            "asr_transcript", "asr_translated", "ocr_1", "frame_analysis_1")
+    sections = ["\nEP24 SOURCE METADATA (recorded source, not visual proof):", "\nRESEARCHER ANNOTATION (human supplied, not model ground truth):", "\nUPSTREAM MODEL / ENRICHMENT CONTEXT (fallible):"]
+    remaining = budget
+    excluded = {"rag_context_json", "memory_context_json",
+                "codebook_context_json", "entity_normalization_json",
+                "theme_normalization_json"}
+    fields = (*keys, *(str(key) for key in row.index
+                       if str(key) not in keys and str(key) not in excluded
+                       and not str(key).startswith(("rag_", "memory_", "_pipeline"))))
+    for key in fields:
+        value = str(row.get(key, "") or "").strip()
+        if not value or value.lower() == "nan":
+            continue
+        prefix = f"\\n- {key}: "
+        if remaining < len(prefix) + 64:
+            break
+        use = value[:min(len(value), remaining - len(prefix) - 50)]
+        line = prefix + use
+        if len(use) < len(value):
+            line += " [TRUNCATED; FULL ORIGINAL IN MONGODB]"
+        sections.append(line)
+        remaining -= len(line)
+    return "".join(sections)
+
+
+def validate_video_analysis(text: str) -> tuple[bool, str]:
+    """Reject malformed, generic and repetition-loop text before marking complete."""
+    body = re.sub(r'\\{\\s*"SCROLL"\\s*:\\s*(?:true|false).*', "", text, flags=re.I | re.S).strip()
+    if len(body) < 140:
+        return False, "analysis_too_short"
+    # Reject responses with no content beyond a verdict and uncertainty boilerplate.
+    if re.match(r"^\\s*(?:\\*\\*)?OK(?:\\*\\*)?\\s*[\\n\\r]+\\s*Uncertainty:", body, re.I):
+        return False, "missing_video_description"
+    # Reject loops of repeated long phrases even when overall length is large.
+    normalized = re.sub(r"\\s+", " ", body.lower())
+    words = normalized.split()
+    if len(words) >= 110:
+        phrases = [" ".join(words[i:i + 12]) for i in range(len(words) - 11)]
+        from collections import Counter
+        common = Counter(phrases)
+        if common.most_common(1)[0][1] >= 4:
+            return False, "degenerate_repetition"
+    return True, "ok"
 
 
 def build_video_messages(
@@ -711,7 +755,7 @@ def build_video_messages(
                     "max_pixels": args.video_max_pixels,
                     "total_pixels": args.video_total_pixels,
                 },
-                {"type": "text", "text": VIDEO_PROMPT + ep24_metadata_context(row)},
+                {"type": "text", "text": VIDEO_PROMPT + bounded_video_context(row)},
             ],
         },
     ]
@@ -824,6 +868,13 @@ def prepare_vllm_request(
             # causes: "Video metadata is required but not found in mm input."
             mm_data["video"] = list(video_inputs)
 
+        # Transformers <5.22 leaves this unset and warns that short videos can
+        # spend far more vision tokens per frame than qwen-vl-utils. Opt into
+        # the reference implementation's per-frame cap now. v5.22 will make
+        # this behavior the default and remove the flag.
+        video_kwargs = dict(video_kwargs or {})
+        video_kwargs["cap_pixels_per_frame"] = True
+
     logger.debug(
         "prepared request: video_api=%s video_parts=%s mm_processor_kwargs_keys=%s",
         video_api,
@@ -927,6 +978,125 @@ def analyze_one_video(
 
 
 # --------------------------------------------------------------------------- #
+# Production durability
+# --------------------------------------------------------------------------- #
+
+def _row_json(row: dict) -> str:
+    """Stable JSON snapshot for the SQLite restart/backup store."""
+    cleaned = {}
+    for key, value in row.items():
+        try:
+            cleaned[str(key)] = "" if pd.isna(value) else value
+        except (TypeError, ValueError):
+            cleaned[str(key)] = value
+    return json.dumps(cleaned, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def write_local_checkpoint(
+    source_df: pd.DataFrame,
+    selected: list[int],
+    results: list[dict],
+    output_csv: Path,
+    sqlite_path: Path,
+    logger: logging.Logger,
+) -> pd.DataFrame:
+    """Atomically checkpoint cumulative CSV and idempotent SQLite row snapshots."""
+    done = selected[: len(results)]
+    out_df = source_df.loc[done].reset_index(drop=True).copy()
+    for column in OUTPUT_COLUMNS:
+        out_df[column] = [result[column] for result in results]
+
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    tmp_csv = output_csv.with_suffix(output_csv.suffix + ".tmp")
+    out_df.to_csv(tmp_csv, index=False, encoding="utf-8")
+    tmp_csv.replace(output_csv)
+
+    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(sqlite_path) as db:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS step3_video_rows (
+                source_id TEXT PRIMARY KEY,
+                row_json TEXT NOT NULL,
+                model TEXT,
+                prompt_sha256 TEXT,
+                status TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        for _, row in out_df.iterrows():
+            source_id = stable_source_id(row)
+            db.execute(
+                """
+                INSERT INTO step3_video_rows
+                    (source_id, row_json, model, prompt_sha256, status, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_id) DO UPDATE SET
+                    row_json=excluded.row_json,
+                    model=excluded.model,
+                    prompt_sha256=excluded.prompt_sha256,
+                    status=excluded.status,
+                    updated_at=excluded.updated_at
+                """
+                ,(
+                    source_id,
+                    _row_json(row.to_dict()),
+                    str(row.get("vllm_video_model", "")),
+                    str(row.get("vllm_video_prompt_sha256", "")),
+                    str(row.get("vllm_video_status", "")),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+        db.commit()
+    logger.debug("local_checkpoint rows=%d csv=%s sqlite=%s", len(out_df), output_csv, sqlite_path)
+    return out_df
+
+
+def persist_mongo_patch(
+    out_df: pd.DataFrame,
+    *,
+    source_hint: str,
+    model: str,
+    logger: logging.Logger,
+) -> str:
+    """Patch cumulative Step-3 fields into Mongo without replacing unrelated fields."""
+    config = StorageConfig.from_env()
+    if not config.mongo_enabled:
+        logger.info("mongo persistence disabled by LACLAUGPT_MONGO_ENABLED")
+        return "mongo_disabled"
+    storage = MongoStorage(config)
+    collection = storage.db[storage.collection_name("dataframe")]
+    updated = 0
+    try:
+        for _, row in out_df.iterrows():
+            source_id = stable_source_id(row)
+            fields = {}
+            for key, value in row.to_dict().items():
+                try:
+                    fields[str(key)] = None if pd.isna(value) else value
+                except (TypeError, ValueError):
+                    fields[str(key)] = value
+            fields["_provenance.step3_video"] = {
+                "pipeline_stage": "step_3_video",
+                "source": source_hint,
+                "model": model,
+                "prompt_sha256": str(row.get("vllm_video_prompt_sha256", "")),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            collection.update_one(
+                {"_storage_id": source_id},
+                {"$set": {k: v for k, v in fields.items() if k != "_storage_id"},
+                 "$setOnInsert": {"_storage_id": source_id}},
+                upsert=True,
+            )
+            updated += 1
+        logger.info("mongo persistence complete rows=%d collection=%s", updated, storage.collection_name("dataframe"))
+        return f"mongo_ok:{updated}"
+    finally:
+        storage.close()
+
+# --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
 
@@ -975,7 +1145,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-model-len", type=int, default=32768)
     parser.add_argument("--max-tokens", type=int, default=2048)
     parser.add_argument("--temperature", type=float, default=0.1)
-    parser.add_argument("--top-p", type=float, default=0.9)
+    parser.add_argument("--top-p", type=float, default=0.8)
+    parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument("--repetition-penalty", type=float, default=1.12)
+    parser.add_argument("--presence-penalty", type=float, default=0.0)
     parser.add_argument("--video-min-pixels", type=int, default=4 * 32 * 32)
     parser.add_argument("--video-max-pixels", type=int, default=256 * 32 * 32)
     parser.add_argument("--video-total-pixels", type=int, default=20480 * 32 * 32)
@@ -999,6 +1172,7 @@ def main(argv: list[str] | None = None) -> int:
     output_csv = Path(args.output_csv or (input_csv.with_suffix("").as_posix() + "_vllm_test.csv"))
     log_path = Path(args.log_path or "./logs/vllm_video_test.log")
     download_dir = Path(args.download_dir or "./vllm_video_downloads")
+    sqlite_path = Path(os.environ.get("LACLAUGPT_VLLM_VIDEO_SQLITE", str(output_csv.with_suffix(".sqlite3"))))
 
     logger = setup_logging(log_path)
     log_environment(logger)
@@ -1021,6 +1195,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("=== end configuration ===")
 
     df = load_input_csv(input_csv, logger)
+    before = df.copy(deep=True)
     selected = select_sample(df, args.sample_size, args.seed, logger)
 
     runtime_versions = collect_runtime_versions(logger)
@@ -1040,6 +1215,9 @@ def main(argv: list[str] | None = None) -> int:
 
         logger.info("loading processor for %s", args.model)
         processor = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
+        if hasattr(processor, "video_processor"):
+            processor.video_processor.cap_pixels_per_frame = True
+            logger.info("Qwen3-VL cap_pixels_per_frame=True (qwen-vl-utils reference behavior)")
         llm, sampling_params, args.structured_output_status = load_model(args, logger)
 
     results = []
@@ -1058,13 +1236,18 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("  source_row_index  : %s", index)
         logger.info("  source_id         : %s", redact_sensitive(source_id))
         logger.info("  remote_object     : %s", safe_object_path)
-        for metadata_key in EP24_REPROCESS_COLUMNS:
-            if metadata_key in row.index:
-                logger.info(
-                    "  metadata.%-20s %s",
-                    metadata_key + ":",
-                    redact_sensitive(str(row.get(metadata_key, ""))[:500]),
-                )
+        for metadata_key, metadata_value in iter_source_metadata(row):
+            logger.info(
+                "  metadata.%-20s %s",
+                metadata_key + ":",
+                redact_sensitive(metadata_value[:500]),
+            )
+        for field_name, field_value in row.items():
+            logger.debug(
+                "  row_field.%-20s %s",
+                str(field_name) + ":",
+                redact_sensitive(str(field_value)[:2000]),
+            )
 
         record = {column: "" for column in OUTPUT_COLUMNS}
         record["vllm_video_model"] = args.model
@@ -1085,6 +1268,8 @@ def main(argv: list[str] | None = None) -> int:
         record["vllm_video_prompt"] = PROMPT_TEXT
         record["vllm_video_prompt_version"] = PROMPT_VERSION
         record["vllm_video_prompt_sha256"] = PROMPT_SHA256
+        cumulative_context = ep24_metadata_context(row)
+        record["vllm_video_context_sha256"] = hashlib.sha256(cumulative_context.encode("utf-8")).hexdigest()
         record["video_initial_skip_seconds"] = str(VIDEO_INITIAL_SKIP_SECONDS)
         record["SCROLL"] = "FALSE"
         record["SCROLL_SECONDS"] = "[]"
@@ -1110,8 +1295,8 @@ def main(argv: list[str] | None = None) -> int:
                 record["vllm_video_analysis_path"] = str(analysis_path)
                 record["vllm_video_structured_output_status"] = "off"
             else:
-                source_metadata = probe_video_metadata(local_path, logger)
-                source_duration = float(source_metadata["duration_seconds"])
+                probed_video_metadata = probe_video_metadata(local_path, logger)
+                source_duration = float(probed_video_metadata["duration_seconds"])
                 record["vllm_video_source_duration_seconds"] = str(source_duration)
                 if source_duration <= VIDEO_INITIAL_SKIP_SECONDS:
                     raise ValueError(
@@ -1185,9 +1370,27 @@ def main(argv: list[str] | None = None) -> int:
             record["SCROLL"] = "TRUE" if scroll_meta["SCROLL"] else "FALSE"
             record["SCROLL_SECONDS"] = json.dumps(scroll_meta["SCROLL_SECONDS"])
             record["needs_resplit"] = "TRUE" if needs_resplit(scroll_meta) else "FALSE"
+            valid, quality_error = validate_video_analysis(analysis)
+            if args.model_backend != "stub" and not valid:
+                raise ValueError(f"Invalid vLLM video output: {quality_error}")
             record["vllm_video_analysis"] = analysis
             record["vllm_video_markdown_analysis"] = analysis
             record["vllm_video_status"] = "ok"
+            video_quality_status, video_quality_reason = quality_decision_from_analysis(analysis)
+            prior_status = row.get("processing_status", "OK")
+            prior_reason = row.get("processing_status_reason", "")
+            merged_status, merged_reason = merge_status(
+                prior_status,
+                video_quality_status,
+                current_reason=prior_reason,
+                new_reason=video_quality_reason,
+            )
+            record["video_quality_status"] = video_quality_status
+            record["video_quality_reason"] = video_quality_reason
+            record["processing_status"] = merged_status
+            record["processing_status_reason"] = merged_reason
+            if str(prior_status or "OK").upper() != merged_status:
+                logger.info("[QUALITY] %s %s -> %s: %s", source_id, str(prior_status or "OK").upper(), merged_status, merged_reason)
             logger.info("  analysis_chars    : %d", len(analysis))
             logger.debug("  raw_response      : %s", redact_sensitive(raw_output))
             if sha256_file(local_path) != source_checksum:
@@ -1198,6 +1401,22 @@ def main(argv: list[str] | None = None) -> int:
             failed += 1
             record["vllm_video_status"] = "error"
             record["vllm_video_error"] = redact_sensitive(f"{type(exc).__name__}: {exc}")
+            video_quality_status, video_quality_reason = quality_decision_from_analysis(
+                "", failure=True, failure_reason=record["vllm_video_error"]
+            )
+            prior_status = row.get("processing_status", "OK")
+            prior_reason = row.get("processing_status_reason", "")
+            merged_status, merged_reason = merge_status(
+                prior_status,
+                video_quality_status,
+                current_reason=prior_reason,
+                new_reason=video_quality_reason,
+            )
+            record["video_quality_status"] = video_quality_status
+            record["video_quality_reason"] = video_quality_reason
+            record["processing_status"] = merged_status
+            record["processing_status_reason"] = merged_reason
+            logger.info("[QUALITY] %s -> %s: %s", source_id, merged_status, merged_reason)
             logger.error("  FAILED: %s", redact_sensitive(f"{type(exc).__name__}: {exc}"))
             logger.error("  traceback:\n%s", redact_sensitive(traceback.format_exc()))
         finally:
@@ -1215,15 +1434,31 @@ def main(argv: list[str] | None = None) -> int:
                 logger.info("cleanup retained source and analysis files (--keep-downloads)")
 
         results.append(record)
+        record["vllm_video_persistence_status"] = "local_checkpoint"
+        write_local_checkpoint(df, selected, results, output_csv, sqlite_path, logger)
 
     # Build the output from the SELECTED source rows, then append the
     # experimental columns. No original column is renamed, reordered or dropped,
     # and the source CSV on disk is never written to.
-    out_df = df.loc[selected].reset_index(drop=True).copy()
-    for column in OUTPUT_COLUMNS:
-        out_df[column] = [result[column] for result in results]
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
-    out_df.to_csv(output_csv, index=False, encoding="utf-8")
+    out_df = write_local_checkpoint(df, selected, results, output_csv, sqlite_path, logger)
+    assert_source_metadata_preserved(
+        before.loc[selected].reset_index(drop=True),
+        out_df,
+        mutable_columns=QUALITY_COLUMNS,
+    )
+    try:
+        mongo_status = persist_mongo_patch(
+            out_df, source_hint=str(input_csv), model=args.model, logger=logger
+        )
+    except Exception as exc:
+        mongo_status = f"mongo_error:{type(exc).__name__}"
+        logger.exception(
+            "Mongo persistence failed after local checkpoint; completed model output is safe: %s",
+            redact_sensitive(str(exc)),
+        )
+    for result in results:
+        result["vllm_video_persistence_status"] = mongo_status
+    out_df = write_local_checkpoint(df, selected, results, output_csv, sqlite_path, logger)
 
     logger.info("=== summary ===")
     logger.info("  selected          : %d", len(selected))

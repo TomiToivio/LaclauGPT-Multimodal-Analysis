@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from roihu_codebooks import context_block, load_profile
-from roihu_memory import EP24Memory, stable_id, upstream_stable_id
+from roihu_memory import SCHEMA_VERSION, EP24Memory, stable_id, upstream_stable_id
 
 
 def test_context_aware_ids_preserve_unicode_and_country_collisions():
@@ -149,12 +149,15 @@ def test_seed_memory_does_not_attach_conflicting_alias(tmp_path):
     assert memory.resolve("Taken Alias", "actor", country="FI").obj_id == existing
 
 
-def test_populism_context_hook_is_opt_in_and_explicit():
+def test_populism_uses_shared_context_architecture():
     source = Path("roihu_populism.py").read_text(encoding="utf-8")
-    assert "LACLAUGPT_ENRICHMENT_ENABLED" in source
-    assert "add_codebook_context(country, user_prompt)" in source
-    assert "formula_of_populism_codebook_context_json" in source
-    assert "legacy_cached_result" in source
+    assert "ep24_context import bootstrap_context, enrich_dataframe" in source
+    assert "codebook_context_json" in source
+    assert "memory_context_json" in source
+    assert "rag_context_json" in source
+    assert "normalization_context_not_source_evidence" in source
+    assert "prior_analysis_context_not_source_evidence" in source
+    assert "formula_of_populism.db" not in source
 
 
 def test_memory_schema_migration_creates_backup_and_temporal_columns(tmp_path):
@@ -182,7 +185,14 @@ def test_memory_schema_migration_creates_backup_and_temporal_columns(tmp_path):
     with memory.connect() as db:
         columns = {row[1] for row in db.execute("PRAGMA table_info(objects)")}
         assert {"valid_from", "valid_to"}.issubset(columns)
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        # Compare against the module's SCHEMA_VERSION, never a literal: a hardcoded
+        # number goes stale the moment the schema is bumped (it did, when #74
+        # added the `relations` table and raised the version to 3).
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(SCHEMA_VERSION)
+        # The migration must carry the newer schema across, not just bump a number.
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "relations" in tables, "a migrated db must gain the tables added after v1"
 
 
 def test_proposal_shard_merge_is_deterministic_and_idempotent(tmp_path):

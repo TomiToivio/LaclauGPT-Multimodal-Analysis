@@ -1,40 +1,74 @@
 #!/usr/bin/env python3
-"""Step 8: structured Social Network Analysis relation extraction for EP24.
+"""Step 8: basic evidence-backed Social Network Analysis for EP24.
 
-Standalone Roihu adapter inspired by the Phase 2 sna package. It extracts only
-evidence-supported social/communication ties; aggregate graph metrics can be
-computed later from the emitted edge JSON without changing the CSV contract.
+The model extracts explicit relations. Deterministic code then constructs stable
+Node-Edge-Node tables, calculates a deliberately small set of transparent SNA
+metrics, persists additive outputs, and writes a human-readable report with a
+separate Castells-informed interpretation.
 """
 from __future__ import annotations
-import json, logging, os
+
+import json
+import logging
+import os
+import re
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
+<<<<<<< HEAD
 import ollama, pandas as pd
 from ep24_pipeline import load_cumulative_csv, metadata_context
 from pydantic import BaseModel, Field
+=======
+
+import pandas as pd
+
+from ep24_cli import configure_step_cli
+from ep24_entities import fold_key, resolution_lookup
+from ep24_models import ollama_model, ollama_model_source
+from ep24_prompt_contract import effective_prompt_fingerprint
+from ep24_pipeline import (
+    load_cumulative_csv,
+    metadata_context,
+    write_cumulative_csv,
+)
+from ep24_sna import (
+    SNA_SCHEMA_VERSION,
+    apply_reconciliation_metrics,
+    basic_metrics,
+    graph_from_edges,
+    graph_summary,
+    reconcile_actor_nodes,
+    render_markdown_report,
+)
+>>>>>>> 8823af4102a50508cb31483c428d72cf835fe894
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
-LOG=logging.getLogger("step_8_roihu_social_network_analysis")
+LOG = logging.getLogger("step_8_roihu_social_network_analysis")
 
-class SNAEdge(BaseModel):
-    source_actor: str
-    target_actor: str
-    relation_type: str
-    directed: bool = True
-    evidence_quote: str
-    confidence: float = Field(ge=0.0, le=1.0)
+PROMPT_VERSION = "ep24-sna-extraction/2.2-source-quote-check"
+CASTELLS_PROMPT_VERSION = "ep24-sna-castells/1.0"
 
-class SNAResult(BaseModel):
-    analysis_markdown: str
-    edges: list[SNAEdge]
+EXTRACTION_SYSTEM = """You extract evidence-supported social/communication network relations
+from an EP24 social-media analysis. Create an edge only when supplied evidence explicitly
+supports a relation between two actors or organizations. Do not infer friendship,
+ideology, coordination, influence, hidden ties, or causality. Distinguish mention,
+reply, support, opposition, affiliation, co-appearance, quotation, and other explicit
+relation types only where justified. Copy a VERBATIM evidence_quote from the
+supplied source/DNA packet for every edge. Never invent or paraphrase a quote.
+The edge list is empirical coding: theory must not change topology. Return a concise empirical Markdown summary and structured edges."""
 
-SYSTEM="""You are extracting evidence-supported social/communication network relations
-from an EP24 social-media analysis, following the Phase 2 LaclauGPT SNA layer.
-Create an edge only when the supplied evidence explicitly supports a relation
-between two actors or organizations. Do not infer friendship, ideology,
-coordination, influence, or hidden ties. Distinguish mention, reply, support,
-opposition, affiliation, co-appearance, quotation, and other explicit relation
-types where justified. Return a short Markdown explanation and structured edges."""
+CASTELLS_SYSTEM = """Interpret the supplied, already-constructed social network through a
+limited Manuel Castells network-society / Communication Power lens. The graph topology is
+fixed: NEVER add, remove, infer, or rename nodes or edges. Discuss communication networks,
+flows, inclusion/exclusion, communication power and network-making power only to the
+extent visible in the supplied graph. Use 'programmer' or 'switcher' only when the
+observed relations provide specific evidence; otherwise explicitly say the role cannot be
+established. Do not infer hidden coordination, motives, causality, strategic control, or
+population-level influence from a small sample. Produce short Markdown prose labelled as
+interpretation rather than empirical fact."""
 
+<<<<<<< HEAD
 def source(lang):
     explicit = os.getenv("LACLAUGPT_INPUT_CSV")
     if explicit:
@@ -79,3 +113,367 @@ if __name__=="__main__":
     else:
         for lang in os.getenv("LACLAUGPT_LANGUAGES","fi,sv,pl,pt,de,es,hu,hr,fr,bg,en").split(","):
             run_language(lang.strip())
+=======
+
+def _models():
+    """Import runtime-only dependencies after CLI parsing."""
+    from pydantic import BaseModel, Field
+
+    class SNAEdge(BaseModel):
+        source_actor: str
+        target_actor: str
+        relation_type: str
+        directed: bool = True
+        evidence_quote: str
+        confidence: float = Field(ge=0.0, le=1.0)
+
+    class SNAResult(BaseModel):
+        analysis_markdown: str
+        edges: list[SNAEdge]
+
+    class CastellsResult(BaseModel):
+        interpretation_markdown: str
+
+    return SNAResult, CastellsResult
+
+
+def source(lang: str) -> Path | None:
+    explicit = os.getenv("LACLAUGPT_INPUT_CSV")
+    if explicit:
+        path = Path(explicit)
+        return path if path.exists() else None
+    for path in (Path(f"ep24_{lang}.csv"), Path(f"csv/tiktok_{lang}.csv")):
+        if path.exists():
+            return path
+    return None
+
+
+def _output_path(input_path: Path) -> Path:
+    return Path(os.getenv("LACLAUGPT_OUTPUT_CSV") or input_path)
+
+
+def _enrich_edges(edges, row) -> list[dict]:
+    lookup = resolution_lookup(row.get("ep24_entity_resolution_json"))
+    enriched: list[dict] = []
+    for edge in edges:
+        item = edge.model_dump()
+        item["network_layer"] = "social"
+        source_hit = lookup.get(fold_key(edge.source_actor))
+        target_hit = lookup.get(fold_key(edge.target_actor))
+        if source_hit:
+            item["source_actor_id"] = source_hit["entity_id"]
+            item["source_actor_canonical_name"] = source_hit["canonical_name"]
+        if target_hit:
+            item["target_actor_id"] = target_hit["entity_id"]
+            item["target_actor_canonical_name"] = target_hit["canonical_name"]
+        enriched.append(item)
+    return enriched
+
+
+def sna_evidence_report(row, *, model: str | None = None) -> tuple[str, dict, str]:
+    """Current Step 8 evidence plus field-level visibility audit and prompt fingerprint.
+
+    Preserve the shared evidence_packet builder on main. Its labeled sections
+    identify which source/derived fields the model actually sees. Fields that
+    exceed the packet budget are explicitly marked as dropped, without changing
+    the authoritative input row.
+    """
+    import re
+
+    from ep24_evidence_packets import META_FIELDS, SNA_FIELDS, evidence_packet
+
+    packet, _ = evidence_packet(
+        row, stage=8, max_chars=max(
+            3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000"))
+        )
+    )
+    fields = [("asr_transcript", 5000), ("asr_translation", 1500),
+              ("ocr_1", 1600), *SNA_FIELDS, *META_FIELDS]
+    sections = {}
+    pattern = re.compile(r"\n\[([^|\]]+) \| [^\]]+\]\n")
+    matches = list(pattern.finditer(packet))
+    for i, match in enumerate(matches):
+        name = match.group(1)
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(packet)
+        rendered = packet[match.end():end].rstrip("\n")
+        marker = " [TRUNCATED]"
+        if rendered.endswith(marker):
+            rendered = rendered[:-len(marker)]
+        sections[name] = len(rendered)
+
+    by_field = {}
+    for name, _ in fields:
+        raw = row.get(name, "")
+        value = "" if raw is None else str(raw).strip()
+        if value.lower() in ("nan", "none", "[]", "{}"):
+            value = ""
+        if not value:
+            continue
+        taken = sections.get(name, 0)
+        by_field[name] = {
+            "chars_available": len(value),
+            "chars_included": taken,
+            "truncated": taken < len(value),
+            "dropped": name not in sections,
+        }
+    report = {
+        "fields_included": sum(not x["dropped"] for x in by_field.values()),
+        "fields_truncated": sum(x["truncated"] for x in by_field.values()),
+        "characters_lost": sum(x["chars_available"] - x["chars_included"] for x in by_field.values()),
+        "by_field": by_field,
+        "packet_chars": len(packet),
+        "estimated_tokens": (len(packet) + 3) // 4,
+    }
+    digest = effective_prompt_fingerprint(
+        EXTRACTION_SYSTEM,
+        f"{PROMPT_VERSION}\n{packet}",
+        model or ollama_model(),
+        {"temperature": 0.0, "num_ctx": 8192},
+    )
+    return packet, report, digest
+
+
+def _grounded_edge_candidates(edges, evidence: str):
+    """Drop model-proposed relationships without a verbatim, visible quotation.
+
+    Only quotes appearing inside the supplied bounded packet can support an
+    edge; unrelated memory/RAG is not in that packet. This is a necessary, not
+    sufficient, condition for a real-world relation.
+    """
+    normalized = re.sub(r"\s+", " ", evidence).casefold()
+    accepted = []
+    for edge in edges:
+        quote = re.sub(r"\s+", " ", str(edge.evidence_quote or "")).strip()
+        if (len(quote) < 12 or quote.casefold() not in normalized
+                or not str(edge.source_actor).strip()
+                or not str(edge.target_actor).strip()
+                or fold_key(edge.source_actor) == fold_key(edge.target_actor)):
+            LOG.warning(
+                "sna_unsubstantiated_edge source=%s target=%s quote_chars=%d",
+                edge.source_actor, edge.target_actor, len(quote),
+            )
+            continue
+        accepted.append(edge)
+    return accepted
+
+
+def build_sna_evidence(row) -> str:
+    """Backward-compatible interface for source-grounded Step 8 evidence."""
+    from ep24_evidence_packets import evidence_packet
+    return evidence_packet(
+        row, stage=8, max_chars=max(
+            3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000"))
+        )
+    )[0]
+
+
+def _castells_interpretation(ollama, model: str, nodes, edges, metrics) -> str:
+    if not edges:
+        return (
+            "The sample contains no evidence-supported social edges, so a Castellsian "
+            "interpretation of network position or network-making power is not warranted."
+        )
+    _, CastellsResult = _models()
+    summary = graph_summary(nodes, edges, metrics)
+    response = ollama.chat(
+        model=model,
+        messages=[
+            {"role": "system", "content": CASTELLS_SYSTEM},
+            {"role": "user", "content": summary},
+        ],
+        format=CastellsResult.model_json_schema(),
+        options={"temperature": 0.0, "num_ctx": 8192},
+    )
+    try:
+        return CastellsResult.model_validate_json(
+            response["message"]["content"]
+        ).interpretation_markdown
+    except Exception:
+        LOG.warning(
+            "Castells interpretation response did not match schema; preserving empirical graph without theory text",
+            exc_info=True,
+        )
+        return (
+            "Castellsian interpretation unavailable for this row. The empirical "
+            "node/edge graph and metrics remain valid and unchanged."
+        )
+
+
+def _write_graph_exports(output_path: Path, all_nodes: list[dict], all_edges: list[dict]) -> None:
+    base = output_path.with_suffix("")
+    nodes_path = Path(str(base) + ".sna_nodes.csv")
+    edges_path = Path(str(base) + ".sna_edges.csv")
+    nodes_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(all_nodes).to_csv(nodes_path, index=False)
+    pd.DataFrame(all_edges).to_csv(edges_path, index=False)
+    LOG.info("SNA graph exports nodes=%s edges=%s", nodes_path, edges_path)
+
+
+def _persist_mongo(df: pd.DataFrame, all_nodes: list[dict], all_edges: list[dict], source_path: Path, model: str) -> None:
+    from roihu_storage import MongoStorage, StorageConfig, dataframe_to_documents
+
+    config = StorageConfig.from_env()
+    if not config.mongo_enabled:
+        return
+    storage = MongoStorage(config)
+    run_id = os.getenv("SLURM_JOB_ID", "local-step8")
+    try:
+        cumulative = dataframe_to_documents(
+            df,
+            config=config,
+            stage="sna",
+            run_id=run_id,
+            source_hint=str(source_path),
+            model=model,
+        )
+        storage.patch_documents("dataframe", cumulative)
+        graph_docs = []
+        for kind, rows in (("node", all_nodes), ("edge", all_edges)):
+            for raw in rows:
+                doc = dict(raw)
+                graph_id = str(doc.get(f"{kind}_id") or "")
+                if not graph_id:
+                    continue
+                item_id = str(doc.get("canonical_item_id") or "")
+                doc["_storage_id"] = f"sna:{kind}:{graph_id}:{item_id}" if item_id else f"sna:{kind}:{graph_id}"
+                doc["graph_record_type"] = kind
+                doc["sna_schema_version"] = SNA_SCHEMA_VERSION
+                graph_docs.append(doc)
+        storage.upsert_documents("sna", graph_docs)
+        LOG.info("Mongo SNA persistence cumulative=%s graph=%s", len(cumulative), len(graph_docs))
+    finally:
+        storage.close()
+
+
+def run_language(lang: str) -> Path | None:
+    import ollama
+
+    SNAResult, _ = _models()
+    input_path = source(lang)
+    if input_path is None:
+        LOG.warning("No CSV for %s", lang)
+        return None
+    output_path = _output_path(input_path)
+
+    original = load_cumulative_csv(
+        input_path, require_canonical=bool(os.getenv("LACLAUGPT_INPUT_CSV"))
+    )
+    limit = int(os.getenv("LACLAUGPT_MAX_ROWS", "100") or 100)
+    df = original.copy()
+    selected = df.head(limit) if limit > 0 else df
+    output_columns = (
+        "sna_analysis_markdown",
+        "sna_report_markdown",
+        "sna_castells_interpretation_markdown",
+        "sna_nodes_json",
+        "sna_edges_json",
+        "sna_metrics_json",
+        "sna_schema_version",
+        "sna_prompt_version",
+        "sna_castells_prompt_version",
+        "sna_context_sha256",
+        "sna_context_truncated",
+        "sna_generated_at",
+        "sna_status",
+        "sna_error",
+    )
+    for column in output_columns:
+        if column not in df.columns:
+            df[column] = ""
+
+    model = ollama_model()
+    LOG.info("model=%s model_source=%s", model, ollama_model_source())
+    all_nodes: list[dict] = []
+    all_edges: list[dict] = []
+
+    for index, row in selected.iterrows():
+        evidence, truncation, context_hash = sna_evidence_report(row, model=model)
+        LOG.info("step8 row=%s context_sha256=%s packet_chars=%d tokens_est=%d fields_truncated=%d characters_lost=%d",
+                 index, context_hash, len(evidence), truncation["estimated_tokens"],
+                 truncation["fields_truncated"], truncation["characters_lost"])
+        if not any(str(row.get(name) or "").strip() for name in ("asr_transcript", "asr_translation", "ocr_1", "dna_statements_json")):
+            df.at[index, "sna_status"] = "no_evidence"
+            continue
+
+        try:
+            response = ollama.chat(
+                model=model,
+                messages=[
+                    {"role": "system", "content": EXTRACTION_SYSTEM},
+                    {"role": "user", "content": evidence},
+                ],
+                format=SNAResult.model_json_schema(),
+                options={"temperature": 0.0, "num_ctx": 8192},
+            )
+            extracted = SNAResult.model_validate_json(response["message"]["content"])
+            raw_edges = _enrich_edges(_grounded_edge_candidates(extracted.edges, evidence), row)
+            nodes, edges = graph_from_edges(raw_edges, row)
+            # Issue #197: enrichment only supplies a canonical id when the mention
+            # matches a resolved label exactly, so a bare surname, a title-prefixed
+            # form or an inflected form becomes its own actor:<hash> node even though
+            # the row resolved that person. Reconcile conservatively BEFORE the
+            # metrics, so node_count/density/degree are not inflated by the split.
+            nodes, edges, reconciliation = reconcile_actor_nodes(nodes, edges, row)
+            metrics = basic_metrics(nodes, edges)
+            metrics = apply_reconciliation_metrics(metrics, reconciliation)
+            if reconciliation["merged_count"] or reconciliation["ambiguous_count"]:
+                LOG.info(
+                    "identity reconciliation row=%s merged=%d ambiguous=%d unresolved=%d",
+                    index, reconciliation["merged_count"],
+                    reconciliation["ambiguous_count"], reconciliation["unresolved_count"],
+                )
+            castells = _castells_interpretation(ollama, model, nodes, edges, metrics)
+            report = render_markdown_report(
+                row,
+                nodes,
+                edges,
+                metrics,
+                extracted.analysis_markdown,
+                castells,
+            )
+
+            # Preserve the historical Step 8 field meaning for legacy callers.
+            df.at[index, "sna_analysis_markdown"] = extracted.analysis_markdown
+            df.at[index, "sna_report_markdown"] = report
+            df.at[index, "sna_castells_interpretation_markdown"] = castells
+            df.at[index, "sna_nodes_json"] = json.dumps(nodes, ensure_ascii=False, sort_keys=True)
+            df.at[index, "sna_edges_json"] = json.dumps(edges, ensure_ascii=False, sort_keys=True)
+            df.at[index, "sna_metrics_json"] = json.dumps(metrics, ensure_ascii=False, sort_keys=True)
+            df.at[index, "sna_schema_version"] = SNA_SCHEMA_VERSION
+            df.at[index, "sna_prompt_version"] = PROMPT_VERSION
+            df.at[index, "sna_context_sha256"] = context_hash
+            df.at[index, "sna_context_truncated"] = json.dumps(truncation, ensure_ascii=False, sort_keys=True)
+            df.at[index, "sna_castells_prompt_version"] = CASTELLS_PROMPT_VERSION
+            df.at[index, "sna_generated_at"] = datetime.now(timezone.utc).isoformat()
+            df.at[index, "sna_status"] = "ok"
+            df.at[index, "sna_error"] = ""
+            all_nodes.extend(nodes)
+            all_edges.extend(edges)
+        except Exception as exc:
+            df.at[index, "sna_status"] = "error"
+            df.at[index, "sna_error"] = f"{type(exc).__name__}: {exc}"
+            LOG.exception("SNA failed row=%s file=%s", index, input_path)
+
+    write_cumulative_csv(original, df, output_path)
+    _write_graph_exports(output_path, all_nodes, all_edges)
+    try:
+        _persist_mongo(df, all_nodes, all_edges, output_path, model)
+    except Exception:
+        LOG.exception("Mongo SNA persistence failed; CSV graph artifacts remain authoritative compatibility outputs")
+    LOG.info("Step 8 complete input=%s output=%s rows=%s nodes=%s edges=%s",
+             input_path, output_path, len(df), len(all_nodes), len(all_edges))
+    return output_path
+
+
+if __name__ == "__main__":
+    selection = configure_step_cli(8, sys.argv[1:])
+    if selection.remaining_argv:
+        raise SystemExit(f"unrecognized arguments: {' '.join(selection.remaining_argv)}")
+    if os.getenv("LACLAUGPT_INPUT_CSV"):
+        run_language("")
+    else:
+        for language in os.getenv(
+            "LACLAUGPT_LANGUAGES", "fi,sv,pl,pt,de,es,hu,hr,fr,bg,en"
+        ).split(","):
+            run_language(language.strip())
+>>>>>>> 8823af4102a50508cb31483c428d72cf835fe894

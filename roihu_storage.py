@@ -11,10 +11,12 @@ import json
 import os
 import re
 import sqlite3
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
+from urllib.parse import unquote, urlsplit
 
 import pandas as pd
 
@@ -55,14 +57,18 @@ class StorageConfig:
         return f"{self.prefix}_{_slug(purpose)}"
 
     @classmethod
-    def from_env(cls) -> "StorageConfig":
+    def from_env(cls) -> StorageConfig:
         enabled = os.getenv("LACLAUGPT_MONGO_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
+        uri = os.getenv("LACLAUGPT_MONGO_URI")
+        # Honor the URI database when a separate database override is absent.
+        # Do not log or render the URI: it can contain credentials.
+        uri_database = unquote(urlsplit(uri).path.lstrip("/")) if uri else ""
         return cls(
             dataset=os.getenv("LACLAUGPT_DATASET", "ep24"),
             country=os.getenv("LACLAUGPT_COUNTRY", "fi"),
             mongo_enabled=enabled,
-            mongo_uri=os.getenv("LACLAUGPT_MONGO_URI"),
-            mongo_database=os.getenv("LACLAUGPT_MONGO_DATABASE", "laclaugpt"),
+            mongo_uri=uri,
+            mongo_database=os.getenv("LACLAUGPT_MONGO_DATABASE") or uri_database or "laclaugpt",
             mongo_timeout_ms=int(os.getenv("LACLAUGPT_MONGO_TIMEOUT_MS", "5000")),
         )
 
@@ -295,6 +301,29 @@ class MongoStorage:
                 count += 1
             return count
 
+    def patch_documents(
+        self,
+        purpose: str,
+        documents: Iterable[Mapping[str, Any]],
+        *,
+        id_field: str = "_storage_id",
+    ) -> int:
+        """Patch fields into cumulative Mongo documents without replacing prior stages."""
+        collection = self.db[self.collection_name(purpose)]
+        count = 0
+        for raw in documents:
+            doc = dict(raw)
+            key = doc.pop(id_field, None)
+            if key in (None, ""):
+                continue
+            collection.update_one(
+                {id_field: key},
+                {"$set": doc, "$setOnInsert": {id_field: key}},
+                upsert=True,
+            )
+            count += 1
+        return count
+
     def find(self, purpose: str, query: Mapping[str, Any] | None = None, *, limit: int = 0) -> list[dict]:
         cursor = self.db[self.collection_name(purpose)].find(dict(query or {}))
         if limit:
@@ -411,7 +440,7 @@ class Storage:
         self.backup = _PurposeStore(mongo, "backup")
 
     @classmethod
-    def from_env(cls, client: Any | None = None) -> "Storage":
+    def from_env(cls, client: Any | None = None) -> Storage:
         return cls(MongoStorage(StorageConfig.from_env(), client=client))
 
     def export_dataframe(self, purpose: str, query: Mapping[str, Any] | None = None) -> pd.DataFrame:

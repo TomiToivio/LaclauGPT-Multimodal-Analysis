@@ -11,12 +11,22 @@ import argparse
 import json
 import math
 import os
+import re
 from pathlib import Path
 from typing import Any
 
+from ep24_entities import EntityRegistry, ollama_adjudicator, registry_documents, resolve_dataframe
+from roihu_codebook_sources import load_registry_from_dir
 from roihu_codebooks import COUNTRY_PROFILES, context_block, load_profile
+from roihu_identity import (
+    ENTITY_KINDS,
+    SENTIMENT_KINDS,
+    THEME_KINDS,
+    canonical_labels,
+    resolve_many,
+    seed_context_lines,
+)
 from roihu_memory import EP24Memory
-from roihu_identity import ENTITY_KINDS, SENTIMENT_KINDS, THEME_KINDS, resolve_many, seed_context_lines
 
 EP24_FILES = {
     "FI": ("ep24_fi.csv", "fi"),
@@ -37,15 +47,20 @@ def enabled() -> bool:
 
 
 def split_values(value) -> list[str]:
+    """Parse cumulative list fields without splitting commas inside labels."""
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return []
     text = str(value).strip()
     if not text:
         return []
-    for separator in ("\\n", ";", "|"):
-        text = text.replace(separator, ",")
-    return [item.strip() for item in text.split(",") if item.strip()]
-
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = None
+    if isinstance(parsed, list):
+        return [str(item).strip() for item in parsed if str(item).strip()]
+    parts = re.split(r"[;|\n]+", text)
+    return [item.strip() for item in parts if item.strip()]
 
 def _abstain_fields(identity: dict[str, Any]) -> dict[str, Any]:
     """Shrink a ``resolve_identity`` payload to what an unresolved record needs.
@@ -58,6 +73,35 @@ def _abstain_fields(identity: dict[str, Any]) -> dict[str, Any]:
         "decision": identity["decision"],
         "match_method": identity.get("match_method", ""),
         "candidates": identity.get("candidates", []),
+    }
+
+
+def resolve_postprocess_fields(row, entries, *, country: str) -> dict[str, Any]:
+    """Resolve raw Step-5 themes and sentiment targets without mutating surfaces."""
+    theme_results = resolve_many(
+        split_values(row.get("themes")),
+        entries,
+        country=country,
+        kinds=THEME_KINDS,
+    )
+    sentiment_targets: list[dict[str, Any]] = []
+    for polarity in ("positive", "neutral", "negative"):
+        for result in resolve_many(
+            split_values(row.get(polarity)),
+            entries,
+            country=country,
+            kinds=SENTIMENT_KINDS,
+        ):
+            sentiment_targets.append({"polarity": polarity, **result})
+    return {
+        "theme_results": theme_results,
+        "theme_canonical_names": canonical_labels(theme_results),
+        "theme_ids": [
+            str(result.get("entry_id"))
+            for result in theme_results
+            if result.get("decision") == "EXISTING" and result.get("entry_id")
+        ],
+        "sentiment_targets": sentiment_targets,
     }
 
 
@@ -187,13 +231,51 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
     import pandas as pd
 
     entries, profile = load_profile(private_root, country, language=language)
-    frame = pd.read_csv(path)
+
+    # Issue #142: seed the canonical entity registry from both the country JSON
+    # codebooks and the researcher-maintained replacement workbooks. The latter
+    # are the only EP24 source currently carrying PERSON entries.
+    source_dirs = (
+        private_root / "analysis" / "ep24_reprocess" / "codebook_sources",
+        private_root / "codebook_sources",
+    )
+    workbook_entries = []
+    workbook_report: dict[str, Any] = {}
+    for source_dir in source_dirs:
+        if source_dir.exists():
+            workbook_entries, workbook_report = load_registry_from_dir(source_dir)
+            break
+    registry = EntityRegistry.from_codebooks([*entries, *workbook_entries])
+
+    frame = pd.read_csv(path, dtype=str, keep_default_na=False)
     before_columns = list(frame.columns)
+    adjudicator = None
+    if os.getenv("LACLAUGPT_ENTITY_LLM_ADJUDICATION", "0").casefold() in {"1", "true", "yes", "on"}:
+        adjudicator = ollama_adjudicator()
+    resolution_report = resolve_dataframe(
+        frame,
+        registry,
+        country=country,
+        language=language,
+        mention_columns=("entities",),
+        adjudicator=adjudicator,
+    )
+
+    mongo_registry_upserts = 0
+    if os.getenv("LACLAUGPT_MONGO_ENABLED", "0").casefold() in {"1", "true", "yes", "on"}:
+        from ep24_db import country_storage
+        with country_storage(country) as mongo:
+            mongo_registry_upserts = mongo.upsert_documents(
+                "entities", registry_documents(registry), id_field="_storage_id"
+            )
     new_columns = (
         "ep24_codebook_fingerprint",
         "ep24_codebook_context_json",
         "ep24_memory_entity_ids",
         "ep24_memory_topic_ids",
+        "ep24_memory_theme_ids",
+        "ep24_theme_resolution_json",
+        "ep24_theme_canonical_names",
         "ep24_memory_sentiment_target_ids_json",
         "ep24_memory_unresolved_json",
         "ep24_seed_entities_json",
@@ -217,20 +299,23 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         frame.at[index, "ep24_codebook_fingerprint"] = profile["fingerprint"]
         frame.at[index, "ep24_codebook_context_json"] = json.dumps(selection, ensure_ascii=False, sort_keys=True)
 
-        entity_seed_values = [
-            *split_values(row.get("new_entity")),
-            *split_values(row.get("researcher_new_persons")),
-        ]
-        theme_seed_values = [
-            *split_values(row.get("new_theme")),
-            *split_values(row.get("researcher_new_themes")),
-        ]
+        entity_seed_values = split_values(row.get("entities"))
+        theme_seed_values = split_values(row.get("themes"))
         entity_seeds = resolve_many(entity_seed_values, entries, country=country, kinds=ENTITY_KINDS)
         theme_seeds = resolve_many(theme_seed_values, entries, country=country, kinds=THEME_KINDS)
-        sentiment_targets = []
-        for polarity in ("positive", "neutral", "negative"):
-            for result in resolve_many(split_values(row.get(polarity)), entries, country=country, kinds=SENTIMENT_KINDS):
-                sentiment_targets.append({"polarity": polarity, **result})
+        # Resolve the actual Step-5 "themes" field and sentiment buckets.
+        # Raw surface forms stay untouched for discourse/provenance.
+        postprocess_resolution = resolve_postprocess_fields(
+            row, entries, country=country
+        )
+        theme_results = postprocess_resolution["theme_results"]
+        sentiment_targets = postprocess_resolution["sentiment_targets"]
+        frame.at[index, "ep24_theme_resolution_json"] = json.dumps(
+            theme_results, ensure_ascii=False, sort_keys=True
+        )
+        frame.at[index, "ep24_theme_canonical_names"] = json.dumps(
+            postprocess_resolution["theme_canonical_names"], ensure_ascii=False
+        )
 
         frame.at[index, "ep24_seed_entities_json"] = json.dumps(entity_seeds, ensure_ascii=False, sort_keys=True)
         frame.at[index, "ep24_seed_themes_json"] = json.dumps(theme_seeds, ensure_ascii=False, sort_keys=True)
@@ -243,11 +328,11 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         frame.at[index, "ep24_human_seed_context"] = "\\n".join(seed_lines)
 
         entity_ids: list[str] = []
-        topic_ids: list[str] = []
+        theme_ids: list[str] = list(postprocess_resolution["theme_ids"])
         sentiment_target_ids: dict[str, list[str]] = {valence: [] for valence in sentiment_columns}
         unresolved: list[dict[str, Any]] = []
         if memory is not None:
-            for kind, column, output in (("entity", "entities", entity_ids), ("topic", "topics", topic_ids)):
+            for kind, column, output in (("entity", "entities", entity_ids), ("topic", "themes", theme_ids)):
                 for label in split_values(row.get(column)):
                     identity = memory.resolve_identity(label, kind, country=country, language=language, accepted_only=True)
                     if identity["decision"] == "EXISTING":
@@ -264,7 +349,10 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
                     else:
                         unresolved.append({"kind": "target", "valence": valence, "raw": label, **_abstain_fields(identity)})
         frame.at[index, "ep24_memory_entity_ids"] = json.dumps(entity_ids, ensure_ascii=False)
-        frame.at[index, "ep24_memory_topic_ids"] = json.dumps(topic_ids, ensure_ascii=False)
+        # Keep the old topic-id field as a compatibility alias, but source it
+        # from the canonical Step-5 "themes" column.
+        frame.at[index, "ep24_memory_theme_ids"] = json.dumps(theme_ids, ensure_ascii=False)
+        frame.at[index, "ep24_memory_topic_ids"] = json.dumps(theme_ids, ensure_ascii=False)
         frame.at[index, "ep24_memory_sentiment_target_ids_json"] = json.dumps(sentiment_target_ids, ensure_ascii=False, sort_keys=True)
         frame.at[index, "ep24_memory_unresolved_json"] = json.dumps(unresolved, ensure_ascii=False, sort_keys=True)
 
@@ -274,8 +362,14 @@ def enrich_file(path: Path, *, country: str, language: str, private_root: Path, 
         "country": country,
         "language": language,
         "rows": len(frame),
-        "legacy_columns_preserved": before_columns == [c for c in frame.columns if c in before_columns],
+        "input_columns_preserved": before_columns == [c for c in frame.columns if c in before_columns],
         "profile": profile,
+        "entity_resolution": resolution_report,
+        "entity_registry": {
+            "records": len(registry),
+            "workbook_source": workbook_report,
+            "mongo_upserts": mongo_registry_upserts,
+        },
     }
 
 

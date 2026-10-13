@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import sqlite3
 import sys
 import time
@@ -19,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-VERSION = "ep24-rdf-1"
+VERSION = "ep24-rdf-2"
 NS = "https://w3id.org/laclaugpt/ep24/"
 PROV = "http://www.w3.org/ns/prov#"
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
@@ -54,9 +55,35 @@ def triple(subject: str, predicate: str, value: str, *, resource: bool = False) 
     return f"<{subject}> <{predicate}> {obj} .\n"
 
 
+def json_records(value: str) -> list[dict]:
+    """Parse an additive JSON-array column without making RDF export fragile."""
+    if not value or not str(value).strip():
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+
+
+def string_list(value: str) -> list[str]:
+    """Parse canonical JSON lists with a conservative legacy text fallback."""
+    if not value or not str(value).strip():
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = None
+    if isinstance(parsed, list):
+        values = [str(item).strip() for item in parsed]
+    else:
+        values = [part.strip() for part in str(value).replace("\n", ";").split(";")]
+    return [item for item in values if item]
+
+
 def document_key(row: dict[str, str], dataset: str, row_number: int) -> tuple[str, str]:
     # Never parse identifiers as numbers: leading zeroes and large video IDs matter.
-    for column in ("document_id", "videoId", "video_filename", "source_url", "url"):
+    for column in ("_storage_id", "video_id", "document_id", "videoId", "video_filename", "source_url", "url"):
         if row.get(column, "").strip():
             return json.dumps([dataset, column, row[column]], ensure_ascii=False), column
     return json.dumps([dataset, "row", row_number]), "row-number-fallback"
@@ -91,18 +118,118 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
         for index, entry in enumerate(row.get(column, "").splitlines()):
             if not entry.strip():
                 continue
-            if entry.count("^") != 1 or not all(part.strip() for part in entry.split("^")):
+            if entry.count("^") > 1:
                 warnings.append(f"{column} line {index + 1}: malformed pair retained as raw cell")
                 continue
-            element, affect = entry.split("^")
+            if "^" in entry:
+                element, affect = (part.strip() for part in entry.split("^", 1))
+                if not element or not affect:
+                    warnings.append(f"{column} line {index + 1}: malformed pair retained as raw cell")
+                    continue
+            else:
+                element, affect = entry.strip(), ""
             assertion = uri(base, project, "coding", json.dumps([dataset, row_number, column, index]))
             lines.extend([triple(assertion, RDF_TYPE, NS + "LaclauCoding", resource=True),
                           triple(record, NS + "coding", assertion, resource=True),
                           triple(assertion, NS + "category", category),
-                          triple(assertion, NS + "element", element),
-                          triple(assertion, NS + "affect", affect),
-                          triple(assertion, NS + "assertionKind", "coded-origin-unspecified"),
+                          triple(assertion, NS + "element", element)])
+            if affect:
+                lines.append(triple(assertion, NS + "affect", affect))
+            lines.extend([triple(assertion, NS + "assertionKind", "coded-origin-unspecified"),
                           triple(assertion, PROV + "wasDerivedFrom", record, resource=True)])
+    # Explicit semantic projection of the cumulative EP24 record. Raw cells above
+    # remain lossless; these triples make the final knowledge graph queryable.
+    for column, predicate in (
+        ("country", "country"),
+        ("source_type", "platform"),
+        ("source_url", "sourceUrl"),
+        ("url", "sourceUrl"),
+        ("videoCreated", "createdAt"),
+    ):
+        value = row.get(column, "").strip()
+        if value:
+            lines.append(triple(document, NS + predicate, value))
+
+    author = (row.get("author_username", "") or row.get("authorUniqueId", "")).strip()
+    if author:
+        account = uri(base, project, "account", author)
+        lines.extend([
+            triple(account, RDF_TYPE, NS + "Account", resource=True),
+            triple(account, NS + "label", author),
+            triple(document, NS + "authoredBy", account, resource=True),
+            triple(account, PROV + "wasDerivedFrom", record, resource=True),
+        ])
+
+    for column, kind, predicate in (
+        ("entities", "Entity", "mentionsEntity"),
+        ("themes", "Theme", "hasTheme"),
+    ):
+        for label in string_list(row.get(column, "")):
+            node = uri(base, project, kind.lower(), label)
+            lines.extend([
+                triple(node, RDF_TYPE, NS + kind, resource=True),
+                triple(node, NS + "label", label),
+                triple(document, NS + predicate, node, resource=True),
+                triple(node, PROV + "wasDerivedFrom", record, resource=True),
+            ])
+
+    sna_nodes: dict[str, str] = {}
+    for node_data in json_records(row.get("sna_nodes_json", "")):
+        node_id = str(node_data.get("node_id", "")).strip()
+        label = str(node_data.get("label", "")).strip()
+        if not node_id:
+            continue
+        node = uri(base, project, "sna-node", node_id)
+        sna_nodes[node_id] = node
+        lines.extend([
+            triple(node, RDF_TYPE, NS + "SNANode", resource=True),
+            triple(node, NS + "nodeId", node_id),
+            triple(node, NS + "nodeType", str(node_data.get("node_type", "actor"))),
+            triple(node, PROV + "wasDerivedFrom", record, resource=True),
+            triple(document, NS + "snaNode", node, resource=True),
+        ])
+        if label:
+            lines.append(triple(node, NS + "label", label))
+
+    for edge_data in json_records(row.get("sna_edges_json", "")):
+        edge_id = str(edge_data.get("edge_id", "")).strip()
+        source_id = str(edge_data.get("source", "")).strip()
+        target_id = str(edge_data.get("target", "")).strip()
+        relation = str(
+            edge_data.get("edge_type") or edge_data.get("relation_type") or ""
+        ).strip()
+        evidence = str(edge_data.get("evidence_quote", "")).strip()
+        if not edge_id or not source_id or not target_id or not relation:
+            warnings.append("SNA edge missing edge_id/source/target/relation; retained as raw cell")
+            continue
+        source_node = sna_nodes.get(source_id) or uri(base, project, "sna-node", source_id)
+        target_node = sna_nodes.get(target_id) or uri(base, project, "sna-node", target_id)
+        edge = uri(base, project, "sna-edge", edge_id)
+        lines.extend([
+            triple(edge, RDF_TYPE, NS + "SNAEdge", resource=True),
+            triple(edge, NS + "edgeId", edge_id),
+            triple(edge, NS + "source", source_node, resource=True),
+            triple(edge, NS + "target", target_node, resource=True),
+            triple(edge, NS + "relationType", relation),
+            triple(edge, NS + "directed", str(bool(edge_data.get("directed", True))).lower()),
+            triple(edge, PROV + "wasDerivedFrom", record, resource=True),
+            triple(document, NS + "snaEdge", edge, resource=True),
+        ])
+        if evidence:
+            lines.append(triple(edge, NS + "evidenceQuote", evidence))
+        item_id = str(edge_data.get("canonical_item_id", "")).strip()
+        if item_id:
+            lines.append(triple(edge, NS + "canonicalItemId", item_id))
+
+    if row.get("sna_metrics_json", "").strip():
+        metrics = uri(base, project, "sna-metrics", key)
+        lines.extend([
+            triple(metrics, RDF_TYPE, NS + "SNAMetrics", resource=True),
+            triple(document, NS + "snaMetrics", metrics, resource=True),
+            triple(metrics, NS + "json", row["sna_metrics_json"]),
+            triple(metrics, PROV + "wasDerivedFrom", record, resource=True),
+        ])
+
     return document, record, "".join(lines), warnings
 
 
@@ -204,6 +331,9 @@ def export(args: argparse.Namespace) -> dict:
                              "hit" if cached else "miss", "warning" if warnings else "ok")
             for name in ("graph.nt", "final.csv"):
                 (output / (name + ".partial")).rename(output / name)
+            # N-Triples is a Turtle subset. Keep the historical .nt artifact and
+            # expose the same deterministic graph as .ttl for RDF tooling.
+            shutil.copyfile(output / "graph.nt", output / "graph.ttl")
         manifest = {"status": "complete-with-warnings" if warnings_count else "complete",
                     "stage": VERSION, "run_id": run_id, "completed_at": datetime.now(UTC).isoformat(),
                     "source": str(source), "source_sha256": file_hash.hexdigest(),
@@ -237,6 +367,11 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(asctime)s %(levelname)s %(message)s")
     try:
         export(args)
+        orchestrated_output = os.getenv("LACLAUGPT_OUTPUT_CSV")
+        if orchestrated_output and not args.dry_run:
+            target = Path(orchestrated_output)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(args.output_dir / "final.csv", target)
     except (OSError, ValueError, csv.Error, sqlite3.Error) as exc:
         LOG.error("%s", exc)
         return 1

@@ -51,7 +51,7 @@ Site allocation IDs and absolute private paths are intentionally not committed.
 
 ## Models
 
-The model must be configurable. Current defaults may use `gemma4:12b`, but the active Phase 2 implementation should test newer/better suitable local multimodal models when available within Roihu constraints.
+The model must be configurable. Current defaults may use `qwen3.8:27b`, but the active Phase 2 implementation should test newer/better suitable local multimodal models when available within Roihu constraints.
 
 No cloud fallback should be introduced implicitly for private research workloads.
 

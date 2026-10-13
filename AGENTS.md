@@ -37,6 +37,8 @@ Never replace human-written code merely because a rewrite appears cleaner. Make 
 
 Do not perform opportunistic destructive refactors, schema removals, prompt rewrites, or methodology changes. When uncertain, preserve the human implementation and add the new functionality beside it.
 
+The code style this repository is written in is documented in [docs/CODING_STYLE.md](docs/CODING_STYLE.md). It covers the step-per-file structure, where shared infrastructure belongs, why theory-heavy prompts stay readable in the source, and the additive-additive field rule. Read it before restructuring a step; readable research code is the priority, not architectural cleverness.
+
 ## Phase 2 direction
 
 `main` should progressively incorporate relevant features from [LaclauGPT-Data-Analysis](https://github.com/TomiToivio/LaclauGPT-Data-Analysis), including where technically and scientifically appropriate:

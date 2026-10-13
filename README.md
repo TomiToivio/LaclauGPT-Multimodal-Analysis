@@ -1,5 +1,7 @@
 # LaclauGPT Multimodal Analysis
 
+[![Tests](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/actions/workflows/tests.yml/badge.svg)](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/actions/workflows/tests.yml)
+
 <!-- project-logos:start -->
 <p align="center">
   <a href="https://www.co3socialcontract.eu/"><img src="https://raw.githubusercontent.com/TomiToivio/LaclauGPT/main/assets/co3-logo.svg" width="180" alt="CO3 project logo"></a>
@@ -40,31 +42,58 @@ The EP24 data covers multimodal social-media material related to the 2024 Europe
 
 ## Canonical EP24 reprocessing data
 
+<<<<<<< HEAD
 Active reprocessing uses the researcher-feed 15-column schema and an additive dataframe through every stage. Scraper-era field names are compatibility-only. See [docs/EP24_CANONICAL_SCHEMA.md](docs/EP24_CANONICAL_SCHEMA.md).
+=======
+Active reprocessing uses the researcher-feed schema and an additive dataframe through every stage. The 15-column keep-schema is the contract for the identity fields; real inputs may carry extra cleaning columns (8 of the 10 EP24 countries do today) and those are preserved, never projected away. Scraper-era field names are compatibility-only. See [docs/EP24_CANONICAL_SCHEMA.md](docs/EP24_CANONICAL_SCHEMA.md) and [docs/EP24_PREPROCESS_COMPATIBILITY.md](docs/EP24_PREPROCESS_COMPATIBILITY.md).
+
+## Restartable MongoDB orchestration
+
+The numbered Roihu steps now have an additive restartable orchestration layer: bootstrap merges researcher entity/theme fields **before Step 1**, MongoDB tracks per-record stage state, Redis provides optional coordination/cache, and CSV + SQLite cumulative checkpoints are written after every durable batch. Countries run Finland -> Poland -> Portugal -> Germany -> Spain -> Hungary -> Croatia -> France -> Bulgaria -> Sweden. See [docs/EP24_RESTARTABLE_PIPELINE.md](docs/EP24_RESTARTABLE_PIPELINE.md) and [config/ep24_pipeline_columns.json](config/ep24_pipeline_columns.json).
+
+Typical operation:
+
+```bash
+python scripts/ep24/bootstrap_ep24_mongodb.py
+bash scripts/roihu/run_step_1.sh
+bash scripts/roihu/run_step_2.sh
+python scripts/ep24/ep24_status.py
+```
+>>>>>>> 8823af4102a50508cb31483c428d72cf835fe894
 
 ## Current Roihu pipeline
 
 The active Roihu interface is deliberately numbered because each stage is submitted as a separate Slurm batch job. The canonical demo limit is **100 rows/videos per language** via `LACLAUGPT_MAX_ROWS=100`; set it to `0` for the full corpus where supported.
 
-EP24 video handling has a mandatory collection-quality rule: all media analysis excludes the first 1.0 second of every split clip, and whole-video VLM analysis reports additional feed-scroll failures. See [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
+For the native-video Step 3 path, after Roihu reconnects the tested one-command launcher is:
 
-1. `step_1_roihu_preprocess.py` - frames, OCR, ASR/transcript and translation preparation.
-2. `step_2_roihu_frame.py` - sampled-frame multimodal social-semiotic analysis. Normally 1-6 frames; if Step 3 becomes the accepted production video path this can be reduced to one representative frame.
-3. `step_3_roihu_video.py` - **optional/reserved whole-video VLM stage**. It currently delegates to the isolated vLLM video experiment while that path is validated.
-4. `step_4_roihu_summary.py` - evidence-preserving multimodal summary/fusion.
+```bash
+source /scratch/project_2009497/LaclauGPT-Multimodal-Analysis/scripts/roihu/activate_vllm_video.sh && roihu_vllm_submit
+```
+
+EP24 visual analysis has a mandatory collection-quality rule: the contextual still is taken at original t=1.0s and the whole-video VLM starts after the known initial feed-scroll artifact. Step 1 ASR consumes the full staged video under issue #128 so speech is not silently truncated. See [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
+
+1. `step_1_roihu_preprocess.py` - backend-neutral full-video ASR transcript + translation, exactly one OCR result, and exactly one keyframe extracted at original source t=1.0s.
+2. `step_2_roihu_frame.py` - deep multimodal social-semiotic analysis of exactly that one t=1.0s frame. It concentrates on fine visual detail, rendered text, platform UI, symbols, composition and scene inventory.
+3. `step_3_roihu_video.py` - native whole-video Qwen3-VL/vLLM analysis from t=1.0s onward. It supplies temporal narrative, ordered events, scene changes and failed feed-scroll detection.
+4. `step_4_roihu_summary.py` - evidence-preserving fusion of the complementary evidence streams: deep one-frame analysis + native-video narrative + backend-neutral ASR transcript/translation + OCR/source metadata.
 5. `step_5_roihu_postprocess.py` - legacy-compatible structured entities/topics/sentiment-target post-processing.
 6. `step_6_roihu_discourse_analysis.py` - Laclau/Palonen discourse analysis; canonical new name for the historical `roihu_populism.py`.
 7. `step_7_roihu_discourse_network_analysis.py` - Phase 2 DNA statement extraction: actor + concept/proposition + stance/agreement + evidence + uncertainty.
-8. `step_8_roihu_social_network_analysis.py` - Phase 2 SNA relation extraction with evidence-supported actor-to-actor edges.
-9. `step_9_roihu_rdf.py` - deterministic RDF export after analytical stages. This is CPU-only; it does not need Ollama or a GPU.
+8. `step_8_roihu_social_network_analysis.py` - basic Phase 2 SNA: explicit node/edge tables, transparent graph metrics, evidence-supported relations, and a separately labelled Castells/Communication Power interpretation.
+9. `step_9_roihu_rdf.py` - deterministic RDF/knowledge-graph export of the cumulative record, including Step 8 SNA nodes/edges and provenance. This is CPU-only; it does not need Ollama or a GPU.
 
-Each stage has its own matching batch file under `scripts/roihu/step_N_*.sbatch`. Submit one stage at a time, inspect its CSV/log output, then submit the next. See [docs/ROIHU_NUMBERED_PIPELINE.md](docs/ROIHU_NUMBERED_PIPELINE.md).
+Each stage has its own matching batch file under `scripts/roihu/step_N_*.sbatch`. Submit one stage at a time, inspect its CSV/log output, then submit the next. See [docs/ROIHU_NUMBERED_PIPELINE.md](docs/ROIHU_NUMBERED_PIPELINE.md) and the canonical [Steps 1–9 pipeline contract](docs/EP24_PIPELINE_CONTRACT.md).
+
+For production operation, each stage also has a dedicated idempotent setup script and dedicated submit wrapper with a step-specific Roihu environment. The pipeline controller provides explicit `--test` (10 random FI + 10 PL + 10 PT, Steps 1–9) and `--full` (all videos, all discovered countries, Steps 1–9) modes. See [docs/ROIHU_PER_STEP_ENVIRONMENTS.md](docs/ROIHU_PER_STEP_ENVIRONMENTS.md).
+
+The code style these steps are written in — one step per named file, shared `ep24_*.py` infrastructure, theory-heavy prompts kept readable, additive fields — is documented in [docs/CODING_STYLE.md](docs/CODING_STYLE.md).
 
 The historical `roihu_preprocess.py`, `roihu_frame.py`, `roihu_summary.py`, `roihu_postprocess.py`, and `roihu_populism.py` files remain available as compatibility implementations and must not be deleted merely because numbered entry points exist.
 
 ### Video analysis rules
 
-The EP24 clips were split from continuous GrapheneOS screen recordings, so **the first 1.0 second of every clip is the scroll transition from the previous feed item** and is excluded from media analysis. The canonical implementation is `ep24_video.py`, which also normalizes later `SCROLL` / `SCROLL_SECONDS` detections and provides deterministic, provenance-preserving re-split planning.
+The EP24 clips were split from continuous GrapheneOS screen recordings, so **the first 1.0 second of every clip contains the scroll transition from the previous feed item**. Visual analysis treats original t=1.0s as its boundary; Step 1 ASR is deliberately full-video under issue #128. The canonical implementation is `ep24_video.py`, which also normalizes later `SCROLL` / `SCROLL_SECONDS` detections and provides deterministic, provenance-preserving re-split planning.
 
 See [docs/EP24_VIDEO_HANDLING.md](docs/EP24_VIDEO_HANDLING.md) and [docs/EP24_VIDEO_SCROLL_ARTIFACTS.md](docs/EP24_VIDEO_SCROLL_ARTIFACTS.md).
 

@@ -1,5 +1,7 @@
 # Laskin vLLM video experiment (issue #32)
 
+> **Security status (2026-10-02): retired for execution.** The historical Volta-compatible stack used legacy Transformers/PyTorch versions that now have published security advisories. The installable Laskin requirements manifest has been removed, and both Laskin launcher scripts fail closed. Keep this document as a reproducibility record only; use CSC Roihu for active native-video analysis.
+
 Measured feasibility result for running the same native-video vLLM path on
 **Laskin** as issue #24 runs on **CSC Roihu**. Everything below was measured on
 `laskin01`; nothing is assumed.
@@ -59,10 +61,9 @@ Known escape hatch, **not** attempted here: vLLM's source retains an sm_70 CMake
 path, so a source build on a CUDA 12.6 toolchain can re-enable Volta. That is a
 container/source-build project, not an isolated-venv install.
 
-## 3. The working combination (proven)
+## 3. Historical working combination (proven, now retired)
 
-`experiments/requirements-vllm-video-test-laskin.txt`, installed by
-`scripts/laskin/install_vllm_video_test.sh` into an isolated venv:
+The following stack was measured successfully before its security retirement. It is intentionally **not shipped as an installable requirements file anymore**:
 
 ```text
 vllm           0.8.5.post1
@@ -73,8 +74,7 @@ qwen-vl-utils  0.0.14
 av             17.1.0
 ```
 
-Verified: `torch.cuda.is_available()` → True, 3 devices, a real GPU matmul
-succeeded, and the vLLM engine loaded a model and generated text.
+Historical verification: `torch.cuda.is_available()` → True, 3 devices, a real GPU matmul succeeded, and the vLLM engine loaded a model and generated text. Do not reconstruct this environment for new work: the legacy dependency versions are now security-retired.
 
 ## 4. Native video inference results (measured)
 
@@ -122,29 +122,22 @@ already-staged mirror, and `none` to fail loudly.
 
 ## 7. Running it
 
+Do **not** run the legacy Laskin vLLM environment for new analysis. Both `scripts/laskin/install_vllm_video_test.sh` and `scripts/laskin/vllm_video_test.sh` intentionally terminate with a security-retirement message.
+
+Use the active CSC Roihu workflow instead:
+
 ```bash
-# 1. environment inventory (read-only)
-bash scripts/laskin/check_vllm_environment.sh
-
-# 2. isolated environment (does not touch system CUDA/PyTorch)
-bash scripts/laskin/install_vllm_video_test.sh
-
-# 3. run against the prepared sample
-LACLAUGPT_VLLM_TEST_INPUT_CSV=/path/to/prepared_sample.csv \
-LASKIN_VLLM_VENV=$HOME/.venvs/laskin-vllm-video \
-bash scripts/laskin/vllm_video_test.sh
+sbatch scripts/roihu/vllm_video_test.sbatch
 ```
 
-Override the model explicitly to attempt the reference model on a host that
-supports it (`LACLAUGPT_VLLM_TEST_MODEL=Qwen/Qwen3-VL-8B-Instruct`); on Laskin it
-will fail at load, and that failure is the documented result.
+See `docs/VLLM_VIDEO_TEST.md` for the current setup and execution instructions. A future Laskin path requires a newly validated, fully patched stack that supports Volta without reintroducing the retired dependencies.
 
 ## 8. Roihu vs Laskin
 
 | | Roihu (issue #24) | Laskin (this) |
 | --- | --- | --- |
 | GPU | GH200, 96 GB, Hopper | V100, 32 GB, Volta (sm_70) |
-| vLLM | CSC `python-vllm` module | pinned 0.8.5.post1 in isolated venv |
+| vLLM | CSC `python-vllm` module | historical 0.8.5.post1 result; execution retired |
 | reference Qwen3-VL-8B | intended | **not loadable** (architecture + sm_70) |
 | workable VLM | Qwen3-VL family | Qwen2.5-VL-3B/7B (measured) |
 | video API | modern | legacy (auto-resolved) |

@@ -1,0 +1,17 @@
+{
+  "_note": "Public-source party names for the 2024 European Parliament election in Sweden. Source: English + Swedish Wikipedia election pages, and the European Parliament results portal. Native stem -> correct English name(s). Used by scripts/ep24/check_party_gloss_consistency.py; no private data.",
+  "_election": "2024 European Parliament election in Sweden",
+  "_source_urls": [
+    "https://en.wikipedia.org/wiki/2024_European_Parliament_election_in_Sweden",
+    "https://sv.wikipedia.org/wiki/Europaparlamentsvalet_i_Sverige_2024"
+  ],
+  "Socialdemokraterna": ["Social Democratic Party", "Social Democrats"],
+  "Sverigedemokraterna": ["Sweden Democrats"],
+  "Moderaterna": ["Moderate Party", "Moderates"],
+  "Centerpartiet": ["Centre Party", "Center Party"],
+  "Vänsterpartiet": ["Left Party"],
+  "Miljöpartiet": ["Green Party", "Environmental Party"],
+  "Kristdemokraterna": ["Christian Democrats"],
+  "Liberalerna": ["Liberals", "Liberal Party"],
+  "Folklistan": ["Folklistan", "The People's List"]
+}

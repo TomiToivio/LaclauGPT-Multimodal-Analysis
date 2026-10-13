@@ -14,14 +14,50 @@ class FakeCursor(list):
         return FakeCursor(self[:value])
 
 
+class FakeBulkWriteResult:
+    def __init__(self, *, matched_count=0, modified_count=0, upserted_count=0):
+        self.matched_count = matched_count
+        self.modified_count = modified_count
+        self.upserted_count = upserted_count
+
+
 class FakeCollection:
     def __init__(self):
         self.docs = {}
+        self.bulk_write_calls = []
 
     def replace_one(self, query, doc, upsert=False):
         _, key = next(iter(query.items()))
         assert upsert is True
         self.docs[key] = deepcopy(doc)
+
+    def bulk_write(self, operations, ordered=True):
+        self.bulk_write_calls.append({"operations": list(operations), "ordered": ordered})
+        matched = modified = upserted = 0
+        for operation in self.bulk_write_calls[-1]["operations"]:
+            query = getattr(operation, "_filter", None)
+            replacement = getattr(operation, "_doc", None)
+            upsert = bool(getattr(operation, "_upsert", False))
+            if not isinstance(query, dict) or not isinstance(replacement, dict):
+                raise TypeError("FakeCollection.bulk_write only supports pymongo ReplaceOne operations")
+            if len(query) != 1:
+                raise AssertionError("test fake expects a single id-field equality filter")
+            _, key = next(iter(query.items()))
+            existed = key in self.docs
+            if existed:
+                matched += 1
+            elif upsert:
+                upserted += 1
+            else:
+                continue
+            if not existed or self.docs[key] != replacement:
+                modified += int(existed)
+            self.docs[key] = deepcopy(replacement)
+        return FakeBulkWriteResult(
+            matched_count=matched,
+            modified_count=modified,
+            upserted_count=upserted,
+        )
 
     def find(self, query):
         return FakeCursor([
@@ -145,6 +181,25 @@ def test_dataframe_upsert_then_export_is_idempotent():
     exported = mongo.dataframe_export("analysis")
     assert len(exported) == 2
     assert set(exported["id"]) == {"1", "2"}
+
+
+def test_fake_bulk_write_matches_production_unordered_replace_path():
+    client = FakeClient()
+    mongo = MongoStorage(config(), client=client)
+    docs = [
+        {"_storage_id": "a", "value": 1},
+        {"_storage_id": "b", "value": 2},
+    ]
+    assert mongo.upsert_documents("analysis", docs) == 2
+    collection = client.databases["laclaugpt"]["laclaugpt_ep24_fi_analysis"]
+    assert collection.bulk_write_calls[-1]["ordered"] is False
+    assert set(collection.docs) == {"a", "b"}
+
+    assert mongo.upsert_documents(
+        "analysis",
+        [{"_storage_id": "a", "value": 3}],
+    ) == 1
+    assert collection.docs["a"]["value"] == 3
 
 
 def test_disabled_mode_requires_no_mongodb(monkeypatch):

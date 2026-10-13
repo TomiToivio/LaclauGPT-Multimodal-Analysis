@@ -1,14 +1,4 @@
-"""Contract tests for the configurable ASR backend (transcription stage).
-
-These tests are deterministic and require no GPU, no network, no private EP24
-data and no model download. They pin the properties that matter for the
-"preserve the legacy behaviour by default" rule:
-
-1. the default backend configuration reproduces the historical call;
-2. the temperature fallback ladder is the historical one;
-3. unsupported engines fail loudly rather than silently falling back;
-4. the preprocess script no longer hard-codes a single ASR engine.
-"""
+"""Contract tests for the backend-neutral EP24 ASR adapter (issue #128)."""
 
 import importlib
 import re
@@ -21,7 +11,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture()
 def backend(monkeypatch):
-    """Import asr_backend with a clean ASR environment."""
     for key in (
         "LACLAUGPT_ASR_ENGINE",
         "LACLAUGPT_ASR_MODEL",
@@ -35,46 +24,58 @@ def backend(monkeypatch):
     return importlib.reload(asr_backend)
 
 
-def test_default_backend_is_the_historical_whisper_large(backend):
-    """No env vars must mean: openai-whisper, 'large', './whisper/' cache."""
+def test_default_backend_is_modern_canary_candidate(backend):
     assert backend.describe_backend() == {
-        "engine": "whisper",
-        "model": "large",
-        "download_root": "./whisper/",
+        "engine": "canary",
+        "model": "nvidia/canary-1b-v2",
     }
 
 
-def test_temperature_ladder_is_preserved_verbatim(backend):
-    """The legacy fallback ladder must not drift."""
+def test_ep24_country_language_hints_cover_all_ten_countries(backend):
+    expected = {
+        "finland": "fi",
+        "poland": "pl",
+        "portugal": "pt",
+        "germany": "de",
+        "spain": "es",
+        "hungary": "hu",
+        "croatia": "hr",
+        "france": "fr",
+        "bulgaria": "bg",
+        "sweden": "sv",
+    }
+    assert backend.COUNTRY_LANGUAGE_HINTS == expected
+
+
+def test_whisper_temperature_ladder_is_preserved_for_baseline_only(backend):
     assert tuple(backend.LEGACY_TEMPERATURE) == (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 
 
-def test_faster_whisper_selected_by_env(backend, monkeypatch):
+def test_backend_selection_is_provenance_only_until_model_load(backend, monkeypatch):
     monkeypatch.setenv("LACLAUGPT_ASR_ENGINE", "faster-whisper")
     monkeypatch.setenv("LACLAUGPT_ASR_MODEL", "large-v3-turbo")
-    cfg = backend.describe_backend()
-    assert cfg["engine"] == "faster-whisper"
-    assert cfg["model"] == "large-v3-turbo"
-    assert cfg["compute_type"] == "int8_float16"
+    assert backend.describe_backend() == {
+        "engine": "faster-whisper",
+        "model": "large-v3-turbo",
+    }
 
 
-def test_unknown_engine_fails_loudly(backend, monkeypatch):
-    """A typo must raise, not silently transcribe with a different engine."""
+def test_unknown_engine_fails_loudly_without_importing_a_model(backend, monkeypatch):
     monkeypatch.setenv("LACLAUGPT_ASR_ENGINE", "whisper-large")
     with pytest.raises(ValueError, match="Unknown LACLAUGPT_ASR_ENGINE"):
         backend.describe_backend()
 
 
-def test_preprocess_uses_the_backend_and_not_a_hardcoded_engine():
-    """Guard against a regression back to a hard-coded whisper.load_model."""
+def test_preprocess_uses_backend_abstraction_not_hardcoded_whisper():
     text = (ROOT / "roihu_preprocess.py").read_text(encoding="utf-8")
     assert "load_asr_model" in text
-    assert not re.search(r"^import whisper$", text, re.M), "hard-coded whisper import returned"
-    assert "whisper.load_model(" not in text, "hard-coded model load returned"
+    assert not re.search(r"^import whisper$", text, re.M)
+    assert "whisper.load_model(" not in text
 
 
-def test_preprocess_preserves_legacy_output_fields():
-    """The three whisper_* columns written to CSV/SQLite must survive."""
+def test_preprocess_writes_generic_asr_fields_and_not_whisper_fields():
     text = (ROOT / "roihu_preprocess.py").read_text(encoding="utf-8")
-    for field in ("whisper_transcript", "whisper_language", "whisper_translated"):
-        assert field in text, field
+    for field in ("asr_transcript", "asr_language", "asr_translated", "asr_backend", "asr_model"):
+        assert field in text
+    for legacy in ("whisperResult", "whisper_transcript", "whisper_language", "whisper_translated"):
+        assert legacy not in text

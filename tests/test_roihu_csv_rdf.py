@@ -47,7 +47,7 @@ class RDFExportTests(unittest.TestCase):
         self.assertEqual(self.rows[0], {key: actual[key] for key in self.rows[0]})
         self.assertEqual(self.input.read_bytes(), before)
         self.assertEqual((self.root / "run/source.csv").read_bytes(), before)
-        self.assertEqual(result["warnings"], 1)
+        self.assertEqual(result["warnings"], 0)
         self.assertEqual(result["rows"], 1)
 
     def test_cache_hit_then_human_edit_invalidates(self):
@@ -109,7 +109,26 @@ class RDFExportTests(unittest.TestCase):
         self.assertIn("coded-origin-unspecified", graph)
         self.assertNotIn("supports", graph)
         self.assertNotIn(NS + "Actor", graph)
-        self.assertEqual(len(warnings), 1)
+        # The fixture's bare "malformed" line is a coding with no evidenced affect,
+        # not a malformed pair (#180), so it is represented rather than warned
+        # about. Nothing invents an actor or a social edge either way.
+        self.assertEqual(warnings, [])
+        self.assertIn("malformed", graph)
+
+    def test_bare_populism_elements_preserve_coding_without_fabricated_affect(self):
+        row = {
+            "videoId": "bare-1",
+            "formula_of_populism_us": "the people\n",
+            "formula_of_populism_frontier": "elites\n",
+        }
+        _, _, graph, warnings = project_row(
+            row, base="https://example.org", project="p", dataset="d", row_number=1
+        )
+        self.assertEqual(warnings, [])
+        self.assertIn(' <' + NS + 'element> "the people" .\n', graph)
+        self.assertIn(' <' + NS + 'element> "elites" .\n', graph)
+        self.assertNotIn(' <' + NS + 'affect> ', graph)
+
 
     def test_limit_and_empty_input(self):
         self.write(self.rows * 3)
@@ -135,7 +154,22 @@ class RDFExportTests(unittest.TestCase):
         self.assertIn("", values)
         self.assertEqual(len(list(graph.triples((None, ns.column, None)))), len(self.rows[0]))
         manifest = json.loads((self.root / "run/manifest.json").read_text())
-        self.assertEqual(manifest["status"], "complete-with-warnings")
+        self.assertEqual(manifest["status"], "complete")
+
+    def test_genuinely_malformed_populism_pair_still_warns(self):
+        row = {
+            "videoId": "malformed-1",
+            "formula_of_populism_us": "the people^^hope\n",
+            "formula_of_populism_frontier": "elites\n",
+        }
+        _, _, graph, warnings = project_row(
+            row, base="https://example.org", project="p", dataset="d", row_number=1
+        )
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("formula_of_populism_us line 1: malformed pair", warnings[0])
+        self.assertNotIn(' <' + NS + 'element> "the people" .\n', graph)
+        self.assertIn(' <' + NS + 'value> "the people^^hope\\u000A" .\n', graph)
+        self.assertIn(' <' + NS + 'element> "elites" .\n', graph)
 
 
 if __name__ == "__main__":

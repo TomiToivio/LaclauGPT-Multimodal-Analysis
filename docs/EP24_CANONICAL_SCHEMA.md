@@ -6,7 +6,11 @@ does not treat scraper exports as the source model.
 
 ## Canonical input
 
+<<<<<<< HEAD
 Every country uses the same 15 source columns, in this order:
+=======
+After the issue #21 migration, every country uses the same 13 canonical source columns in this order:
+>>>>>>> 8823af4102a50508cb31483c428d72cf835fe894
 
 ```text
 country
@@ -18,11 +22,17 @@ video_id
 sequence_number
 political_preference
 allas_filename
+<<<<<<< HEAD
 new_entity
 new_theme
 video_duration
 researcher_new_persons
 researcher_new_themes
+=======
+entities
+themes
+video_duration
+>>>>>>> 8823af4102a50508cb31483c428d72cf835fe894
 researcher_note
 ```
 
@@ -43,8 +53,13 @@ Stages must not rebuild a reduced row or silently discard columns.
 Typical growth:
 
 ```text
+<<<<<<< HEAD
 15 source fields
 + Whisper/OCR
+=======
+13 canonical source fields
++ backend-neutral ASR/OCR
+>>>>>>> 8823af4102a50508cb31483c428d72cf835fe894
 + frame/native-video description
 + multimodal summary
 + postprocess/codebook/memory enrichment

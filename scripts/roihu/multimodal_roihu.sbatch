@@ -13,7 +13,7 @@ PUBLIC_ROOT=${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-${SLURM_SUBMIT_DIR:-$PWD}}
 : "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:?Set LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
 PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}
 VENV=${LACLAUGPT_MULTIMODAL_VENV:-${PUBLIC_ROOT}/.venv-roihu-gpu}
-MODEL=${LACLAUGPT_MULTIMODAL_MODEL:-gemma4:12b}
+MODEL=${LACLAUGPT_MULTIMODAL_MODEL:-qwen3.8:27b}
 OLLAMA_INSTALL_ROOT=${OLLAMA_INSTALL_ROOT:-${PRIVATE_ROOT}/.ollama}
 
 [[ -d "${PUBLIC_ROOT}" ]] || { echo "Missing public checkout: ${PUBLIC_ROOT}" >&2; exit 2; }
@@ -21,7 +21,7 @@ mkdir -p "${PRIVATE_ROOT}"/{csv,Allas,Keyframes,database,logs,whisper,.ollama/mo
 
 module --force purge
 module load python-pytorch
-module load ffmpeg
+module load gcc/14.3.0 ffmpeg
 unset PYTHONPATH
 unset PYTHONHOME
 

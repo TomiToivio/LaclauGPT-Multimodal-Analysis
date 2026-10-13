@@ -1,10 +1,17 @@
-"""Canonical EP24 reprocessing input schema.
+"""EP24 researcher-feed metadata helpers.
 
-The active EP24 pipeline consumes researcher-recorded feed clips that were split
-from mobile ethnography recordings. These rows are not scraper exports.
+The active EP24 reprocessing inputs are researcher-recorded/split feed data.
+The private country CSVs are canonicalized before analysis: human annotations
+arrive in `entities` and `themes`, and the four legacy annotation columns are
+removed by the verified migration in LaclauGPT-Private.
 
-Source of truth: analysis/ep24_reprocess/data/to_reprocess/ep24_<country>.csv
-as produced by roihu_clean.py.
+Pipeline stages must preserve every incoming column dynamically and append new
+analysis fields. Only media identity is mandatory for media access:
+- video_id
+- allas_filename
+
+EP24_REPROCESS_COLUMNS pins the canonical post-migration source order used by
+contracts/tests. It is not a projection rule: extra columns must still survive.
 """
 from __future__ import annotations
 
@@ -21,30 +28,25 @@ EP24_REPROCESS_COLUMNS: tuple[str, ...] = (
     "sequence_number",
     "political_preference",
     "allas_filename",
-    "new_entity",
-    "new_theme",
+    "entities",
+    "themes",
     "video_duration",
-    "researcher_new_persons",
-    "researcher_new_themes",
     "researcher_note",
 )
 
 REQUIRED_MEDIA_COLUMNS: tuple[str, ...] = ("video_id", "allas_filename")
 
-# Legacy aliases are read-only compatibility only. New outputs and docs should
-# use the canonical names above.
 LEGACY_ALIASES: dict[str, tuple[str, ...]] = {
-    "country": ("scrapedCountry",),
-    "author_username": ("authorUniqueId",),
     "video_id": ("videoId",),
+    "country": ("scrapedCountry",),
     "video_duration": ("videoDuration",),
+    "author_username": ("authorUniqueId",),
 }
 
 
 def value(row: Mapping[str, Any], column: str, default: str = "") -> str:
-    """Read a canonical field, falling back to a legacy alias if necessary."""
-    candidates = (column, *LEGACY_ALIASES.get(column, ()))
-    for candidate in candidates:
+    """Read a field, falling back to scraper-era identity aliases when needed."""
+    for candidate in (column, *LEGACY_ALIASES.get(column, ())):
         raw = row.get(candidate, "")
         text = "" if raw is None else str(raw).strip()
         if text and text.lower() != "nan":
@@ -52,15 +54,18 @@ def value(row: Mapping[str, Any], column: str, default: str = "") -> str:
     return default
 
 
+def source_metadata(row: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Return every non-empty field in the incoming row, in row order."""
+    items: list[tuple[str, str]] = []
+    for key in row.keys():
+        raw = row.get(key, "")
+        text = "" if raw is None else str(raw).strip()
+        if text and text.lower() != "nan":
+            items.append((str(key), text))
+    return items
+
+
 def stable_source_id(row: Mapping[str, Any]) -> str:
-    """Human-readable stable identifier for logs/provenance."""
-    return "|".join(
-        item for item in (
-            value(row, "country"),
-            value(row, "author_username"),
-            value(row, "video_id"),
-            value(row, "source_recording"),
-            value(row, "allas_filename"),
-        )
-        if item
-    )
+    """Stable readable ID using fields that actually exist."""
+    candidates = ("new_id", "video_id", "country", "allas_filename")
+    return "|".join(value(row, key) for key in candidates if value(row, key))

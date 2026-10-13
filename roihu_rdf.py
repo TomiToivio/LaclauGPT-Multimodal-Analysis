@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import ast
 import csv
+import json
 import logging
 import os
 import re
@@ -43,6 +44,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from ep24_schema import EP24_REPROCESS_COLUMNS, value as ep24_value
+
+from ep24_models import ollama_model
+from ep24_schema import EP24_REPROCESS_COLUMNS
+from ep24_schema import value as ep24_value
 
 os.makedirs("./logs", exist_ok=True)
 
@@ -74,8 +79,26 @@ LANGUAGES = ["fi", "sv", "pl", "pt", "de", "es", "hu", "hr", "fr", "bg", "en"]
 #: in prose. Anything not listed here is still preserved (see ``emit_raw_legacy``)
 #: so no legacy field can be silently dropped from the graph.
 PREPROCESS_COLUMNS = [
-    "frame_files",
+    "frame_file",
+    "frame_timestamp_seconds",
     "ocr_1",
+    "ocr_backend",
+    "ocr_model",
+    "ocr_runtime_ms",
+    "asr_transcript",
+    "asr_language",
+    "asr_translated",
+    "asr_backend",
+    "asr_model",
+    "asr_runtime_ms",
+    "video_duration_seconds",
+    "preprocess_status",
+    "preprocess_note",
+    "preprocess_completed_at",
+]
+# Read-only compatibility for frozen pre-#128 CSVs. New Step 1 never writes these.
+LEGACY_PREPROCESS_COLUMNS = [
+    "frame_files",
     "ocr_2",
     "ocr_3",
     "ocr_4",
@@ -112,12 +135,20 @@ POPULISM_COLUMNS = [
     "formula_of_populism_analysis",
     "formula_of_populism_us",
     "formula_of_populism_frontier",
+    "laclau_structured_json",
+    "laclau_formula_conditions_met",
+    "laclau_abstention_reason",
+    "laclau_prompt_version",
+    "laclau_model_metadata_json",
+    "laclau_generated_at",
+    "laclau_context_sha256",
 ]
 IDENTITY_COLUMNS = list(EP24_REPROCESS_COLUMNS) + ["video_filename", "language"]
 
 ALL_KNOWN_COLUMNS = (
     IDENTITY_COLUMNS
     + PREPROCESS_COLUMNS
+    + LEGACY_PREPROCESS_COLUMNS
     + FRAME_COLUMNS
     + SUMMARY_COLUMNS
     + POSTPROCESS_COLUMNS
@@ -170,23 +201,23 @@ def urn(kind: str, *parts: str) -> str:
 
 
 def split_list(value) -> list[str]:
-    """Split a legacy comma-separated list column into clean values.
-
-    The postprocess stage writes ``', '.join(...)``, so a comma is the separator.
-    Values are de-duplicated while preserving order, matching how postprocess
-    itself de-duplicates.
-    """
+    """Parse canonical JSON list fields, preserving commas inside labels."""
     if is_blank(value):
         return []
     text = str(value).strip()
-    raw = [item.strip() for item in text.split(",")]
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = None
+    if isinstance(parsed, list):
+        raw = [str(item).strip() for item in parsed]
+    else:
+        raw = [item.strip() for item in re.split(r"[;|\n]+", text)]
     seen: list[str] = []
     for item in raw:
-        item = item.strip()
         if item and item not in seen:
             seen.append(item)
     return seen
-
 
 def parse_frame_files(value) -> list[str]:
     """Parse ``frame_files``, which has two historical encodings.
@@ -305,7 +336,7 @@ class Provenance:
     def capture(cls) -> Provenance:
         return cls(
             run_id=os.getenv("SLURM_JOB_ID", f"local-{int(time.time())}"),
-            model=os.getenv("LACLAUGPT_MULTIMODAL_MODEL", "gemma4:12b"),
+            model=ollama_model(),
             generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             code_version=os.getenv("LACLAUGPT_MULTIMODAL_CODE_VERSION", "unversioned"),
         )
@@ -383,7 +414,13 @@ def document_node(row: dict, language: str, index: int) -> tuple[str, str]:
     canonical source identity, and the numeric row index is only a fallback for
     legacy rows that carry no identifiers.
     """
+<<<<<<< HEAD
     author = ep24_value(row, "author_username")
+=======
+    # `author_username` is deliberately NOT part of document identity: the canonical rule is
+    # source URL / video id / row fallback, and folding a mutable byline in would re-identify
+    # a document when its post is edited.
+>>>>>>> 8823af4102a50508cb31483c428d72cf835fe894
     video_id = ep24_value(row, "video_id")
     allas_filename = ep24_value(row, "allas_filename")
 
@@ -479,18 +516,22 @@ def emit_frames(graph: Graph, document: str, row: dict, language: str, prov: Pro
     model-derived, and the two are emitted as separate node types so a reader
     cannot mistake a model's reading of a frame for the frame itself.
     """
-    frames = parse_frame_files(row.get("frame_files"))
+    active_frame = row.get("frame_file")
+    if not is_blank(active_frame):
+        frames = [str(active_frame)]
+    else:
+        frames = parse_frame_files(row.get("frame_files"))
+
     for position, path in enumerate(frames, start=1):
         frame = urn("frame", language, ep24_value(row, "video_id"), str(position))
         graph.add(frame, f"{RDF_NS}type", f"{LG}Frame")
         graph.add(frame, f"{DCTERMS}source", path)
         graph.add(document, f"{LG}hasFrame", frame)
 
-    for position in range(1, 7):
+    positions = (1,) if not is_blank(active_frame) else range(1, 7)
+    for position in positions:
         analysis = row.get(f"frame_analysis_{position}")
-        # Only rows whose frame extraction produced something are emitted; an
-        # empty analysis is absence of evidence, not a finding.
-        if is_blank(analysis) or is_blank(row.get("frame_files")):
+        if is_blank(analysis) or position > len(frames):
             continue
         frame = urn("frame", language, ep24_value(row, "video_id"), str(position))
         node = urn("frameanalysis", language, ep24_value(row, "video_id"), str(position))
@@ -506,7 +547,8 @@ def emit_screen_text(
     graph: Graph, document: str, row: dict, language: str, prov: Provenance
 ) -> None:
     """Emit OCR results as ScreenText nodes (on-screen text observed in frames)."""
-    for position in range(1, 7):
+    positions = (1,) if "frame_file" in row else range(1, 7)
+    for position in positions:
         text = row.get(f"ocr_{position}")
         if is_blank(text):
             continue
@@ -515,37 +557,55 @@ def emit_screen_text(
         graph.add(node, f"{LG}describes", document)
         graph.literal(node, f"{LG}text", text)
         graph.integer(node, f"{LG}position", position)
-        emit_provenance(graph, node, prov, derivation="observed", stage="preprocess")
+        emit_provenance(
+            graph,
+            node,
+            prov,
+            derivation="observed",
+            stage="preprocess",
+            model=row.get("ocr_model") or row.get("ocr_backend"),
+        )
 
 
 def emit_transcript(
     graph: Graph, document: str, row: dict, language: str, prov: Provenance
 ) -> None:
-    """Emit the transcript triad, preserving which of the three fields carried it.
+    """Emit backend-neutral ASR, with read-only fallback for frozen Whisper rows."""
+    original = row.get("asr_transcript")
+    translated = row.get("asr_translated")
+    detected_language = row.get("asr_language")
+    backend = row.get("asr_backend")
+    model = row.get("asr_model")
 
-    ``whisperResult`` is the legacy merged field; ``whisper_transcript`` is the
-    original-language ASR output and ``whisper_translated`` its translation. All
-    three are preserved because the legacy pipeline treats ``whisperResult`` as
-    the downstream value and the other two as its inputs.
-    """
-    merged = row.get("whisperResult")
-    original = row.get("whisper_transcript")
-    translated = row.get("whisper_translated")
-    if is_blank(merged) and is_blank(original) and is_blank(translated):
+    if is_blank(original) and is_blank(translated):
+        # Historical compatibility only. New Step 1 does not generate these.
+        original = row.get("whisper_transcript") or row.get("whisperResult")
+        translated = row.get("whisper_translated")
+        detected_language = row.get("whisper_language")
+        backend = "whisper"
+        model = "legacy-whisper"
+
+    if is_blank(original) and is_blank(translated):
         return
 
     node = urn("transcript", language, ep24_value(row, "video_id"))
     graph.add(node, f"{RDF_NS}type", f"{LG}Transcript")
     graph.add(node, f"{LG}describes", document)
-    graph.literal(node, f"{LG}text", merged)
+    graph.literal(node, f"{LG}text", translated if not is_blank(translated) else original)
     graph.literal(node, f"{LG}originalText", original)
     graph.literal(node, f"{LG}translatedText", translated)
-    graph.literal(node, f"{LG}language", row.get("whisper_language"))
+    graph.literal(node, f"{LG}language", detected_language)
+    graph.literal(node, f"{LG}asrBackend", backend)
+    graph.literal(node, f"{LG}asrModel", model)
     emit_provenance(
-        graph, node, prov, derivation="model_derived", stage="preprocess", model="whisper"
+        graph,
+        node,
+        prov,
+        derivation="model_derived",
+        stage="preprocess",
+        model=model or backend or prov.model,
     )
     graph.add(document, f"{LG}hasTranscript", node)
-
 
 def emit_summary(graph: Graph, document: str, row: dict, language: str, prov: Provenance) -> None:
     """Emit the summary analysis and the legacy metadata block it was built from."""
@@ -585,7 +645,34 @@ def emit_analysis_lists(
         graph.add(document, f"{LG}hasTopic", topic)
         graph.literal(document, f"{LG}topicDerivation", "model_derived")
 
+    resolved_labels: set[str] = set()
+    try:
+        resolutions = json.loads(str(row.get("ep24_entity_resolution_json") or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        resolutions = []
+    if isinstance(resolutions, list):
+        for resolved in resolutions:
+            if not isinstance(resolved, dict) or resolved.get("decision") != "RESOLVED":
+                continue
+            entity_id = str(resolved.get("entity_id") or "").strip()
+            if not entity_id:
+                continue
+            entity = urn("entity", entity_id)
+            graph.add(entity, f"{RDF_NS}type", f"{LG}Entity")
+            graph.literal(entity, f"{SCHEMA}identifier", entity_id)
+            graph.literal(entity, f"{SKOS}prefLabel", resolved.get("canonical_name"))
+            graph.literal(entity, f"{LG}entityType", resolved.get("entity_type"))
+            graph.literal(entity, f"{LG}entityCountry", resolved.get("entity_country"))
+            graph.add(document, f"{LG}mentionsEntity", entity)
+            graph.literal(document, f"{LG}entityDerivation", "model_derived")
+            for label in (resolved.get("surface_form"), resolved.get("normalized_form"), resolved.get("canonical_name")):
+                if label:
+                    resolved_labels.add(str(label).strip().casefold())
+
+    # Backward-compatible fallback for mentions that have not resolved to a stable id.
     for value in split_list(row.get("entities")):
+        if value.strip().casefold() in resolved_labels:
+            continue
         entity = urn("entity", value)
         graph.add(entity, f"{RDF_NS}type", f"{LG}Entity")
         graph.literal(entity, f"{SKOS}prefLabel", value)
@@ -629,6 +716,13 @@ def emit_populism(graph: Graph, document: str, row: dict, language: str, prov: P
     graph.literal(node, f"{LG}text", analysis)
     graph.literal(node, f"{LG}usRaw", us_raw)
     graph.literal(node, f"{LG}frontierRaw", frontier_raw)
+    graph.literal(node, f"{LG}structuredJson", row.get("laclau_structured_json"))
+    graph.literal(node, f"{LG}formulaConditionsMet", row.get("laclau_formula_conditions_met"))
+    graph.literal(node, f"{LG}abstentionReason", row.get("laclau_abstention_reason"))
+    graph.literal(node, f"{LG}promptVersion", row.get("laclau_prompt_version"))
+    graph.literal(node, f"{LG}modelMetadataJson", row.get("laclau_model_metadata_json"))
+    graph.literal(node, f"{LG}generatedAt", row.get("laclau_generated_at"))
+    graph.literal(node, f"{LG}contextSha256", row.get("laclau_context_sha256"))
     emit_provenance(
         graph, node, prov, derivation="model_derived", stage="populism", model=prov.model
     )
@@ -683,6 +777,21 @@ def emit_raw_legacy(graph: Graph, row: dict, prov: Provenance) -> None:
         "video_filename",
         "language",
         "scrapedCountry",
+        "frame_file",
+        "frame_timestamp_seconds",
+        "ocr_backend",
+        "ocr_model",
+        "ocr_runtime_ms",
+        "asr_transcript",
+        "asr_language",
+        "asr_translated",
+        "asr_backend",
+        "asr_model",
+        "asr_runtime_ms",
+        "video_duration_seconds",
+        "preprocess_status",
+        "preprocess_note",
+        "preprocess_completed_at",
         "frame_files",
         "whisperResult",
         "whisper_transcript",
@@ -709,7 +818,8 @@ def emit_raw_legacy(graph: Graph, row: dict, prov: Provenance) -> None:
         "formula_of_populism_frontier",
     }
     typed.update(f"frame_analysis_{i}" for i in range(1, 7))
-    typed.update(f"ocr_{i}" for i in range(1, 7))
+    typed.add("ocr_1")
+    typed.update(f"ocr_{i}" for i in range(2, 7))
 
     for column in sorted(row):
         if column in typed or is_blank(row.get(column)):
@@ -808,7 +918,7 @@ def write_summary(
         lines.append(f"- node: `{node}`")
         lines.append(f"- author: {row.get('authorUniqueId') or '(unknown)'}")
         lines.append(
-            f"- transcript: {'present' if not is_blank(row.get('whisperResult')) else 'absent'}"
+            f"- transcript: {'present' if not is_blank(row.get('asr_transcript') or row.get('asr_translated') or row.get('whisperResult')) else 'absent'}"
         )
         lines.append(
             f"- summary: {'present' if not is_blank(row.get('summary_analysis')) else 'absent'}"

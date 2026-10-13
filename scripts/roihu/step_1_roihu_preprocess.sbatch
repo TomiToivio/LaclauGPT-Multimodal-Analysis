@@ -12,20 +12,47 @@
 #SBATCH --mail-type=ALL
 
 set -euo pipefail
-PUBLIC_ROOT=${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-/scratch/project_2009497/LaclauGPT-Multimodal-Analysis}
-PRIVATE_ROOT=${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT:-/scratch/project_2009497/LaclauGPT-Private/ep24_reprocess}
-VENV=${LACLAUGPT_MULTIMODAL_VENV:-${PUBLIC_ROOT}/.venv-roihu-gpu}
-export LACLAUGPT_MAX_ROWS=${LACLAUGPT_MAX_ROWS:-100}
-export HF_HOME=${HF_HOME:-/scratch/project_2009497/hf-cache}
-export TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-${HF_HOME}}
 
-mkdir -p /scratch/project_2009497/logs "${PRIVATE_ROOT}"/{csv,Allas,Keyframes,database,logs,whisper}
-module --force purge
-module load python-pytorch
-module load ffmpeg
-unset PYTHONPATH
-unset PYTHONHOME
-[[ -x "${VENV}/bin/python" ]] || { echo "Missing Roihu ARM64 venv: ${VENV}" >&2; exit 2; }
-source "${VENV}/bin/activate"
-cd "${PRIVATE_ROOT}"
-srun --ntasks=1 python3 "${PUBLIC_ROOT}/step_1_roihu_preprocess.py"
+# Slurm executes a copied script from /var/spool/slurmd/job*/slurm_script, so
+# BASH_SOURCE[0] does NOT point at this repository inside the job. Resolve the
+# checkout from an explicit override, the submit directory, or the standard Roihu
+# project path instead.
+ROIHU_PUBLIC_ROOT="${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT:-}"
+if [[ -z "${ROIHU_PUBLIC_ROOT}" && -n "${SLURM_SUBMIT_DIR:-}" ]]; then
+  if [[ -f "${SLURM_SUBMIT_DIR}/scripts/roihu/roihu_job_common.sh" ]]; then
+    ROIHU_PUBLIC_ROOT="${SLURM_SUBMIT_DIR}"
+  elif [[ -f "${SLURM_SUBMIT_DIR}/roihu_job_common.sh" ]]; then
+    ROIHU_PUBLIC_ROOT="$(cd "${SLURM_SUBMIT_DIR}/../.." && pwd)"
+  fi
+fi
+ROIHU_PUBLIC_ROOT="${ROIHU_PUBLIC_ROOT:-/scratch/${CSC_PROJECT:-project_2009497}/LaclauGPT-Multimodal-Analysis}"
+
+if [[ ! -f "${ROIHU_PUBLIC_ROOT}/scripts/roihu/roihu_job_common.sh" ]]; then
+  echo "Cannot locate Roihu job helper: ${ROIHU_PUBLIC_ROOT}/scripts/roihu/roihu_job_common.sh" >&2
+  echo "Submit from the repository root or set LACLAUGPT_MULTIMODAL_PUBLIC_ROOT explicitly." >&2
+  exit 2
+fi
+
+export LACLAUGPT_MULTIMODAL_PUBLIC_ROOT="${ROIHU_PUBLIC_ROOT}"
+# shellcheck disable=SC1091
+source "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/scripts/roihu/roihu_job_common.sh"
+
+roihu_load_runtime "pytorch"
+roihu_diagnostics
+roihu_preflight 1
+
+cd "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
+source "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/scripts/roihu/lib_roihu_diagnostics.sh"
+roihu_diagnostics 1
+
+if [[ "${LACLAUGPT_MONGO_ENABLED:-0}" =~ ^(1|true|yes|on)$ ]]; then
+  srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_stage_orchestrator.py" \
+    --step 1 \
+    --script "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_1_roihu_preprocess.py" \
+    "$@"
+else
+  echo "MongoDB not configured; running Step 1 directly with CSV/SQLite checkpoints."
+  srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_1_roihu_preprocess.py" "$@"
+fi
+
+echo "EP24 Step 1 completed at $(date --iso-8601=seconds)"

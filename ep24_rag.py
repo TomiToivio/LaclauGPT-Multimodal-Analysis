@@ -1,0 +1,103 @@
+"""MongoDB EP24 RAG persistence and retrieval helpers.
+
+Canonical current-pipeline fields are preferred. Legacy names remain read-only
+fallbacks so old persisted EP24 rows stay retrievable without being regenerated.
+"""
+from __future__ import annotations
+
+import hashlib
+import re
+from typing import Iterable
+
+import pandas as pd
+
+RAG_TEXT_FIELDS = (
+    "asr_translated",
+    "asr_transcript",
+    "ocr_1",
+    "whisper_translated",
+    "whisper_transcript",
+    "summary_analysis",
+    "frame_analysis_1",
+    "vllm_video_analysis",
+    "vllm_video_markdown_analysis",
+    "video_analysis",
+    "formula_of_populism_analysis",
+    "dna_analysis_markdown",
+    "sna_analysis_markdown",
+    "dna_statements_json",
+)
+
+
+def _first_nonempty(row: pd.Series, names: Iterable[str]) -> str:
+    for name in names:
+        value = str(row.get(name, "") or "").strip()
+        if value and value.casefold() != "nan":
+            return value
+    return ""
+
+
+def rag_text(row: pd.Series) -> str:
+    """Build retrieval text without duplicating canonical + legacy aliases."""
+    parts = [
+        _first_nonempty(row, ("asr_translated", "whisper_translated")),
+        _first_nonempty(row, ("asr_transcript", "whisper_transcript")),
+        _first_nonempty(row, ("ocr_1",)),
+        _first_nonempty(row, ("summary_analysis",)),
+        _first_nonempty(row, ("frame_analysis_1",)),
+        _first_nonempty(row, ("vllm_video_analysis", "vllm_video_markdown_analysis", "video_analysis")),
+        _first_nonempty(row, ("formula_of_populism_analysis",)),
+        _first_nonempty(row, ("dna_analysis_markdown",)),
+        _first_nonempty(row, ("sna_analysis_markdown",)),
+        _first_nonempty(row, ("dna_statements_json",)),
+    ]
+    return "\n".join(part for part in parts if part)
+
+
+def upsert_stage_rag(storage, df: pd.DataFrame, *, stage: str) -> int:
+    docs = []
+    for _, row in df.iterrows():
+        rid = str(row.get("_storage_id", "") or "").strip()
+        text = rag_text(row)
+        if not rid or not text:
+            continue
+        docs.append({
+            "_storage_id": hashlib.sha256(f"{rid}|{stage}".encode()).hexdigest(),
+            "source_record_id": rid,
+            "stage": stage,
+            "text": text,
+            "entities": str(row.get("entities", "")),
+            "themes": str(row.get("themes", "")),
+            "evidence_role": "prior_analysis_context_not_source_evidence",
+        })
+    return storage.upsert_documents("rag", docs)
+
+
+def retrieve_stage_rag(
+    storage,
+    text: str,
+    *,
+    exclude_source_record_id: str | None = None,
+    limit: int = 6,
+) -> list[dict]:
+    """Retrieve lexical RAG context from the same country-scoped Mongo store."""
+    terms = {t.casefold() for t in re.findall(r"\w+", str(text)) if len(t) > 2}
+    candidates = storage.find("rag", limit=500)
+    scored: list[tuple[int, dict]] = []
+    for item in candidates:
+        if exclude_source_record_id and str(item.get("source_record_id", "")) == exclude_source_record_id:
+            continue
+        haystack = " ".join(
+            str(item.get(k, "")) for k in ("text", "entities", "themes", "stage")
+        ).casefold()
+        score = sum(term in haystack for term in terms)
+        if score:
+            scored.append((score, item))
+    scored.sort(
+        key=lambda pair: (
+            -pair[0],
+            str(pair[1].get("stage", "")),
+            str(pair[1].get("_storage_id", "")),
+        )
+    )
+    return [item for _, item in scored[:limit]]

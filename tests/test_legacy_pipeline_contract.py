@@ -22,6 +22,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "LEGACY_PIPELINE_CONTRACT.md"
 
@@ -77,11 +79,13 @@ def _doc() -> str:
     return DOC.read_text(encoding="utf-8")
 
 
-# main renamed the pipeline stages `puhti_*.py` -> `roihu_*.py` (Roihu
-# migration, commits c3d59aa..c37e389). This document is the contract for the
-# historical stage sequence and deliberately keeps the legacy names, so every
-# read resolves through this map. Branch `legacy` still carries the old names;
-# resolve to whichever file actually exists so neither branch breaks the test.
+# The exact historical implementation is authoritative on the separate
+# `legacy` branch. Main is the active Roihu implementation. Restored puhti_*
+# snapshots on main are useful reference files, but they are not guaranteed to
+# be byte-for-byte the branch the legacy contract documents. Therefore the
+# source-to-document assertions below run only when the checkout itself is the
+# legacy implementation; active-main CI still validates document presence,
+# documented stage order, and safety-rule text.
 CURRENT_STAGE_FILES = {
     "puhti_preprocess.py": "roihu_preprocess.py",
     "puhti_frame.py": "roihu_frame.py",
@@ -91,13 +95,27 @@ CURRENT_STAGE_FILES = {
 }
 
 
+ACTIVE_MAIN = "**Repository status:** `main` is the active" in (ROOT / "README.md").read_text(
+    encoding="utf-8"
+)
+
+
+def _require_legacy_checkout() -> None:
+    if ACTIVE_MAIN:
+        pytest.skip("exact legacy source contract is validated on the frozen legacy branch")
+
+
 def _stage_path(name: str) -> Path:
-    """Resolve a documented legacy stage name to the file that now carries it."""
+    """Resolve the frozen historical source before any active Roihu successor."""
+    historical = ROOT / name
+    if historical.is_file():
+        return historical
     current = ROOT / CURRENT_STAGE_FILES.get(name, name)
-    return current if current.is_file() else ROOT / name
+    return current
 
 
 def _source(name: str) -> str:
+    _require_legacy_checkout()
     return _stage_path(name).read_text(encoding="utf-8")
 
 

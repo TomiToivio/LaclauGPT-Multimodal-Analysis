@@ -1,5 +1,14 @@
 # EP24 legacy cleaning and reprocessing input contract
 
+> **Issue #21 canonical handoff:** this document also describes the historical
+> pre-migration source fields used by legacy cleaning. Those four fields
+> (`new_entity`, `researcher_new_persons`, `new_theme`,
+> `researcher_new_themes`) may be read only while converting historical
+> artifacts. They must not cross the reprocessing boundary. Current Step 1 input
+> contains only canonical human `entities` and `themes` JSON lists, and later
+> model stages must preserve those fields unchanged.
+
+
 Issue #35 defines a non-destructive bridge from the historical EP24 country CSVs to the
 new Roihu/Phase 2 reprocessing pipeline.
 
@@ -45,12 +54,15 @@ authoritative metadata, not a storage path component.
 
 ## Human supervision carried forward
 
-The cleaner reconstructs recyclable human seed fields:
+For historical source files, the cleaner reconstructs recyclable human seed
+fields before the canonical handoff:
 
-- `entities` = verified/canonicalized union of `new_entity` and
-  `researcher_new_persons`;
-- `themes` = verified/canonicalized union of `new_theme` and
-  `researcher_new_themes`.
+- `entities` = verified/canonicalized union of historical entity/person fields;
+- `themes` = verified/canonicalized union of historical theme fields.
+
+The reprocessing CSV then drops the four historical annotation columns. From
+Step 1 onward, `entities` and `themes` are immutable human annotations;
+machine-extracted entities/themes are stored separately.
 
 Aliases should be supplied by the relevant bilingual country codebook. Deduplication is
 performed after canonicalization. Unresolved plausible labels can remain provisional and

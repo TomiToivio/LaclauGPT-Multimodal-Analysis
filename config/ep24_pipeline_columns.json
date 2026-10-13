@@ -1,0 +1,161 @@
+{
+  "dataset": "ep2024_reprocess",
+  "preserve_all_incoming_columns": true,
+  "authoritative_keep_schema": [
+    "video_id",
+    "country",
+    "author_username",
+    "account_type",
+    "source_type",
+    "source_recording",
+    "sequence_number",
+    "political_preference",
+    "allas_filename",
+    "entities",
+    "themes",
+    "video_duration",
+    "researcher_note"
+  ],
+  "bootstrap_adds": [
+    "_storage_id"
+  ],
+  "derived_context_adds": [
+    "codebook_context_json",
+    "memory_context_json",
+    "rag_context_json",
+    "entity_normalization_json",
+    "theme_normalization_json",
+    "context_evidence_role"
+  ],
+  "stages": {
+    "1": {
+      "name": "preprocess",
+      "requires_previous": null,
+      "preserve_all": true,
+      "known_outputs": [
+        "frame_file",
+        "frame_timestamp_seconds",
+        "ocr_1",
+        "ocr_backend",
+        "ocr_model",
+        "ocr_runtime_ms",
+        "asr_transcript",
+        "asr_language",
+        "asr_translated",
+        "asr_backend",
+        "asr_model",
+        "asr_runtime_ms",
+        "video_duration_seconds",
+        "preprocess_status",
+        "preprocess_note",
+        "preprocess_completed_at"
+      ]
+    },
+    "2": {
+      "name": "frame",
+      "requires_previous": 1,
+      "preserve_all": true,
+      "known_output_prefixes": [
+        "frame_"
+      ]
+    },
+    "3": {
+      "name": "video",
+      "requires_previous": 2,
+      "preserve_all": true,
+      "known_outputs": [
+        "SCROLL",
+        "SCROLL_SECONDS"
+      ],
+      "known_output_prefixes": [
+        "video_"
+      ]
+    },
+    "4": {
+      "name": "summary",
+      "requires_previous": 3,
+      "preserve_all": true,
+      "known_output_prefixes": [
+        "summary_"
+      ]
+    },
+    "5": {
+      "name": "postprocess",
+      "requires_previous": 4,
+      "preserve_all": true,
+      "known_outputs": [
+        "postprocess_entities",
+        "postprocess_themes",
+        "positive",
+        "neutral",
+        "negative",
+        "postprocess_summary_md"
+      ]
+    },
+    "6": {
+      "name": "discourse_analysis",
+      "requires_previous": 5,
+      "preserve_all": true,
+      "known_output_prefixes": [
+        "formula_of_populism_",
+        "laclau_"
+      ]
+    },
+    "7": {
+      "name": "discourse_network_analysis",
+      "requires_previous": 6,
+      "preserve_all": true,
+      "known_outputs": [
+        "dna_analysis_markdown",
+        "dna_statements_json"
+      ]
+    },
+    "8": {
+      "name": "social_network_analysis",
+      "requires_previous": 7,
+      "preserve_all": true,
+      "known_outputs": [
+        "sna_analysis_markdown",
+        "sna_report_markdown",
+        "sna_castells_interpretation_markdown",
+        "sna_nodes_json",
+        "sna_edges_json",
+        "sna_metrics_json",
+        "sna_schema_version",
+        "sna_prompt_version",
+        "sna_castells_prompt_version",
+        "sna_generated_at",
+        "sna_status",
+        "sna_error"
+      ]
+    },
+    "9": {
+      "name": "rdf",
+      "requires_previous": 8,
+      "preserve_all": true,
+      "known_output_prefixes": [
+        "rdf_"
+      ],
+      "known_outputs": [
+        "rdf_document_uri",
+        "rdf_row_uri",
+        "rdf_schema_version",
+        "rdf_status"
+      ]
+    }
+  },
+  "country_priority": [
+    "finland",
+    "poland",
+    "portugal"
+  ],
+  "remaining_country_order": [
+    "germany",
+    "spain",
+    "hungary",
+    "croatia",
+    "france",
+    "bulgaria",
+    "sweden"
+  ]
+}

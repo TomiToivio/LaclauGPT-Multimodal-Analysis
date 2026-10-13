@@ -203,3 +203,53 @@ def test_alias_map_uses_the_shared_key():
     _entries, meta = cb.load_profile(root, "FI")
     ambiguous = meta.get("ambiguous_forms") or []
     assert any("shared" in str(a).casefold() for a in ambiguous), meta
+
+
+# --------------------------------------------------------------------------- #
+# Croatia (#72): diacritics and country profile are deliberate constraints
+# --------------------------------------------------------------------------- #
+
+def test_croatian_diacritics_are_not_silently_collapsed():
+    """HR aliases may record ASCII spellings, but identity keeps orthography."""
+    for canonical, ascii_variant in (
+        ("Možemo!", "Mozemo!"),
+        ("Željana Zovko", "Zeljana Zovko"),
+        ("Sunčana Glavak", "Suncana Glavak"),
+        ("Božo Petrov", "Bozo Petrov"),
+    ):
+        assert cb.identity_key(canonical) != cb.identity_key(ascii_variant)
+
+
+def test_croatia_profile_is_country_scoped_and_bilingual():
+    profile = cb.COUNTRY_PROFILES["HR"]
+    assert profile["country"] == "Croatia"
+    assert profile["languages"] == ["hr", "en"]
+    assert profile["file"] == "ep24_hr_private.json"
+
+
+# --------------------------------------------------------------------------- #
+# Portugal (#72): bilingual profile + Portuguese orthography stay explicit
+# --------------------------------------------------------------------------- #
+
+def test_portuguese_diacritics_are_not_silently_collapsed():
+    """ASCII variants may be aliases, but not canonical identity keys."""
+    for canonical, ascii_variant in (
+        ("João", "Joao"),
+        ("António", "Antonio"),
+        ("Coligação", "Coligacao"),
+        ("Cidadãos", "Cidadaos"),
+    ):
+        assert cb.identity_key(canonical) != cb.identity_key(ascii_variant)
+
+
+def test_portugal_profile_is_country_scoped_and_bilingual():
+    profile = cb.COUNTRY_PROFILES["PT"]
+    assert profile["country"] == "Portugal"
+    assert profile["languages"] == ["pt", "en"]
+    assert profile["file"] == "ep24_pt_private.json"
+
+
+def test_portuguese_short_acronyms_must_remain_country_scoped():
+    """Short aliases such as PS/AD must never become cross-country identities."""
+    assert _new_entry_id("PS", country="PT") != _new_entry_id("PS", country="FR")
+    assert _new_entry_id("AD", country="PT") != _new_entry_id("AD", country="ES")
