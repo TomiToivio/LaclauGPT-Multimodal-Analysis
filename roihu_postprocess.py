@@ -507,9 +507,16 @@ def analyze_responses(language=None):
             deleted,
         )
 
-    ok_before = before.loc[ok_df.index].copy()
-    write_cumulative_csv(ok_before, ok_df, output)
-    df = ok_df
+    # Legacy CSV mode keeps its historical OK-only output. When Mongo's
+    # orchestrator claims a batch, ALL claimed identities must be returned,
+    # including quality-routed REPROCESS and DELETE audit records. Otherwise
+    # persist_batch rejects the missing IDs (claimed=25, output=15) and retries
+    # the entire batch. Step 6 eligibility separately gates on quality == OK.
+    orchestrated = os.getenv("LACLAUGPT_ORCHESTRATED_BATCH") == "1"
+    checkpoint = df if orchestrated else ok_df
+    checkpoint_before = before if orchestrated else before.loc[ok_df.index].copy()
+    write_cumulative_csv(checkpoint_before, checkpoint, output)
+    df = checkpoint
     logger.info(
         "[QUALITY] routing OK=%d REPROCESS=%d DELETE=%d reprocess=%s delete_audit=%s local_files_deleted=%d",
         len(ok_df), len(reprocess_df), len(delete_df), reprocess_path, delete_audit_path, deleted_local_files,
