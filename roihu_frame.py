@@ -145,12 +145,20 @@ def analyze_videos(language=None):
     if max_rows > 0:
         df = df.head(max_rows).copy()
         logger.info("Demo row limit active: processing first %s rows", max_rows)
+<<<<<<< HEAD
     if 'whisperResult' in df.columns:
         df = df.dropna(subset=['whisperResult'])
         df = df[df['whisperResult'].astype(str).str.strip() != ''].copy()
     if 'frame_files' in df.columns:
         df = df.dropna(subset=['frame_files'])
         df = df[df['frame_files'].astype(str).str.strip() != ''].copy()
+=======
+    # Historical per-language mode keeps its documented row-drop semantics.
+    # Canonical EP24 reprocessing is additive and keeps every source row.
+    if not os.getenv('LACLAUGPT_INPUT_CSV'):
+        df = df.dropna(subset=['whisperResult'])
+        df = df.dropna(subset=['frame_files'])
+>>>>>>> a81043af7d737d2f667d1123de3dfb7877e1ff11
     df['frame_analysis_1'] = ''
     df['frame_analysis_2'] = ''
     df['frame_analysis_3'] = ''
