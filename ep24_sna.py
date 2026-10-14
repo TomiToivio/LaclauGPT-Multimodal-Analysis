@@ -74,7 +74,7 @@ def _actor_label(raw: Any) -> str:
     """
     label = _text(raw)
     return re.sub(
-        r"\\s*\\((?:as reported by (?:the )?speaker|reported by speaker)\\)\\s*$",
+        r"\s*\((?:as reported by (?:the )?speaker|reported by speaker)\)\s*$",
         "", label, flags=re.IGNORECASE,
     ).strip()
 

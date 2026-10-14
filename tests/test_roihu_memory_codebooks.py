@@ -155,9 +155,17 @@ def test_populism_uses_shared_context_architecture():
     assert "codebook_context_json" in source
     assert "memory_context_json" in source
     assert "rag_context_json" in source
-    assert "normalization_context_not_source_evidence" in source
-    assert "prior_analysis_context_not_source_evidence" in source
     assert "formula_of_populism.db" not in source
+    # Provenance labelling moved to the shared bounded packet (#257): Step 6 no
+    # longer carries stage-local role literals, it delegates to the one builder.
+    # The guarantee is unchanged and is asserted where it now lives.
+    assert "from ep24_evidence_packets import evidence_packet" in source
+    packet = Path("ep24_evidence_packets.py").read_text(encoding="utf-8")
+    assert "prior model output is descriptive context, not direct speech" in packet
+    assert "researcher normalization, not source quote" in packet
+    # Memory and RAG context must not be able to enter Step 6's packet at all.
+    assert "memory_context_json" not in packet
+    assert "rag_context_json" not in packet
 
 
 def test_memory_schema_migration_creates_backup_and_temporal_columns(tmp_path):

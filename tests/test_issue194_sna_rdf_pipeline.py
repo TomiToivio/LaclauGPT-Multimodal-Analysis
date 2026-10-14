@@ -77,7 +77,13 @@ def test_human_report_separates_empirical_graph_and_castells_interpretation():
     assert "## Basic network statistics" in report
     assert "## Castellsian interpretation" in report
     assert "theory prompt cannot add nodes or edges" in report
-    assert "programmer or switcher" in report
+    # The interpretation is no longer inlined: the report points at the separate,
+    # persisted artefact instead (#283), which is the separation this test is named
+    # for. The interpretive terms stay in the caveats, and the theory text must not
+    # appear in the empirical report at all.
+    assert "Refer to sna_castells_interpretation_markdown" in report
+    assert "programmer, switcher" in report
+    assert "no programmer or switcher role can be established" not in report
 
 
 def test_rdf_projects_same_sna_node_and_edge_identity_with_provenance():
@@ -85,6 +91,9 @@ def test_rdf_projects_same_sna_node_and_edge_identity_with_provenance():
     metrics = basic_metrics(nodes, edges)
     row = {
         **ROW,
+        # The RDF projection is fail-closed on the stage status: a graph is only
+        # projected for a row whose SNA step reported ok.
+        "sna_status": "ok",
         "sna_nodes_json": json.dumps(nodes),
         "sna_edges_json": json.dumps(edges),
         "sna_metrics_json": json.dumps(metrics),

@@ -340,8 +340,11 @@ class _Model:
         self.stance = kw.get("stance", "")
         self.agreement = kw.get("agreement", "uncertain")
         self.date_time = kw.get("date_time", "")
-        self.evidence_quote = kw.get("evidence_quote", "")
-        self.evidence_fields = kw.get("evidence_fields", [])
+        # Defaults are grounded: the v3 evidence gate keeps only statements whose
+        # quote is present in a named source field, so a fixture with no evidence
+        # is testing the gate rather than the behaviour under test.
+        self.evidence_quote = kw.get("evidence_quote", _row()["asr_translated"])
+        self.evidence_fields = kw.get("evidence_fields", ["asr_translated"])
         self.confidence = kw.get("confidence", 0.5)
         self.uncertainty_notes = kw.get("uncertainty_notes", [])
         self.counter_evidence = kw.get("counter_evidence", [])
@@ -373,7 +376,7 @@ def _row(**overrides) -> pd.Series:
 
 def test_resolved_entities_supply_the_stable_actor_id():
     parsed = _Parsed([_Model(actor_name="Pääministeri Orpo", concept_label="climate policy",
-                             agreement="support", evidence_quote="q")])
+                             agreement="support")])
     records = step7._statement_records(parsed, _row(), context_hash="h", entity_lookup={
         fold_key("Pääministeri Orpo"): {"entity_id": "actor:orpo", "canonical_name": "Petteri Orpo"}
     })
@@ -406,6 +409,32 @@ def test_statements_without_actor_or_concept_are_dropped_not_invented():
     ])
     records = step7._statement_records(parsed, _row(), context_hash="h", entity_lookup={})
     assert len(records) == 1
+
+
+
+# --- 6b. source-grounded evidence (#240) ------------------------------------
+
+def test_a_quote_the_row_does_not_contain_is_not_evidence():
+    """Provenance is verified against the source, never trusted from the model."""
+    parsed = _Parsed([_Model(actor_name="A", concept_label="c", agreement="support",
+                             evidence_quote="a sentence nobody in this row ever said")])
+    assert step7._statement_records(parsed, _row(), context_hash="h", entity_lookup={}) == []
+
+
+def test_a_quote_present_in_the_named_source_field_is_kept():
+    parsed = _Parsed([_Model(actor_name="A", concept_label="c", agreement="support",
+                             evidence_quote="we must tighten climate policy")])
+    records = step7._statement_records(parsed, _row(), context_hash="h", entity_lookup={})
+    assert len(records) == 1
+    assert records[0]["evidence_quote"] == "we must tighten climate policy"
+
+
+def test_memory_or_rag_columns_cannot_ground_a_quote():
+    """A remembered sentence may not be cited as this document's evidence."""
+    parsed = _Parsed([_Model(actor_name="A", concept_label="c", agreement="support",
+                             evidence_quote="we must tighten climate policy",
+                             evidence_fields=["memory_context_json"])])
+    assert step7._statement_records(parsed, _row(), context_hash="h", entity_lookup={}) == []
 
 
 def test_multiple_actors_and_concepts_in_one_record():

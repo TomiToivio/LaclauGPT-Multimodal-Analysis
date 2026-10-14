@@ -220,7 +220,9 @@ def _grounded_edge_candidates(edges, evidence: str):
     # also contains DNA/model-derived statements and normalization metadata;
     # searching the entire packet would launder those into apparent source proof.
     source_fields = {"asr_transcript", "asr_translation", "ocr_1"}
-    sections = re.split(r"\n\[([^|\]]+) \| [^\]]+\]\n", evidence)
+    # Accept the real packet heading ("[field | label]") and the bare "[field]"
+    # form, and a heading that opens the evidence string.
+    sections = re.split(r"(?:^|\n)\[([^|\]]+?)(?: \| [^\]]+)?\]\n", evidence)
     original_spans = [
         sections[i + 1].removesuffix(" [TRUNCATED]")
         for i in range(1, len(sections) - 1, 2)
@@ -282,6 +284,10 @@ def _network_relation_gate(edges):
             if not any(token in q for token in (
                 "member of", "member", "jäsen", "edustaja", "elected",
                 "työskentelen", "työskennellyt", "employee", "works for",
+                # First-person service wording is explicit membership evidence too:
+                # "I have worked in Parliament" asserts the affiliation the gate
+                # exists to verify, so refusing it is a false negative (#238).
+                "worked in", "worked for", "have worked",
                 "minister", "ministeri", "puolueen",
             )):
                 LOG.warning("sna_affiliation_unverified target=%s", target)
