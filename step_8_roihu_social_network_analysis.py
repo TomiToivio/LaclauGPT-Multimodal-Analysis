@@ -40,21 +40,44 @@ from ep24_sna import (
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG = logging.getLogger("step_8_roihu_social_network_analysis")
 
-PROMPT_VERSION = "ep24-sna-extraction/2.2-source-quote-check"
+PROMPT_VERSION = "ep24-sna-extraction/3.0-multiplex-evidence"
 CASTELLS_PROMPT_VERSION = "ep24-sna-castells/1.0"
 
-EXTRACTION_SYSTEM = """You extract evidence-supported social/communication network relations
-from an EP24 social-media analysis. Create an edge only when supplied evidence explicitly
-supports a relation between two actors or organizations. Do not infer friendship,
-ideology, coordination, influence, hidden ties, or causality. Distinguish mention,
-reply, support, opposition, affiliation, co-appearance, quotation, and other explicit
-relation types only where justified. Copy a VERBATIM evidence_quote from the
-supplied source/DNA packet for every edge. Never invent or paraphrase a quote.
-The edge list is empirical coding: theory must not change topology. Return a concise empirical Markdown summary and structured edges."""
+EXTRACTION_SYSTEM = """Extract only empirical actor-to-actor communication or institutional
+relations from this EP24 record. One source video produces evidence-backed EVENTS,
+not a complete social network. Return structured JSON with verbatim quotes.
+
+STRICT NETWORK LAYER SEPARATION:
+- Disagreement with an actor's policy is DNA, NOT social opposition.
+- Endorsing EU membership is NOT a communication/support edge to the EU.
+- A topical reference to Ukraine, NATO, the EU or a government does NOT by
+  itself demonstrate an interaction. A news organization's authored mention
+  of a named person can be a communication_mention event, but NOT direct contact.
+- Generic audiences ('voters', 'citizens', 'people') are NOT identifiable actor
+  nodes. Calls to vote may be documented in narrative but create no SNA edge.
+- A social-media 'Followed by X' interface screenshot is a platform observation,
+  NOT evidence of message transmission. Do not extract it as social contact.
+- Do not infer committee membership from someone mentioning work in a committee;
+  require explicit evidence of membership or confirmed employment.
+- A publisher reporting or quoting a third party is a mediated quotation event,
+  not a reply or direct communication with that speaker.
+- A generic office ('Finland's defence minister') is a provisional role, not a
+  verified person. Do not conflate roles, organizations, accounts and individuals.
+- Explicitly distinguish relation families: communication_mention, reply,
+  quotation, repost, direct_interaction, and institutional_affiliation.
+  Never use 'support', 'opposition', 'advocacy', 'topic' as social ties.
+- Prefer ZERO edges to a speculative or weakly inferred edge.
+- Every edge requires two identifiable actors/organizations, a verbatim quote
+  from original-source evidence (not DNA/model interpretation), and appropriate
+  relation type. No inferred coordination, influence, motives or hidden ties.
+- Keep single-video results descriptive; network power, hubs, programmer and
+  switcher roles require aggregated longitudinal observations.
+The empirical edge list is fixed before any Castells interpretation.
+"""
 
 CASTELLS_SYSTEM = """Interpret the supplied, already-constructed social network through a
 limited Manuel Castells network-society / Communication Power lens. The graph topology is
-fixed: NEVER add, remove, infer, or rename nodes or edges. Discuss communication networks,
+fixed: NEVER add, remove, infer, or rename nodes or edges. This is only a single-document EVENT FRAGMENT, not a whole societal network. Do not attribute network-making power, significant hubs or brokerage from this fragment. Discuss communication networks,
 flows, inclusion/exclusion, communication power and network-making power only to the
 extent visible in the supplied graph. Use 'programmer' or 'switcher' only when the
 observed relations provide specific evidence; otherwise explicitly say the role cannot be
@@ -205,6 +228,42 @@ def _grounded_edge_candidates(edges, evidence: str):
     return accepted
 
 
+# Only relation families supported by this empirical communication/affiliation layer.
+_ALLOWED_RELATIONS = {
+    "communication_mention", "mention", "reply", "quotation", "repost",
+    "direct_interaction", "institutional_affiliation", "affiliation",
+}
+_FORBIDDEN_NODE_LABELS = {
+    "voters", "the voters", "general electorate", "citizens", "people",
+    "audience", "the public", "european union membership", "eu membership",
+}
+def _network_relation_gate(edges):
+    """Fail closed on ideological edges and generic-audience endpoints."""
+    accepted = []
+    for edge in edges:
+        relation = str(edge.relation_type).strip().casefold()
+        source = str(edge.source_actor).strip().casefold()
+        target = str(edge.target_actor).strip().casefold()
+        if relation not in _ALLOWED_RELATIONS:
+            LOG.warning("sna_non_social_relation relation=%s", relation)
+            continue
+        if (source in _FORBIDDEN_NODE_LABELS or target in _FORBIDDEN_NODE_LABELS
+            or "electorate" in target or "voters" in target):
+            LOG.warning("sna_generic_actor relation=%s target=%s", relation, target)
+            continue
+        if relation in {"affiliation", "institutional_affiliation"}:
+            # A weak topical mention does not prove membership.
+            q = str(edge.evidence_quote).casefold()
+            if not any(token in q for token in (
+                "member of", "member", "jäsen", "edustaja", "elected",
+                "työskentelen", "työskennellyt", "employee", "works for",
+                "minister", "ministeri", "puolueen",
+            )):
+                LOG.warning("sna_affiliation_unverified target=%s", target)
+                continue
+        accepted.append(edge)
+    return accepted
+
 def build_sna_evidence(row) -> str:
     """Backward-compatible interface for source-grounded Step 8 evidence."""
     from ep24_evidence_packets import evidence_packet
@@ -354,7 +413,7 @@ def run_language(lang: str) -> Path | None:
                 options={"temperature": 0.0, "num_ctx": 8192},
             )
             extracted = SNAResult.model_validate_json(response["message"]["content"])
-            raw_edges = _enrich_edges(_grounded_edge_candidates(extracted.edges, evidence), row)
+            raw_edges = _enrich_edges(_network_relation_gate(_grounded_edge_candidates(extracted.edges, evidence)), row)
             nodes, edges = graph_from_edges(raw_edges, row)
             # Issue #197: enrichment only supplies a canonical id when the mention
             # matches a resolved label exactly, so a bare surname, a title-prefixed
