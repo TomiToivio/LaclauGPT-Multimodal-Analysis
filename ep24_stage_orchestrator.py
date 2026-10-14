@@ -202,7 +202,16 @@ def persist_batch(
             fields[f"{status_path(step)}.error_type"] = "StageRowFailed"
         collection.update_one({"_storage_id": rid}, {"$set": fields}, upsert=False)
     if failures:
-        LOG.error("STEP_ROW_FAILURES step=%d failures=%d total=%d; inspect review CSV and logs/frame.log; retry errors with --retry-errors", step, failures, len(output))
+        bad = output.loc[~output[result_field].astype(str).str.strip().str.lower().isin(accepted)] if result_field else output.iloc[0:0]
+        detail_columns = [col for col in ("_storage_id", "video_id", result_field,
+                          "preprocess_note", "frame_analysis_error", "vllm_video_error",
+                          "dna_error", "sna_error") if col and col in bad.columns]
+        LOG.error(
+            "STEP_ROW_FAILURES step=%d failures=%d total=%d failed_rows=%s; "
+            "inspect step_%02d_failed_batch.csv under country output and retry with --retry-errors",
+            step, failures, len(output),
+            bad[detail_columns].head(10).to_dict(orient="records"), step,
+        )
         raise RuntimeError(f"Step {step}: {failures}/{len(output)} rows failed; kept as retryable Mongo errors")
 
 
