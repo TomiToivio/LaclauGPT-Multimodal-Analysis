@@ -40,7 +40,7 @@ from ep24_sna import (
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG = logging.getLogger("step_8_roihu_social_network_analysis")
 
-PROMPT_VERSION = "ep24-sna-extraction/3.0-multiplex-evidence"
+PROMPT_VERSION = "ep24-sna-extraction/3.1-audited-relations"
 CASTELLS_PROMPT_VERSION = "ep24-sna-castells/1.0"
 
 EXTRACTION_SYSTEM = """Extract only empirical actor-to-actor communication or institutional
@@ -128,7 +128,12 @@ def _enrich_edges(edges, row) -> list[dict]:
     enriched: list[dict] = []
     for edge in edges:
         item = edge.model_dump()
-        item["network_layer"] = "social"
+        item["network_layer"] = (
+            "institutional" if str(edge.relation_type).casefold() in
+            {"institutional_affiliation", "affiliation"} else "communication"
+        )
+        item["evidence_modality"] = "source_packet"
+        item["model_confidence"] = item.get("confidence")
         source_hit = lookup.get(fold_key(edge.source_actor))
         target_hit = lookup.get(fold_key(edge.target_actor))
         if source_hit:
@@ -231,7 +236,7 @@ def _grounded_edge_candidates(edges, evidence: str):
 # Only relation families supported by this empirical communication/affiliation layer.
 _ALLOWED_RELATIONS = {
     "communication_mention", "mention", "reply", "quotation", "repost",
-    "direct_interaction", "institutional_affiliation", "affiliation",
+    "direct_interaction", "institutional_affiliation", "affiliation", "reported_statement",
 }
 _FORBIDDEN_NODE_LABELS = {
     "voters", "the voters", "general electorate", "citizens", "people",
@@ -244,6 +249,12 @@ def _network_relation_gate(edges):
         relation = str(edge.relation_type).strip().casefold()
         source = str(edge.source_actor).strip().casefold()
         target = str(edge.target_actor).strip().casefold()
+        if relation == "quotation":
+            # Attribution ("X said that") alone is reported speech, not verbatim quoting.
+            quote = str(edge.evidence_quote).casefold()
+            if any(marker in quote for marker in ("sanoi, että", "said that", "reported that")):
+                edge.relation_type = "reported_statement"
+                relation = "reported_statement"
         if relation not in _ALLOWED_RELATIONS:
             LOG.warning("sna_non_social_relation relation=%s", relation)
             continue
@@ -251,6 +262,10 @@ def _network_relation_gate(edges):
             or "electorate" in target or "voters" in target):
             LOG.warning("sna_generic_actor relation=%s target=%s", relation, target)
             continue
+        if relation in {"mention", "communication_mention", "reported_statement", "quotation"}:
+            # A mention alone is not evidence of reciprocal interaction.
+            # The downstream graph records directed source-authored reference only.
+            pass
         if relation in {"affiliation", "institutional_affiliation"}:
             # A weak topical mention does not prove membership.
             q = str(edge.evidence_quote).casefold()
@@ -400,6 +415,13 @@ def run_language(lang: str) -> Path | None:
                  truncation["fields_truncated"], truncation["characters_lost"])
         if not any(str(row.get(name) or "").strip() for name in ("asr_transcript", "asr_translation", "ocr_1", "dna_statements_json")):
             df.at[index, "sna_status"] = "no_evidence"
+            df.at[index, "sna_error"] = ""
+            df.at[index, "sna_nodes_json"] = "[]"
+            df.at[index, "sna_edges_json"] = "[]"
+            df.at[index, "sna_metrics_json"] = json.dumps(
+                {**basic_metrics([], []), "empty_reason": "no_source_evidence"},
+                ensure_ascii=False, sort_keys=True,
+            )
             continue
 
         try:
@@ -422,6 +444,9 @@ def run_language(lang: str) -> Path | None:
             # metrics, so node_count/density/degree are not inflated by the split.
             nodes, edges, reconciliation = reconcile_actor_nodes(nodes, edges, row)
             metrics = basic_metrics(nodes, edges)
+            metrics["empty_reason"] = (
+                "no_supported_actor_relation" if not edges else ""
+            )
             metrics = apply_reconciliation_metrics(metrics, reconciliation)
             if reconciliation["merged_count"] or reconciliation["ambiguous_count"]:
                 LOG.info(
@@ -459,6 +484,8 @@ def run_language(lang: str) -> Path | None:
         except Exception as exc:
             df.at[index, "sna_status"] = "error"
             df.at[index, "sna_error"] = f"{type(exc).__name__}: {exc}"
+            LOG.error("STEP8_ROW_ERROR item=%s type=%s retryable=true detail=%s",
+                      row.get("_storage_id", ""), type(exc).__name__, exc)
             LOG.exception("SNA failed row=%s file=%s", index, input_path)
 
     write_cumulative_csv(original, df, output_path)
