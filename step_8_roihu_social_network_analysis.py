@@ -293,10 +293,12 @@ def _network_relation_gate(edges):
             pass
         if relation in {"affiliation", "institutional_affiliation"}:
             # A weak topical mention does not prove membership.
+            # The quote has to state membership, office, employment or a work role.
             q = str(edge.evidence_quote).casefold()
             if not any(token in q for token in (
                 "member of", "member", "jäsen", "edustaja", "elected",
                 "työskentelen", "työskennellyt", "employee", "works for",
+                "work for", "work in", "work at", "worked", "töissä",
                 "minister", "ministeri", "puolueen",
             )):
                 LOG.warning("sna_affiliation_unverified target=%s", target)

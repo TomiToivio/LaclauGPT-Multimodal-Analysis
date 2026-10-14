@@ -81,11 +81,22 @@ class RDFExportTests(unittest.TestCase):
         self.assertFalse((self.root / "run").exists())
         self.assertFalse((self.root / "state.sqlite").exists())
 
-    def test_bad_headers_and_reserved_names_are_rejected(self):
-        for data in ("a,a\n1,2\n", "a,\n1,2\n", "rdf_status\nok\n", ""):
+    def test_bad_headers_are_rejected(self):
+        for data in ("a,a\n1,2\n", "a,\n1,2\n", ""):
             self.input.write_text(data)
             with self.assertRaises(ValueError):
                 export(self.args(dry_run=True))
+
+    def test_rerun_input_carrying_rdf_output_columns_is_replaced_not_rejected(self):
+        """A Step 9 rerun reads its own previous output; recompute, do not refuse.
+
+        Rejecting ``rdf_*`` columns made a rerun impossible from a Mongo row that
+        already carried them. ``project_row`` now skips those columns when it
+        embeds cells and ``export`` de-duplicates them in the writer, so they are
+        replaced rather than duplicated.
+        """
+        self.input.write_text("a,rdf_status,rdf_row_uri\n1,ok,https://old/row\n")
+        self.assertEqual(export(self.args(dry_run=True))["status"], "dry-run")
 
     def test_structural_failure_retains_cache_without_success_manifest(self):
         with self.input.open("a") as stream:

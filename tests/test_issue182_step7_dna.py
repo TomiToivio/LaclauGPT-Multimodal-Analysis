@@ -340,8 +340,13 @@ class _Model:
         self.stance = kw.get("stance", "")
         self.agreement = kw.get("agreement", "uncertain")
         self.date_time = kw.get("date_time", "")
-        self.evidence_quote = kw.get("evidence_quote", "")
-        self.evidence_fields = kw.get("evidence_fields", [])
+        # Step 7 now admits a statement only when it carries a verbatim quote and at
+        # least one named source field; a claim without evidence is dropped rather
+        # than turned into a DNA statement. These tests are about stance, identity
+        # and timestamps, so the fixture supplies valid evidence by default and the
+        # no-evidence path is exercised explicitly where it is the subject.
+        self.evidence_quote = kw.get("evidence_quote", "verbatim synthetic source span")
+        self.evidence_fields = kw.get("evidence_fields", ["asr_transcript"])
         self.confidence = kw.get("confidence", 0.5)
         self.uncertainty_notes = kw.get("uncertainty_notes", [])
         self.counter_evidence = kw.get("counter_evidence", [])

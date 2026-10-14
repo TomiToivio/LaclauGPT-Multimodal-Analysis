@@ -676,11 +676,14 @@ def process_country(country: str | None = None) -> Path:
                     out.at[index, "dna_generated_at"] = generated_at
                     out.at[index, "dna_context_sha256"] = context_hash
                     out.at[index, "dna_context_truncated"] = json.dumps(truncated)
-                    out.at[index, "dna_statement_count"] = counts["statement_count"]
-                    out.at[index, "dna_binary_count"] = counts["binary_count"]
-                    out.at[index, "dna_uncertain_count"] = counts["uncertain_count"]
-                    out.at[index, "dna_actor_unresolved_count"] = counts["actor_unresolved_count"]
-                    out.at[index, "dna_concept_novel_count"] = counts["concept_novel_count"]
+                    # The mirror frame is all-strings, like the CSV/Mongo contract it
+                    # is written to; the count fields are recorded as text rather
+                    # than ints so an int into a StringDtype column cannot raise.
+                    out.at[index, "dna_statement_count"] = str(counts["statement_count"])
+                    out.at[index, "dna_binary_count"] = str(counts["binary_count"])
+                    out.at[index, "dna_uncertain_count"] = str(counts["uncertain_count"])
+                    out.at[index, "dna_actor_unresolved_count"] = str(counts["actor_unresolved_count"])
+                    out.at[index, "dna_concept_novel_count"] = str(counts["concept_novel_count"])
                     out.at[index, "dna_codebook_fingerprint"] = _text(
                         (context_handle[2].get("codebook_fingerprint", "") if context_handle else "")
                         or row.get("ep24_codebook_fingerprint", "")

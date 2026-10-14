@@ -155,8 +155,14 @@ def test_populism_uses_shared_context_architecture():
     assert "codebook_context_json" in source
     assert "memory_context_json" in source
     assert "rag_context_json" in source
-    assert "normalization_context_not_source_evidence" in source
-    assert "prior_analysis_context_not_source_evidence" in source
+    # The two provenance labels are defined once in the shared layer: the memory
+    # layer sets `evidence_role`, and the shared evidence-packet builder applies it
+    # to the stage-6 packet. So the stage is checked for *delegating* to that layer
+    # -- which is the architecture this test is named for -- rather than for copying
+    # the label text. Inlining the literal would be the defect, not the requirement.
+    assert "from ep24_evidence_packets import evidence_packet" in source
+    assert "normalization_context_not_source_evidence" not in source
+    assert "prior_analysis_context_not_source_evidence" not in source
     assert "formula_of_populism.db" not in source
 
 

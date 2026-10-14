@@ -77,7 +77,13 @@ def test_human_report_separates_empirical_graph_and_castells_interpretation():
     assert "## Basic network statistics" in report
     assert "## Castellsian interpretation" in report
     assert "theory prompt cannot add nodes or edges" in report
-    assert "programmer or switcher" in report
+    # The separation is the point: the empirical graph is embedded, and the
+    # Castells reading is persisted independently and only referenced, so an
+    # interpretation can never be read back as graph evidence.
+    assert "sna_castells_interpretation_markdown" in report
+    assert "programmer or switcher" not in report
+    # The caveat still names the interpretive vocabulary, so the concepts are not lost.
+    assert "switcher" in report
 
 
 def test_rdf_projects_same_sna_node_and_edge_identity_with_provenance():
@@ -85,6 +91,9 @@ def test_rdf_projects_same_sna_node_and_edge_identity_with_provenance():
     metrics = basic_metrics(nodes, edges)
     row = {
         **ROW,
+        # Step 9 projects the SNA graph only for a row whose SNA stage reported
+        # success; an unstatused row is projected as data without a graph.
+        "sna_status": "ok",
         "sna_nodes_json": json.dumps(nodes),
         "sna_edges_json": json.dumps(edges),
         "sna_metrics_json": json.dumps(metrics),
