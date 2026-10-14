@@ -180,7 +180,7 @@ def persist_batch(
     collection = storage.db[storage.collection_name("dataframe")]
     completed_at = datetime.now(timezone.utc).isoformat()
     status_fields = {1: "preprocess_status", 2: "frame_analysis_status",
-                     3: "vllm_video_status", 6: "laclau_status", 8: "sna_status"}
+                     3: "vllm_video_status", 6: "laclau_status", 7: "dna_status", 8: "sna_status"}
     result_field = status_fields.get(step)
     failures = 0
     for _, row in output.iterrows():
