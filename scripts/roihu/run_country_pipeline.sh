@@ -53,14 +53,13 @@ RETRY_ARGS=()
 (( RETRY )) && RETRY_ARGS+=(--retry-errors)
 
 for (( STEP=FROM_STEP; STEP<=TO_STEP; STEP++ )); do
-  DEP_ARGS=()
-  if [[ -n "${PREVIOUS}" ]]; then
-    DEP_ARGS+=(--dependency="afterok:${PREVIOUS}")
-  fi
-  # The last output line is "Submitted batch job <id>" unless --parsable is set.
-  # Call the existing maintained single-step wrapper so profiles and log paths
-  # remain canonical. Forward sbatch flags after the stage-script arguments.
-  OUTPUT="$(bash "${SCRIPT_DIR}/run_step.sh" "${STEP}" --parsable "${DEP_ARGS[@]}" \
+  # Submit through the maintained wrapper, with SLURM flags applied before
+  # the batch script rather than accidentally forwarded to the Python CLI.
+  DEPENDENCY=""
+  [[ -n "${PREVIOUS}" ]] && DEPENDENCY="afterok:${PREVIOUS}"
+  OUTPUT="$(LACLAUGPT_SBATCH_DEPENDENCY="${DEPENDENCY}" \
+    LACLAUGPT_SBATCH_PARSABLE=1 \
+    bash "${SCRIPT_DIR}/run_step.sh" "${STEP}" \
     --country "${COUNTRY}" --limit "${LIMIT}" "${RETRY_ARGS[@]}")"
   JOB_ID="$(printf '%s\n' "${OUTPUT}" | tail -n 1)"
   JOB_ID="${JOB_ID%%;*}"
