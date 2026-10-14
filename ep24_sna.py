@@ -65,6 +65,20 @@ def node_identity(label: str, *, entity_id: str = "", node_type: str = "actor") 
     return f"{node_type}:{_hash(node_type, label.casefold())}"
 
 
+def _actor_label(raw: Any) -> str:
+    """Remove reporting-context qualifiers, never identity-bearing names.
+
+    Model-generated qualifiers are provenance annotations, not separate people.
+    Only the explicit presentation suffixes below are stripped; ambiguous
+    identities must still remain distinct until reconciliation.
+    """
+    label = _text(raw)
+    return re.sub(
+        r"\\s*\\((?:as reported by (?:the )?speaker|reported by speaker)\\)\\s*$",
+        "", label, flags=re.IGNORECASE,
+    ).strip()
+
+
 def graph_from_edges(
     raw_edges: Iterable[Mapping[str, Any]],
     row: Mapping[str, Any],
@@ -80,10 +94,10 @@ def graph_from_edges(
     edges: list[dict[str, Any]] = []
 
     for raw in raw_edges:
-        source_label = _text(
+        source_label = _actor_label(
             raw.get("source_actor_canonical_name") or raw.get("source_actor")
         )
-        target_label = _text(
+        target_label = _actor_label(
             raw.get("target_actor_canonical_name") or raw.get("target_actor")
         )
         relation = _text(raw.get("relation_type"))
