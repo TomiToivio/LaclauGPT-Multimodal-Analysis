@@ -220,8 +220,11 @@ def build_packet(
     is dropped before evidence, and any truncation is reported per field rather than implied.
     """
     budget = budget or stage_budget(stage)
+    supplied = list(streams)
+    if any(s.kind not in (EVIDENCE, CONTEXT) for s in supplied):
+        raise ValueError("stream kind must be 'evidence' or 'context'")
     ordered = sorted(
-        (s for s in streams),
+        supplied,
         key=lambda s: (s.kind == CONTEXT, s.priority, s.name.casefold()),
     )
     if not include_context:
@@ -250,7 +253,8 @@ def build_packet(
             StreamReport(stream.name, stream.kind, cap, original, len(kept), kept == "")
         )
 
-    text = "\n\n".join(blocks) if blocks else NO_EVIDENCE
+    # Even the empty-input notice must not exceed the model-visible budget.
+    text = "\n\n".join(blocks) if blocks else NO_EVIDENCE[:budget.evidence_chars]
     return Packet(stage, text, tuple(reports), budget.evidence_chars, budget.output_reserve_chars)
 
 
