@@ -714,11 +714,11 @@ def bounded_video_context(row: pd.Series | None) -> str:
 
 def validate_video_analysis(text: str) -> tuple[bool, str]:
     """Reject malformed, generic and repetition-loop text before marking complete."""
-    body = re.sub(r'\\{\\s*"SCROLL"\\s*:\\s*(?:true|false).*', "", text, flags=re.I | re.S).strip()
+    body = re.sub(r'\{\s*"SCROLL"\s*:\s*(?:true|false).*', "", text, flags=re.I | re.S).strip()
     if len(body) < 140:
         return False, "analysis_too_short"
     # Reject responses with no content beyond a verdict and uncertainty boilerplate.
-    if re.match(r"^\\s*(?:\\*\\*)?OK(?:\\*\\*)?\\s*[\\n\\r]+\\s*Uncertainty:", body, re.I):
+    if re.match(r"^\s*(?:\*\*)?OK(?:\*\*)?\s*[\n\r]+\s*Uncertainty:", body, re.I):
         return False, "missing_video_description"
     # Reject loops of repeated long phrases even when overall length is large.
     normalized = re.sub(r"\\s+", " ", body.lower())

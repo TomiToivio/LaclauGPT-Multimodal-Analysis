@@ -30,6 +30,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -208,6 +209,30 @@ def _models() -> type:
     return DNAResult
 
 
+def normalized_for_match(value: Any) -> str:
+    """Whitespace-normalised, casefolded text for verbatim grounding checks."""
+    return re.sub(r"\s+", " ", str(value if value is not None else "")).strip().casefold()
+
+
+def quote_is_grounded(quote: Any, fields: Any, row: pd.Series) -> bool:
+    """True only when the quote's words occur in a field it names as evidence.
+
+    Naming a field is a claim about provenance; this is what makes it a fact. A
+    quote the row does not contain cannot support a statement, so the statement
+    is dropped rather than written with a citation pointing at text nobody said.
+    Memory/RAG columns are not on the row's source fields, so they cannot ground
+    a quote by construction (#240).
+    """
+    target = normalized_for_match(quote)
+    if len(target) < 8:
+        return False
+    for name in fields or ():
+        source = normalized_for_match(row.get(str(name), ""))
+        if source and source not in ("nan", "none", "[]", "{}") and target in source:
+            return True
+    return False
+
+
 def _text(value: Any) -> str:
     if value is None:
         return ""
@@ -348,6 +373,13 @@ def _statement_records(
         if not _text(item.evidence_quote) or not item.evidence_fields:
             LOG.warning("Step7 omitted unsupported claim record=%s actor=%s concept=%s",
                         record_id, raw_actor, concept)
+            continue
+        # A named field is still only the model's claim about its own provenance.
+        # The quote has to be present in that source text, or the statement would
+        # enter DNA citing words nobody spoke (#240).
+        if not quote_is_grounded(item.evidence_quote, item.evidence_fields, row):
+            LOG.warning("Step7 omitted ungrounded quote record=%s actor=%s concept=%s fields=%s",
+                        record_id, raw_actor, concept, list(item.evidence_fields))
             continue
 
         from ep24_entities import fold_key
@@ -682,11 +714,15 @@ def process_country(country: str | None = None) -> Path:
                     out.at[index, "dna_generated_at"] = generated_at
                     out.at[index, "dna_context_sha256"] = context_hash
                     out.at[index, "dna_context_truncated"] = json.dumps(truncated)
-                    out.at[index, "dna_statement_count"] = counts["statement_count"]
-                    out.at[index, "dna_binary_count"] = counts["binary_count"]
-                    out.at[index, "dna_uncertain_count"] = counts["uncertain_count"]
-                    out.at[index, "dna_actor_unresolved_count"] = counts["actor_unresolved_count"]
-                    out.at[index, "dna_concept_novel_count"] = counts["concept_novel_count"]
+                    # The cumulative CSV stores every cell as text (the step's own
+                    # contract), so these counters are written as strings: assigning
+                    # an int raises on a string-typed column and failed the whole row
+                    # with dna_status=error on any CSV that did not already carry them.
+                    out.at[index, "dna_statement_count"] = str(counts["statement_count"])
+                    out.at[index, "dna_binary_count"] = str(counts["binary_count"])
+                    out.at[index, "dna_uncertain_count"] = str(counts["uncertain_count"])
+                    out.at[index, "dna_actor_unresolved_count"] = str(counts["actor_unresolved_count"])
+                    out.at[index, "dna_concept_novel_count"] = str(counts["concept_novel_count"])
                     out.at[index, "dna_codebook_fingerprint"] = _text(
                         (context_handle[2].get("codebook_fingerprint", "") if context_handle else "")
                         or row.get("ep24_codebook_fingerprint", "")

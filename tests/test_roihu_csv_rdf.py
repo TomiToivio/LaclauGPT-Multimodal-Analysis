@@ -81,11 +81,22 @@ class RDFExportTests(unittest.TestCase):
         self.assertFalse((self.root / "run").exists())
         self.assertFalse((self.root / "state.sqlite").exists())
 
-    def test_bad_headers_and_reserved_names_are_rejected(self):
-        for data in ("a,a\n1,2\n", "a,\n1,2\n", "rdf_status\nok\n", ""):
+    def test_bad_headers_are_rejected(self):
+        for data in ("a,a\n1,2\n", "a,\n1,2\n", ""):
             self.input.write_text(data)
             with self.assertRaises(ValueError):
                 export(self.args(dry_run=True))
+
+    def test_rdf_output_columns_are_recomputed_not_rejected(self):
+        """Supersedes the reserved-name half of the case above.
+
+        "Allow deterministic Step 9 RDF reruns with existing rdf output columns"
+        (0614a3f) made a rerun input carrying the previous RDF output columns
+        valid: they are recomputed and replaced rather than refused. The
+        malformed-header refusals above are unchanged and still enforced.
+        """
+        self.input.write_text("rdf_status\nok\n")
+        self.assertEqual(export(self.args(dry_run=True))["status"], "dry-run")
 
     def test_structural_failure_retains_cache_without_success_manifest(self):
         with self.input.open("a") as stream:
