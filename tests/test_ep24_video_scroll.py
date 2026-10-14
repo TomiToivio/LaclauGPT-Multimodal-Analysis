@@ -154,8 +154,18 @@ def test_step2_is_strictly_one_frame_at_original_t1():
     assert "frame_file = str(row.get('frame_file', '')).strip()" in source
     assert "for i, frame_file in enumerate" not in source
     assert "frame_analysis_timestamp_seconds" in source
-    assert "VIDEO_INITIAL_SKIP_SECONDS" in source
     assert "frame_timestamp_seconds" in source
+    # Step 2 pins its own semantic constant (FRAME_TIMESTAMP_SECONDS); #139's
+    # invariant is that the frame is taken at the same second Step 1 skips to.
+    # Assert the agreement between the two, which is the rule, instead of the
+    # name of one file appearing in the other.
+    import re as _re
+
+    import ep24_video
+    pinned = _re.search(r"^FRAME_TIMESTAMP_SECONDS = ([0-9.]+)", source, _re.M)
+    assert pinned, "Step 2 must pin the keyframe timestamp it requires"
+    assert float(pinned.group(1)) == 1.0
+    assert ep24_video.VIDEO_INITIAL_SKIP_SECONDS == float(pinned.group(1))
 
 
 def test_readme_documents_frame_video_asr_division_of_labor():

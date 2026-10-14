@@ -7,7 +7,7 @@ usage() {
 Usage: bash scripts/roihu/run_country_pipeline.sh COUNTRY [--limit N] [--retry-errors] [--from-step N] [--to-step N]
 Example: bash scripts/roihu/run_country_pipeline.sh portugal --limit 0 --retry-errors
 Each stage starts only after the previous stage's SLURM job exits successfully.
-Completed MongoDB records are preserved; no --force reset is used.
+Completed MongoDB records are preserved; this chain never forces a reset.
 EOF
 }
 [[ $# -gt 0 ]] || { usage >&2; exit 2; }

@@ -48,6 +48,22 @@ source "${VENV}/bin/activate"
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r "${REQ}"
 
+# The Step 3 vLLM image does not necessarily include orchestration clients.
+# Confirm they landed inside the exact persistent venv used by Slurm.
+if [[ "${STEP}" == "3" ]]; then
+  python - <<'PY'
+import importlib
+import sys
+for name in ("pymongo", "redis"):
+    try:
+        module = importlib.import_module(name)
+    except ImportError as exc:
+        raise SystemExit(f"Step 3 setup incomplete: {name}: {exc}") from exc
+    print(f"Step 3 dependency ready: {name} {getattr(module, '__version__', 'unknown')} ({module.__file__})")
+print(f"Step 3 dependency interpreter: {sys.executable}")
+PY
+fi
+
 if roihu_step_needs_ollama "${STEP}"; then
   OLLAMA_INSTALL_ROOT="${OLLAMA_INSTALL_ROOT:-${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/.ollama}"
   if [[ ! -x "${OLLAMA_INSTALL_ROOT}/bin/ollama" ]]; then

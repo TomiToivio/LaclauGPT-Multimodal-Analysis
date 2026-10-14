@@ -19,6 +19,9 @@ def backend(monkeypatch):
         "LACLAUGPT_ASR_DOWNLOAD_ROOT",
     ):
         monkeypatch.delenv(key, raising=False)
+    # Reloading re-executes asr_backend in its own module dict, so every class it
+    # defines is rebound in place. Tests elsewhere must therefore reach these
+    # symbols through the module rather than importing them by name.
     import asr_backend
 
     return importlib.reload(asr_backend)
