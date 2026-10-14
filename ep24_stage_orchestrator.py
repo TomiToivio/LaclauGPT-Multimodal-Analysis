@@ -454,6 +454,14 @@ def run_country(
                         storage.collection_name("dataframe"),
                         storage.config.dataset, alternatives,
                     )
+                if step == 9 and upstream == 0:
+                    raise RuntimeError(
+                        f"Step 9 cannot run for country={country}: zero Step 8 "
+                        "completed records. Inspect Step 8 statuses in this exact "
+                        "MongoDB database/collection, then complete Step 8 for "
+                        "this country before retrying Step 9. --force on Step 9 "
+                        "cannot generate missing Step 8 results."
+                    )
                 if total_rows == 0:
                     raise RuntimeError(
                         f"Step {step} input collection is empty: "
