@@ -240,9 +240,14 @@ def build_prompt_context(row: pd.Series, *, max_chars: int | None = None) -> tup
 
 
 def _prompt_hash(context: str) -> str:
-    model = ollama_model()
-    payload = f"{PROMPT_VERSION}\n{model}\n{SYSTEM_PROMPT}\n{context}"
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    from ep24_prompt_contract import effective_prompt_fingerprint
+
+    metadata = _model_metadata()
+    return effective_prompt_fingerprint(
+        SYSTEM_PROMPT, f"{PROMPT_VERSION}\n{context}", metadata["model"],
+        {"temperature": metadata["temperature"], "num_ctx": metadata["num_ctx"],
+         "num_predict": metadata["num_predict"]},
+    )
 
 
 def _model_metadata() -> dict[str, Any]:
