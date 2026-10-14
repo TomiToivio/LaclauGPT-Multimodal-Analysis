@@ -20,7 +20,8 @@ export LACLAUGPT_EP24_PRIVATE_ROOT=${LACLAUGPT_EP24_PRIVATE_ROOT:-${PRIVATE_ROOT
 export LACLAUGPT_MAX_ROWS=${LACLAUGPT_MAX_ROWS:-0}
 export LACLAUGPT_EP24_INPUT_ROOT=${LACLAUGPT_EP24_INPUT_ROOT:-${PRIVATE_ROOT}/data/to_reprocess}
 export LACLAUGPT_EP24_OUTPUT_ROOT=${LACLAUGPT_EP24_OUTPUT_ROOT:-${PRIVATE_ROOT}/outputs}
-mkdir -p /scratch/project_2009497/logs "${LACLAUGPT_EP24_OUTPUT_ROOT}"
+LOG_ROOT="${LACLAUGPT_EP24_LOG_ROOT:-${PRIVATE_ROOT}/logs}"
+mkdir -p "${LOG_ROOT}" "${LACLAUGPT_EP24_OUTPUT_ROOT}"
 
 SBATCH="${PUBLIC_ROOT}/scripts/roihu/step_${STEP}_roihu_"
 case "${STEP}" in
@@ -38,4 +39,9 @@ esac
 [[ -f "${SBATCH}" ]] || { echo "Missing sbatch: ${SBATCH}" >&2; exit 2; }
 command -v sbatch >/dev/null || { echo "sbatch not found; run this on CSC Roihu login node" >&2; exit 2; }
 echo "Submitting EP24 Step ${STEP}: ${SBATCH}"
-sbatch --export=ALL "${SBATCH}" "$@"
+# Set output paths at submission time. SBATCH # directives do not expand
+# shell variables, so the private project logs directory belongs here.
+sbatch --export=ALL \
+  --output="${LOG_ROOT}/ep24_s${STEP}_%j.out" \
+  --error="${LOG_ROOT}/ep24_s${STEP}_%j.err" \
+  "${SBATCH}" "$@"
