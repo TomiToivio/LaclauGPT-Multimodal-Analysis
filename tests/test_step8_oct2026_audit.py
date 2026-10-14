@@ -49,3 +49,18 @@ def test_ideological_relationship_still_rejected():
         relation_type="support", evidence_quote="We support membership.",
     )
     assert _network_relation_gate([edge]) == []
+
+
+def test_reported_speaker_is_not_a_second_actor():
+    row = {"_storage_id": "story", "country": "FI"}
+    raw = [
+        {"source_actor": "Li Andersson", "target_actor": "Reporter",
+         "relation_type": "mention", "evidence_quote": "Li Andersson was cited."},
+        {"source_actor": "Reporter", "target_actor": "Li Andersson (as reported by speaker)",
+         "relation_type": "reported_statement", "evidence_quote": "Li Andersson said that."},
+    ]
+    nodes, edges = graph_from_edges(raw, row)
+    li_nodes = [n for n in nodes if n["label"] == "Li Andersson"]
+    assert len(li_nodes) == 1
+    assert len(nodes) == 2
+    assert edges[0]["source"] == edges[1]["target"]
