@@ -104,6 +104,8 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
     if strategy == "row-number-fallback":
         warnings.append("No stable source ID; row identity changes if input is reordered")
     for column, value in row.items():
+        if column in EXTRA_COLUMNS:
+            continue  # Do not embed stale RDF export metadata back into the graph.
         cell = uri(base, project, "cell", json.dumps([dataset, row_number, column]))
         lines.extend([triple(record, NS + "cell", cell, resource=True),
                       triple(cell, RDF_TYPE, NS + "CSVCell", resource=True),
@@ -276,8 +278,8 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
 def validate_header(header: list[str] | None) -> list[str]:
     if not header or any(not name for name in header) or len(set(header)) != len(header):
         raise ValueError("CSV must have nonempty, unique column names")
-    if set(header) & set(EXTRA_COLUMNS):
-        raise ValueError("Input already contains reserved rdf_* output columns; use the source CSV")
+    # A Mongo-based Step 9 rerun may contain the previous RDF output columns.
+    # Recompute and replace them rather than rejecting otherwise valid inputs.
     return header
 
 
@@ -331,7 +333,7 @@ def export(args: argparse.Namespace) -> dict:
                   (output / "warnings.jsonl").open("w", encoding="utf-8") as diagnostics):
                 reader = csv.DictReader(incoming)
                 columns = validate_header(reader.fieldnames)
-                writer = csv.DictWriter(final, fieldnames=columns + EXTRA_COLUMNS)
+                writer = csv.DictWriter(final, fieldnames=list(dict.fromkeys(columns + EXTRA_COLUMNS)))
                 writer.writeheader()
                 graph.write(triple(run, RDF_TYPE, PROV + "Activity", resource=True))
                 graph.write(triple(run, NS + "stageVersion", VERSION))
