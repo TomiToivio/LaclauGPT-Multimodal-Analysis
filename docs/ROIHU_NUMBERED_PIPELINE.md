@@ -18,6 +18,43 @@ The active EP24 workflow is intentionally boring to operate: **one Python file, 
 
 Step 3 is reserved now so Steps 4-9 never need renaming. Until the vLLM experiment is accepted, Step 3 is optional.
 
+## One command per country (recommended)
+
+Run this **on the Roihu login node** to submit all nine numbered stages
+as an ordered SLURM dependency chain:
+
+```bash
+cd /scratch/project_2009497/LaclauGPT-Multimodal-Analysis
+git pull --ff-only origin main
+bash scripts/roihu/run_country_pipeline.sh portugal --limit 0 --retry-errors
+```
+
+Replace `portugal` with `finland`, `poland`, or another available country.
+`--limit 0` processes all eligible records per stage, not just a pilot.
+`--retry-errors` includes previously failed rows but does not invalidate
+already-completed checkpoints. **Do not run separate jobs manually.**
+
+This submits nine jobs with `afterok` dependencies. Step N+1 starts only
+after Step N's SLURM job exits successfully. If a stage fails, downstream
+jobs remain blocked (and may be marked dependency-never-satisfied by SLURM).
+Fix the cause and submit the command again; previously completed MongoDB
+records are preserved. Each stage has its own environment and resource profile
+(GPU where needed, CPU for Step 9).
+
+To continue only later stages after earlier ones are complete:
+
+```bash
+bash scripts/roihu/run_country_pipeline.sh portugal --from-step 8 --to-step 9 --limit 0 --retry-errors
+```
+
+Submission records a TSV manifest in the private
+`analysis/ep24_reprocess/logs/` folder. SLURM stdout/stderr logs are
+`ep24_s<step>_<jobid>.out` and `.err` in that same directory. View jobs
+with `squeue -u "$USER"`. The dependency chain enforces batch-level order,
+not one-job-per-record streaming; each stage must finish its eligible dataset
+before its successor starts. A stage with no eligible work can finish without
+processing new rows if records were already completed.
+
 ## First demo: 100 videos/rows
 
 The numbered jobs default to:
