@@ -173,8 +173,46 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
                 triple(node, PROV + "wasDerivedFrom", record, resource=True),
             ])
 
+    # Step 7: retain the actor-concept qualifier as a reified discourse
+    # statement, NEVER as a social actor-actor relationship.
+    if row.get("dna_status", "").strip().lower() == "ok":
+        for index, statement in enumerate(json_records(row.get("dna_statements_json", ""))):
+            actor = str(statement.get("organization") or statement.get("actor_name_raw") or "").strip()
+            concept = str(statement.get("concept") or statement.get("concept_label_raw") or "").strip()
+            if not actor or not concept:
+                warnings.append("DNA statement lacks actor/concept; retained in raw cell")
+                continue
+            sid = str(statement.get("statement_id") or "").strip() or digest(
+                json.dumps([key, index, actor, concept], ensure_ascii=False))
+            statement_uri = uri(base, project, "dna-statement", sid)
+            actor_uri = uri(base, project, "dna-actor", str(statement.get("actor_id") or actor))
+            concept_uri = uri(base, project, "dna-concept", str(statement.get("concept_id") or concept))
+            lines.extend([
+                triple(statement_uri, RDF_TYPE, NS + "DNAStatement", resource=True),
+                triple(document, NS + "dnaStatement", statement_uri, resource=True),
+                triple(statement_uri, NS + "dnaActor", actor_uri, resource=True),
+                triple(statement_uri, NS + "dnaConcept", concept_uri, resource=True),
+                triple(actor_uri, RDF_TYPE, NS + "Actor", resource=True),
+                triple(actor_uri, NS + "label", actor),
+                triple(concept_uri, RDF_TYPE, NS + "DiscourseConcept", resource=True),
+                triple(concept_uri, NS + "label", concept),
+                triple(statement_uri, PROV + "wasDerivedFrom", record, resource=True),
+            ])
+            agreement = statement.get("agreement")
+            if agreement is not None and str(agreement).strip() != "":
+                # 0 is a legitimate opposition qualifier; never interpret as false.
+                qualifier = {"1": "support", "0": "oppose"}.get(str(agreement).strip(), "uncertain")
+                lines.append(triple(statement_uri, NS + "agreement", qualifier))
+            for field, pred in (("evidence_quote", "evidenceQuote"),
+                                ("date_time", "statementTime"),
+                                ("proposition", "proposition"),
+                                ("network_layer", "networkLayer")):
+                val = str(statement.get(field) or "").strip()
+                if val:
+                    lines.append(triple(statement_uri, NS + pred, val))
+
     sna_nodes: dict[str, str] = {}
-    for node_data in json_records(row.get("sna_nodes_json", "")):
+    for node_data in (json_records(row.get("sna_nodes_json", "")) if row.get("sna_status", "").strip().lower() == "ok" else []):
         node_id = str(node_data.get("node_id", "")).strip()
         label = str(node_data.get("label", "")).strip()
         if not node_id:
@@ -191,7 +229,7 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
         if label:
             lines.append(triple(node, NS + "label", label))
 
-    for edge_data in json_records(row.get("sna_edges_json", "")):
+    for edge_data in (json_records(row.get("sna_edges_json", "")) if row.get("sna_status", "").strip().lower() == "ok" else []):
         edge_id = str(edge_data.get("edge_id", "")).strip()
         source_id = str(edge_data.get("source", "")).strip()
         target_id = str(edge_data.get("target", "")).strip()
@@ -217,6 +255,8 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
         ])
         if evidence:
             lines.append(triple(edge, NS + "evidenceQuote", evidence))
+        layer = str(edge_data.get("network_layer") or "social").strip()
+        lines.append(triple(edge, NS + "networkLayer", layer))
         item_id = str(edge_data.get("canonical_item_id", "")).strip()
         if item_id:
             lines.append(triple(edge, NS + "canonicalItemId", item_id))
