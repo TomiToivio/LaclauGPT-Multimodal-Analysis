@@ -41,7 +41,15 @@ command -v sbatch >/dev/null || { echo "sbatch not found; run this on CSC Roihu 
 echo "Submitting EP24 Step ${STEP}: ${SBATCH}"
 # Set output paths at submission time. SBATCH # directives do not expand
 # shell variables, so the private project logs directory belongs here.
-sbatch --export=ALL \
+SBATCH_OPTIONS=()
+if [[ -n "${LACLAUGPT_SBATCH_DEPENDENCY:-}" ]]; then
+  [[ "${LACLAUGPT_SBATCH_DEPENDENCY}" =~ ^afterok:[0-9]+$ ]] || {
+    echo "Invalid LACLAUGPT_SBATCH_DEPENDENCY" >&2; exit 2;
+  }
+  SBATCH_OPTIONS+=(--dependency="${LACLAUGPT_SBATCH_DEPENDENCY}")
+fi
+[[ "${LACLAUGPT_SBATCH_PARSABLE:-0}" == "1" ]] && SBATCH_OPTIONS+=(--parsable)
+sbatch --export=ALL "${SBATCH_OPTIONS[@]}" \
   --output="${LOG_ROOT}/ep24_s${STEP}_%j.out" \
   --error="${LOG_ROOT}/ep24_s${STEP}_%j.err" \
   "${SBATCH}" "$@"
