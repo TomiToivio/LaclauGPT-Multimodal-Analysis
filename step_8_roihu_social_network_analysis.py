@@ -43,6 +43,35 @@ LOG = logging.getLogger("step_8_roihu_social_network_analysis")
 PROMPT_VERSION = "ep24-sna-extraction/3.1-audited-relations"
 CASTELLS_PROMPT_VERSION = "ep24-sna-castells/1.0"
 
+# Step 8's model-visible evidence budget.
+#
+# Steps 6 and 7 take their budget from ``ep24_evidence_packets``, which reads the shared
+# ``LACLAUGPT_STEP<stage>_MAX_CONTEXT_CHARS``. Step 8 passed an explicit value from its own
+# ``LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS`` instead, which silently shadowed the shared variable:
+# setting the shared name -- the exact analogue of what works for Steps 6 and 7 -- did nothing.
+# The shared name is preferred here, the historical name still works, and an unset or unusable
+# value falls back to the documented default, matching the policy ep24_prompt_contract states.
+STEP8_MIN_EVIDENCE_CHARS = 3000
+STEP8_DEFAULT_EVIDENCE_CHARS = 12000
+
+
+def step8_max_evidence_chars() -> int:
+    """The bounded, configurable evidence budget for Step 8 (issue #238)."""
+    for name in (
+        "LACLAUGPT_STEP8_MAX_CONTEXT_CHARS",   # shared with Steps 6/7: read by ep24_evidence_packets
+        "LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS",  # historical Step-8-only name, still honoured
+    ):
+        raw = os.getenv(name, "").strip()
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            break
+        return max(STEP8_MIN_EVIDENCE_CHARS, value)
+    return STEP8_DEFAULT_EVIDENCE_CHARS
+
+
 EXTRACTION_SYSTEM = """Extract only empirical actor-to-actor communication or institutional
 relations from this EP24 record. One source video produces evidence-backed EVENTS,
 not a complete social network. Return structured JSON with verbatim quotes.
@@ -158,11 +187,7 @@ def sna_evidence_report(row, *, model: str | None = None) -> tuple[str, dict, st
 
     from ep24_evidence_packets import META_FIELDS, SNA_FIELDS, evidence_packet
 
-    packet, _ = evidence_packet(
-        row, stage=8, max_chars=max(
-            3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000"))
-        )
-    )
+    packet, _ = evidence_packet(row, stage=8, max_chars=step8_max_evidence_chars())
     fields = [("asr_transcript", 5000), ("asr_translation", 1500),
               ("ocr_1", 1600), *SNA_FIELDS, *META_FIELDS]
     sections = {}
@@ -282,11 +307,7 @@ def _network_relation_gate(edges):
 def build_sna_evidence(row) -> str:
     """Backward-compatible interface for source-grounded Step 8 evidence."""
     from ep24_evidence_packets import evidence_packet
-    return evidence_packet(
-        row, stage=8, max_chars=max(
-            3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000"))
-        )
-    )[0]
+    return evidence_packet(row, stage=8, max_chars=step8_max_evidence_chars())[0]
 
 
 def _castells_interpretation(ollama, model: str, nodes, edges, metrics) -> str:

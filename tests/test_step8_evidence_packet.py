@@ -48,3 +48,48 @@ def test_sna_fingerprint_covers_model_and_evidence():
     a = sna_evidence_report(row, model="one")[2]
     assert a != sna_evidence_report(row, model="two")[2]
     assert a != sna_evidence_report(pd.Series({"asr_transcript": "Bob supported Alice."}), model="one")[2]
+
+def _budget_module():
+    from step_8_roihu_social_network_analysis import step8_max_evidence_chars
+    return step8_max_evidence_chars
+
+
+def test_step8_honours_the_shared_context_budget(monkeypatch):
+    """Steps 6 and 7 read LACLAUGPT_STEP<stage>_MAX_CONTEXT_CHARS; Step 8 used to shadow it.
+
+    Setting the shared name did nothing for Step 8, so the stage was not in fact configurable
+    through the variable the rest of the programme reads.
+    """
+    monkeypatch.delenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", raising=False)
+    row = pd.Series({"asr_transcript": "speech " * 3000})
+    monkeypatch.setenv("LACLAUGPT_STEP8_MAX_CONTEXT_CHARS", "12000")
+    wide = build_sna_evidence(row)
+    monkeypatch.setenv("LACLAUGPT_STEP8_MAX_CONTEXT_CHARS", "4000")
+    narrow = build_sna_evidence(row)
+    assert len(narrow) < len(wide)
+
+
+def test_step8_default_budget_is_unchanged_when_nothing_is_set(monkeypatch):
+    monkeypatch.delenv("LACLAUGPT_STEP8_MAX_CONTEXT_CHARS", raising=False)
+    monkeypatch.delenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", raising=False)
+    assert _budget_module()() == 12000
+
+
+def test_step8_historical_variable_still_works(monkeypatch):
+    monkeypatch.delenv("LACLAUGPT_STEP8_MAX_CONTEXT_CHARS", raising=False)
+    monkeypatch.setenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "5000")
+    assert _budget_module()() == 5000
+
+
+def test_step8_shared_variable_takes_precedence(monkeypatch):
+    monkeypatch.setenv("LACLAUGPT_STEP8_MAX_CONTEXT_CHARS", "9000")
+    monkeypatch.setenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "5000")
+    assert _budget_module()() == 9000
+
+
+def test_step8_budget_keeps_its_floor_and_survives_a_bad_value(monkeypatch):
+    monkeypatch.delenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", raising=False)
+    monkeypatch.setenv("LACLAUGPT_STEP8_MAX_CONTEXT_CHARS", "10")
+    assert _budget_module()() == 3000
+    monkeypatch.setenv("LACLAUGPT_STEP8_MAX_CONTEXT_CHARS", "not-a-number")
+    assert _budget_module()() == 12000
