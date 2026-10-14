@@ -559,6 +559,9 @@ def basic_metrics(
         for edge in edge_rows
         if _text(edge.get("source")) in node_ids and _text(edge.get("target")) in node_ids
     }
+    # Density is defined on the simple directed projection of the multigraph.
+    # Parallel relations do not produce more possible actor-to-actor pairs.
+    unique_arcs = {(a, b) for a, b in unique_arcs if a != b}
     density = (len(unique_arcs) / (n * (n - 1))) if n > 1 else 0.0
     centrality = {
         node_id: (degree[node_id] / (2 * (n - 1)) if n > 1 else 0.0)
@@ -569,6 +572,12 @@ def basic_metrics(
         "schema_version": SNA_SCHEMA_VERSION,
         "node_count": n,
         "edge_count": len(edge_rows),
+        "unique_directed_pair_count": len(unique_arcs),
+        "simple_directed_density": density,
+        "mean_relations_per_pair": (
+            len(edge_rows) / len(unique_arcs) if unique_arcs else 0.0
+        ),
+        "density_definition": "unique ordered actor pairs / (n * (n - 1)); parallel relations counted once",
         "directed_edge_count": directed_edges,
         "density": density,
         "component_count": len(components),
@@ -685,16 +694,19 @@ def render_markdown_report(
             f"- Edges: {metrics.get('edge_count', 0)}",
             f"- Directed edges: {metrics.get('directed_edge_count', 0)}",
             f"- Weakly connected components: {metrics.get('component_count', 0)}",
-            f"- Density: {float(metrics.get('density', 0.0)):.6f}",
+            f"- Simple directed density (unique pairs): {float(metrics.get('density', 0.0)):.6f}",
+            f"- Unique directed actor pairs: {metrics.get('unique_directed_pair_count', 0)}",
+            f"- Relations per pair: {float(metrics.get('mean_relations_per_pair', 0.0)):.3f}",
             "",
             "## Most connected nodes",
             *top_lines,
             "",
-            "## Main observed relationships",
-            empirical,
+            "## Empirical extraction notes",
+            "Refer to sna_analysis_markdown for the full extraction narrative; the validated node/edge tables above are authoritative.",
+            # Avoid embedding the independently persisted analysis a second time.
             "",
             "## Castellsian interpretation",
-            castells,
+            "Refer to sna_castells_interpretation_markdown for the separate, non-empirical interpretation.",
             "",
             "## Caveats and uncertainty",
             "This is a descriptive network built from the analysed sample, not evidence of hidden "
@@ -706,5 +718,6 @@ def render_markdown_report(
             f"- SNA schema: `{SNA_SCHEMA_VERSION}`",
             f"- Generated at: {generated_at}",
             f"- Canonical item ID: `{item_id}`",
+            f"- Timestamp: {_timestamp(row) or '<not supplied>'}",
         ]
     )
