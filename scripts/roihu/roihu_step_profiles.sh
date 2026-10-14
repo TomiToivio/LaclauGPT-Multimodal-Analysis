@@ -93,9 +93,11 @@ roihu_load_step_modules() {
       # RDF runs on x86_64 CPU; do not load GPU or model modules.
       ;;
   esac
-  # Required on every Roihu step for consistent Allas/S3 utilities. Load
-  # after the module purge and runtime-specific dependencies.
-  module load allas
-  echo "Step ${step} modules loaded (Allas + runtime profile)" >&2
+  # Step 9 exports RDF from MongoDB; Allas is not used there. The
+  # architecture-specific allas module can inject aarch64 rclone on x86_64.
+  if [[ "${step}" != "9" ]]; then
+    module load allas
+  fi
+  echo "Step ${step} modules loaded (runtime profile; Allas skipped for step 9)" >&2
   unset PYTHONPATH PYTHONHOME
 }
