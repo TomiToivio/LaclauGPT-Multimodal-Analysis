@@ -216,11 +216,21 @@ def _grounded_edge_candidates(edges, evidence: str):
     edge; unrelated memory/RAG is not in that packet. This is a necessary, not
     sufficient, condition for a real-world relation.
     """
-    normalized = re.sub(r"\s+", " ", evidence).casefold()
+    # Only original-source fields can substantiate a quotation. The Step 8 packet
+    # also contains DNA/model-derived statements and normalization metadata;
+    # searching the entire packet would launder those into apparent source proof.
+    source_fields = {"asr_transcript", "asr_translation", "ocr_1"}
+    sections = re.split(r"\n\[([^|\]]+) \| [^\]]+\]\n", evidence)
+    original_spans = [
+        sections[i + 1].removesuffix(" [TRUNCATED]")
+        for i in range(1, len(sections) - 1, 2)
+        if sections[i].strip() in source_fields
+    ]
+    normalized = [re.sub(r"\s+", " ", span).casefold() for span in original_spans]
     accepted = []
     for edge in edges:
         quote = re.sub(r"\s+", " ", str(edge.evidence_quote or "")).strip()
-        if (len(quote) < 12 or quote.casefold() not in normalized
+        if (len(quote) < 12 or not any(quote.casefold() in span for span in normalized)
                 or not str(edge.source_actor).strip()
                 or not str(edge.target_actor).strip()
                 or fold_key(edge.source_actor) == fold_key(edge.target_actor)):
