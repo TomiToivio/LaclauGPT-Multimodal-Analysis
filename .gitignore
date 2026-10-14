@@ -204,3 +204,7 @@ ep24_*.csv
 
 # Roihu bootstrap virtualenv (created by scripts/roihu/install_roihu.sh)
 .venv-roihu-gpu/
+
+# Logs
+*.err
+*.out
