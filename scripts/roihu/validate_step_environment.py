@@ -14,7 +14,7 @@ if str(PUBLIC_ROOT) not in sys.path:
 IMPORTS = {
     1: ("pandas", "cv2"),
     2: ("pandas", "cv2", "ollama"),
-    3: ("pandas", "vllm", "transformers", "qwen_vl_utils"),
+    3: ("pandas", "vllm", "transformers", "qwen_vl_utils", "pymongo", "redis"),
     4: ("pandas", "ollama"),
     5: ("pandas", "ollama", "pydantic"),
     6: ("pandas", "ollama", "pydantic"),
@@ -43,7 +43,15 @@ def main() -> int:
     step = args.step
 
     for name in IMPORTS[step]:
-        require_import(name)
+        if step == 3 and name in ("pymongo", "redis"):
+            try:
+                importlib.import_module(name)
+            except Exception as exc:
+                fail(f"Step 3 {name} unavailable in {sys.executable}: {exc}. "
+                     "On the Roihu GPU login node run: "
+                     "bash scripts/roihu/setup_step_3_video.sh, then resubmit Step 3.")
+        else:
+            require_import(name)
 
     if step in GPU_STEPS and not args.setup and shutil.which("nvidia-smi") is None:
         fail("nvidia-smi is unavailable on a GPU step")
