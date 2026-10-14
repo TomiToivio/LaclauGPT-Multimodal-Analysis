@@ -53,7 +53,7 @@ from ep24_schema import stable_source_id
 
 LOG = logging.getLogger("ep24.step7")
 
-PROMPT_VERSION = "ep24-dna-leifeld-v2-evidence-packet"
+PROMPT_VERSION = "ep24-dna-leifeld-v3-polarity-evidence-gate"
 DEFAULT_MAX_CONTEXT_CHARS = 28000
 DEFAULT_NUM_CTX = 16384
 DEFAULT_NUM_PREDICT = 4096
@@ -117,6 +117,33 @@ EVIDENCE DISCIPLINE
 - Memory, RAG, codebooks and prior records are normalization/disambiguation
   context only. They are NEVER evidence that the current actor made the current
   claim.
+
+POLARITY AND CODING
+- Code the stance toward the CONCEPT AS WRITTEN, never toward an
+  associated actor. If the actor demands dissolution of an organization and
+  the concept is "dissolution of organization", agreement MUST be "support".
+- Prefer a positive, normalized, independently reusable concept label:
+  "government budget cuts" + oppose, NOT "opposition to budget cuts" + oppose.
+- Do not mistake condemnation of a group for opposition to a policy that
+  would restrict that group. Resolve the direction explicitly.
+- Mere topic mentions, rhetorical questions without an asserted position,
+  greetings, descriptive observations lacking a coded proposition, and
+  references to an issue MUST yield zero statements, not "uncertain" edges.
+- Epistemic uncertainty about facts is NOT the political qualifier. Use
+  "uncertain" only for a genuine but ambiguous actor-concept stance.
+- Never infer an actor's position from third-party quotations, irony, satire,
+  party stereotypes, or model-generated summaries.
+- Distinguish account publisher, direct speaker, quoted speaker, and
+  political target. Do not attribute quoted speech to the publisher.
+- Do not guess party membership or location from surnames, abbreviations or
+  codebook associations. Finnish PS = Perussuomalaiset; Maria Ohisalo belongs
+  to Vihreät; Riikka Purra belongs to Perussuomalaiset.
+- Treat original-language source text as higher priority than translated ASR.
+- State evidence_fields explicitly and quote a verbatim original-language
+  source span for every statement. If original evidence is missing or corrupted,
+  leave statements empty instead of filling from a derived summary.
+- Actor and concept labels are different: criticism of a group's behavior
+  does not automatically imply opposition to every policy about that group.
 
 QUALIFIER
 - agreement is "support" only for explicit support, "oppose" only for explicit
@@ -309,6 +336,12 @@ def _statement_records(
             continue
         concept = _text(item.concept_label)
         if not concept:
+            continue
+        # A missing quote or evidence field is a hard failure for a network edge.
+        # Keep the narrative analysis, but never turn unsupported text into DNA.
+        if not _text(item.evidence_quote) or not item.evidence_fields:
+            LOG.warning("Step7 omitted unsupported claim record=%s actor=%s concept=%s",
+                        record_id, raw_actor, concept)
             continue
 
         from ep24_entities import fold_key
