@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from ep24_prompt_contract import build_stage_packet
 from roihu_codebooks import context_block, load_profile
 from roihu_memory import SCHEMA_VERSION, EP24Memory, stable_id, upstream_stable_id
 
@@ -156,16 +157,22 @@ def test_populism_uses_shared_context_architecture():
     assert "memory_context_json" in source
     assert "rag_context_json" in source
     assert "formula_of_populism.db" not in source
-    # Provenance labelling moved to the shared bounded packet (#257): Step 6 no
-    # longer carries stage-local role literals, it delegates to the one builder.
-    # The guarantee is unchanged and is asserted where it now lives.
-    assert "from ep24_evidence_packets import evidence_packet" in source
-    packet = Path("ep24_evidence_packets.py").read_text(encoding="utf-8")
+    # Provenance labelling lives in the shared bounded packet (#241): Step 6 does not carry
+    # stage-local role literals, it delegates to the one builder Steps 4-8 use. The guarantee is
+    # asserted on the packet that builder actually produces, not on a source file's prose.
+    assert "from ep24_prompt_contract import build_stage_packet" in source
+    packet = build_stage_packet(6, {
+        "asr_transcript": "Emme tue tätä lakia.",
+        "summary_analysis": "Prior model summary.",
+        "codebook_context_json": '{"law": "canonical term"}',
+        "memory_context_json": "SECRET_MEMORY_CONTEXT",
+        "rag_context_json": "SECRET_RAG_CONTEXT",
+    }).text
     assert "prior model output is descriptive context, not direct speech" in packet
     assert "researcher normalization, not source quote" in packet
     # Memory and RAG context must not be able to enter Step 6's packet at all.
-    assert "memory_context_json" not in packet
-    assert "rag_context_json" not in packet
+    assert "SECRET_MEMORY_CONTEXT" not in packet
+    assert "SECRET_RAG_CONTEXT" not in packet
 
 
 def test_memory_schema_migration_creates_backup_and_temporal_columns(tmp_path):
