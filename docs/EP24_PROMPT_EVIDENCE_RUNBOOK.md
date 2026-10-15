@@ -12,6 +12,15 @@ Leifeld DNA schema, or change graph invariants.
 | 7 | 20,000 characters | direct utterance, time/source, codebook and canonical concept candidates |
 | 8 | 12,000 characters | explicit actor-relation quotes and DNA statements |
 
+These four numbers are the contract, and since #241 they are enforced by a single shared builder,
+`ep24_prompt_contract`, which Steps 4–8 all use. Step 4's column is the model-visible budget itself
+(`LACLAUGPT_SUMMARY_EVIDENCE_CHARS`), with its output and JSON-schema reserve recorded as additional
+headroom rather than subtracted from it; before the consolidation Step 4 subtracted a 2,800-character
+reserve from a 20,000 total and the model saw 17,200. Every other stage's effective budget is
+unchanged. The per-stage before/after table, the prompt-layout changes and the cache-invalidation
+consequence are recorded in
+[EP24_PROMPT_CONTRACT_CONSOLIDATION.md](EP24_PROMPT_CONTRACT_CONSOLIDATION.md).
+
 Memory and corpus RAG are not proof of statements or ties. For Steps 6–8
 the packet omits them entirely. Stream labels distinguish original ASR from
 model-derived summaries and researcher normalization. Caps ensure a large

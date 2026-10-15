@@ -149,64 +149,41 @@ def _enrich_edges(edges, row) -> list[dict]:
 def sna_evidence_report(row, *, model: str | None = None) -> tuple[str, dict, str]:
     """Current Step 8 evidence plus field-level visibility audit and prompt fingerprint.
 
-    Preserve the shared evidence_packet builder on main. Its labeled sections
-    identify which source/derived fields the model actually sees. Fields that
-    exceed the packet budget are explicitly marked as dropped, without changing
-    the authoritative input row.
+    The packet and its per-field accounting come from the shared contract
+    (``ep24_prompt_contract``), which is the single bounded, provenance-labelled builder
+    Steps 4-8 use (#241). Its labelled sections identify which source/derived fields the
+    model actually sees; fields that do not fit the budget are reported as dropped,
+    without changing the authoritative input row.
     """
-    import re
+    from ep24_prompt_contract import build_stage_packet
 
-    from ep24_evidence_packets import META_FIELDS, SNA_FIELDS, evidence_packet
-
-    packet, _ = evidence_packet(
-        row, stage=8, max_chars=max(
-            3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000"))
-        )
-    )
-    fields = [("asr_transcript", 5000), ("asr_translation", 1500),
-              ("ocr_1", 1600), *SNA_FIELDS, *META_FIELDS]
-    sections = {}
-    pattern = re.compile(r"\n\[([^|\]]+) \| [^\]]+\]\n")
-    matches = list(pattern.finditer(packet))
-    for i, match in enumerate(matches):
-        name = match.group(1)
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(packet)
-        rendered = packet[match.end():end].rstrip("\n")
-        marker = " [TRUNCATED]"
-        if rendered.endswith(marker):
-            rendered = rendered[:-len(marker)]
-        sections[name] = len(rendered)
-
-    by_field = {}
-    for name, _ in fields:
-        raw = row.get(name, "")
-        value = "" if raw is None else str(raw).strip()
-        if value.lower() in ("nan", "none", "[]", "{}"):
-            value = ""
-        if not value:
-            continue
-        taken = sections.get(name, 0)
-        by_field[name] = {
-            "chars_available": len(value),
-            "chars_included": taken,
-            "truncated": taken < len(value),
-            "dropped": name not in sections,
+    packet = build_stage_packet(8, row)
+    by_field = {
+        r.name: {
+            "chars_available": r.original_chars,
+            "chars_included": r.kept_chars,
+            "truncated": r.kept_chars < r.original_chars,
+            "dropped": r.omitted,
         }
+        for r in packet.report
+        if r.original_chars
+    }
     report = {
         "fields_included": sum(not x["dropped"] for x in by_field.values()),
         "fields_truncated": sum(x["truncated"] for x in by_field.values()),
         "characters_lost": sum(x["chars_available"] - x["chars_included"] for x in by_field.values()),
         "by_field": by_field,
-        "packet_chars": len(packet),
-        "estimated_tokens": (len(packet) + 3) // 4,
+        "packet_chars": packet.used,
+        "estimated_tokens": packet.token_estimate,
+        "model_visible_chars": packet.model_visible_chars,
     }
     digest = effective_prompt_fingerprint(
         EXTRACTION_SYSTEM,
-        f"{PROMPT_VERSION}\n{packet}",
+        f"{PROMPT_VERSION}\n{packet.text}",
         model or ollama_model(),
         {"temperature": 0.0, "num_ctx": 8192},
     )
-    return packet, report, digest
+    return packet.text, report, digest
 
 
 def _grounded_edge_candidates(edges, evidence: str):
@@ -297,12 +274,9 @@ def _network_relation_gate(edges):
 
 def build_sna_evidence(row) -> str:
     """Backward-compatible interface for source-grounded Step 8 evidence."""
-    from ep24_evidence_packets import evidence_packet
-    return evidence_packet(
-        row, stage=8, max_chars=max(
-            3000, int(os.getenv("LACLAUGPT_STEP8_MAX_EVIDENCE_CHARS", "12000"))
-        )
-    )[0]
+    from ep24_prompt_contract import build_stage_packet
+
+    return build_stage_packet(8, row).text
 
 
 def _castells_interpretation(ollama, model: str, nodes, edges, metrics) -> str:

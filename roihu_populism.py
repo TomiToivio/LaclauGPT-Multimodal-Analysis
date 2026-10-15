@@ -232,10 +232,15 @@ def _render_fields(row: pd.Series, names: list[str]) -> str:
 
 
 def build_prompt_context(row: pd.Series, *, max_chars: int | None = None) -> tuple[str, bool]:
-    """Evidence-first, stage-specific input; preserves entire cumulative record."""
-    from ep24_evidence_packets import evidence_packet
+    """Evidence-first, stage-specific input; preserves entire cumulative record.
 
-    return evidence_packet(row, stage=6, max_chars=max_chars)
+    Bounded and provenance-labelled by the shared contract (``ep24_prompt_contract``),
+    which is the single builder Steps 4-8 use (#241).
+    """
+    from ep24_prompt_contract import build_stage_packet
+
+    packet = build_stage_packet(6, row, max_chars=max_chars)
+    return packet.text, packet.any_truncation
 
 
 def _prompt_hash(context: str) -> str:

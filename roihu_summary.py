@@ -12,11 +12,11 @@ from ep24_db import country_storage
 from ep24_memory import retrieve_researcher_memory
 from ep24_models import ollama_model, ollama_model_source
 from ep24_pipeline import load_cumulative_csv, metadata_context, write_cumulative_csv
+from ep24_prompt_contract import build_stage_packet
 from ep24_rag import retrieve_stage_rag, upsert_stage_rag
 from ep24_redis import RedisCoordinator
 from ep24_schema import stable_source_id
 from ep24_schema import value as ep24_value
-from ep24_summary_evidence import build_packet_report
 from laclaugpt_quality import QUALITY_COLUMNS, merge_status, summary_quality_decision
 from roihu_storage import StorageConfig
 
@@ -551,7 +551,7 @@ def analyze_videos(language=None):
                     logger.exception("context_retrieval_failed source_id=%s", source_id)
             memory_context = _format_memory_context(memory_items)
             rag_context = _format_rag_context(rag_items)
-            packet = build_packet_report(row, memory=memory_context, rag=rag_context)
+            packet = build_stage_packet(4, row, memory=memory_context, rag=rag_context)
             evidence_packet = packet.text
             # Issue #236: make the model-visible size and any truncation visible in the run log
             # BEFORE the prompt is sent, instead of inferring it from the answer afterwards.
