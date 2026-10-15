@@ -19,7 +19,7 @@ imported different ones:
 
 Because each builder carried its own numbers, a stage's effective budget depended on which builder
 it happened to import. The runbook's table and `ep24_prompt_contract`'s post-reserve defaults
-disagreed for Steps 4, 7 and 8. That is the defect this change closes.
+disagreed for Steps 4, 7 and 8. That is the defect this change removes.
 
 ## The canonical module
 
