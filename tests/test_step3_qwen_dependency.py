@@ -9,6 +9,6 @@ def test_step3_qwen_dependency_is_explicit():
 
 def test_step3_preflight_checks_exact_video_processor_api():
     preflight = Path("scripts/roihu/validate_step_environment.py").read_text()
-    assert '3: ("pandas", "vllm", "transformers", "qwen_vl_utils")' in preflight
+    assert '3: ("pandas", "vllm", "transformers", "qwen_vl_utils", "pymongo", "redis")' in preflight
     assert "from qwen_vl_utils import process_vision_info" in preflight
     assert "setup_step_3_video.sh" in preflight
