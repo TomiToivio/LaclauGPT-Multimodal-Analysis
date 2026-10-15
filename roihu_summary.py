@@ -365,7 +365,7 @@ def _summary_options():
         "top_k": 40,
         "min_p": 0.0,
         "temperature": 0.0,
-        "num_predict": int(os.getenv("LACLAUGPT_SUMMARY_NUM_PREDICT", "2048")),
+        "num_predict": int(os.getenv("LACLAUGPT_SUMMARY_NUM_PREDICT", "8192")),
     }
 
 
@@ -388,28 +388,36 @@ def get_llama_summary_response(system_prompt, user_prompt, *, model=None):
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    # A successful HTTP 200 can still contain empty message.content, notably
-    # with local Qwen models. Do not checkpoint/cache an empty summary.
+    # HTTP 200 is not evidence of a complete analysis. Ollama can return
+    # done_reason=length with partial content (or empty content if the
+    # model consumed its output budget internally). Neither is safe to cache.
     retries = max(0, min(3, int(os.getenv("LACLAUGPT_SUMMARY_EMPTY_RETRIES", "2"))))
+    max_predict = max(options["num_predict"], int(os.getenv("LACLAUGPT_SUMMARY_MAX_PREDICT", "16384")))
     for attempt in range(retries + 1):
         response = ollama.chat(model=selected_model, messages=messages, options=options)
         message = response.get("message") or {}
         content = message.get("content") or ""
         llama_response = content.strip() if isinstance(content, str) else ""
+        reason = str(response.get("done_reason") or "unknown").lower()
+        truncated = reason in ("length", "max_tokens")
         logger.info(
-            "model_call_end model=%s attempt=%d response_chars=%d done_reason=%s",
-            selected_model, attempt + 1, len(llama_response), response.get("done_reason", "unknown"),
+            "model_call_end model=%s attempt=%d response_chars=%d done_reason=%s num_predict=%d",
+            selected_model, attempt + 1, len(llama_response), reason, options["num_predict"],
         )
-        if llama_response:
+        if llama_response and not truncated:
             logger.debug("llama_response=%s", llama_response)
             return llama_response
         if attempt < retries:
+            if truncated:
+                options = {**options, "num_predict": min(max_predict, options["num_predict"] * 2)}
             logger.warning(
-                "empty_summary_response model=%s attempt=%d/%d; retrying without checkpoint",
-                selected_model, attempt + 1, retries + 1,
+                "incomplete_summary_response model=%s attempt=%d/%d chars=%d reason=%s next_num_predict=%d; retrying without checkpoint",
+                selected_model, attempt + 1, retries + 1, len(llama_response), reason, options["num_predict"],
             )
-    raise ValueError(f"summary model returned an empty response after {retries + 1} attempts")
-
+    raise ValueError(
+        f"summary model failed to return a complete response after {retries + 1} attempts "
+        f"(last_done_reason={reason}, last_response_chars={len(llama_response)})"
+    )
 
 def analyze_videos(language=None):
     """Run cumulative Step 4 without dropping any upstream data."""
