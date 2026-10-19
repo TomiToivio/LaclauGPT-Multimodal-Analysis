@@ -29,8 +29,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from ep24_prompt_contract import estimate_tokens  # noqa: E402
-from ep24_summary_evidence import build_packet, clean  # noqa: E402
+from ep24_prompt_contract import build_stage_packet, clean, estimate_tokens  # noqa: E402
 
 COUNTRY_CODES = {"finland": "FI", "poland": "PL", "portugal": "PT"}
 # Fields that are machinery rather than source evidence, and must not be scored as omissions.
@@ -79,7 +78,7 @@ def select_sample(rows: Sequence[dict], per_country: int = 10) -> list[dict]:
 
 def report_record(row: dict) -> RecordReport:
     """Compare one record's own text with the bounded packet the model would receive."""
-    packet = build_packet(row)
+    packet = build_stage_packet(4, row).text
     text_fields = {
         key: text
         for key in row
