@@ -5,7 +5,7 @@
 This repository has two deliberately different lines of history:
 
 - `legacy`: immutable historical record of the original human-coded EP24 / CSC Puhti pipeline. Papers and publications may depend on this exact implementation.
-- `main`: active **new EP24 analysis** for CSC Roihu using the **Phase 2 LaclauGPT pipeline**.
+- `main`: active **new EP24 analysis** for CSC Roihu using the **current LaclauGPT pipeline**.
 
 The old phase-branch synchronization policy does not govern this repository. Work for the current repository belongs on `main` unless the human author explicitly says otherwise.
 
@@ -19,7 +19,7 @@ Do not delete or hide the legacy branch. Documentation on `main` must point read
 
 The human-coded legacy pipeline is the compatibility spine of the new implementation.
 
-New Phase 2 features from `TomiToivio/LaclauGPT-Data-Analysis` must be added **around, before, after, or alongside** the legacy steps. Agents may extend legacy stages when necessary, but must not remove, replace, collapse, silently rewrite, or make a legacy step unavailable without explicit human permission.
+New pipeline features from `TomiToivio/LaclauGPT-Data-Analysis` must be added **around, before, after, or alongside** the legacy steps. Agents may extend legacy stages when necessary, but must not remove, replace, collapse, silently rewrite, or make a legacy step unavailable without explicit human permission.
 
 Preserve, unless explicitly authorized otherwise:
 
@@ -39,7 +39,7 @@ Do not perform opportunistic destructive refactors, schema removals, prompt rewr
 
 The code style this repository is written in is documented in [docs/CODING_STYLE.md](docs/CODING_STYLE.md). It covers the step-per-file structure, where shared infrastructure belongs, why theory-heavy prompts stay readable in the source, and the additive-additive field rule. Read it before restructuring a step; readable research code is the priority, not architectural cleverness.
 
-## Phase 2 direction
+## Pipeline development direction
 
 `main` should progressively incorporate relevant features from [LaclauGPT-Data-Analysis](https://github.com/TomiToivio/LaclauGPT-Data-Analysis), including where technically and scientifically appropriate:
 
@@ -49,7 +49,7 @@ The code style this repository is written in is documented in [docs/CODING_STYLE
 - Discourse Network Analysis (DNA);
 - Social Network Analysis (SNA);
 - improved validation and structured outputs;
-- additional Phase 2 modules that can coexist with legacy-compatible EP24 stages.
+- additional analysis modules that can coexist with legacy-compatible EP24 stages.
 
 Do not copy the newer pipeline blindly. Integrate it incrementally around the compatibility spine.
 
