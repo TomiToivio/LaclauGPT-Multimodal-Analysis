@@ -385,6 +385,7 @@ def run_country(
     soft_seconds = int(os.getenv("LACLAUGPT_STAGE_SOFT_DEADLINE_SECONDS", "126000"))
     started = time.monotonic()
     processed = 0
+    excluded_this_run = 0
 
     try:
         collection = storage.db[storage.collection_name("dataframe")]
@@ -546,6 +547,12 @@ def run_country(
                         "this country before retrying Step 9. --force on Step 9 "
                         "cannot generate missing Step 8 results."
                     )
+                if total_rows == 0 and step == 1 and excluded_this_run:
+                    LOG.info(
+                        "country=%s step=1 excluded=%d invalid media rows; "
+                        "active dataframe now empty", country, excluded_this_run,
+                    )
+                    break
                 if total_rows == 0:
                     raise RuntimeError(
                         f"Step {step} input collection is empty: "
@@ -558,9 +565,11 @@ def run_country(
                 break
 
             if step == 1:
+                claimed_count = len(claimed)
                 claimed = exclude_unidentifiable_media(
                     storage, claimed, run_id=run_id, country=country
                 )
+                excluded_this_run += claimed_count - len(claimed)
                 if not claimed:
                     LOG.info(
                         "country=%s step=1 batch contained only excluded invalid media; "
