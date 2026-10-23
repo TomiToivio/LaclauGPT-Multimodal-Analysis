@@ -141,16 +141,58 @@ _HEPP24_ID = re.compile(
 )
 
 
+def recover_media_identity(row: pd.Series) -> tuple[str, str]:
+    """Recover missing fields from the original composite Mongo source ID.
+
+    Historical Step-0 identities have the form
+    VIDEO_ID|Country|https://a3s.fi/swift/v1/.../VIDEO_ID.mp4.
+    A hash-only _storage_id cannot be inverted. Existing fields always win;
+    conflicting IDs or countries must not silently relabel a source.
+    """
+    video_id = value(row, "video_id")
+    allas = value(row, "allas_filename")
+    parts = value(row, "_storage_id").split("|")
+    if len(parts) < 3:
+        return video_id, allas
+    candidate_id, candidate_country, candidate_url = parts[0], parts[1], "|".join(parts[2:])
+    match = _HEPP24_ID.fullmatch(candidate_id)
+    if not match or not candidate_url.startswith(("https://", "http://")):
+        return video_id, allas
+    country_code = match.group(1).casefold()
+    names = {"fi": "finland", "pl": "poland", "pt": "portugal",
+             "de": "germany", "es": "spain", "hu": "hungary",
+             "hr": "croatia", "fr": "france", "bg": "bulgaria",
+             "se": "sweden"}
+    allowed = {country_code, names.get(country_code, "")}
+    existing_country = value(row, "country").casefold()
+    if candidate_country.strip().casefold() not in allowed or (
+        existing_country and existing_country not in allowed
+    ):
+        return video_id, allas
+    from urllib.parse import urlsplit
+    url = urlsplit(candidate_url)
+    expected = (
+        f"/HEPP24/{match.group(1).upper()}/{match.group(2).upper()}/"
+        f"{match.group(3).upper()}/{match.group(4)}/{candidate_id}.mp4"
+    )
+    if not url.netloc or not url.path.endswith(expected) or url.username or url.password:
+        return video_id, allas
+    if video_id and video_id != candidate_id:
+        return video_id, allas
+    if allas and allas != candidate_url:
+        return video_id, allas
+    return video_id or candidate_id, allas or candidate_url
+
+
 def recover_allas_filename(row: pd.Series) -> str:
     """Recover the documented HEPP24 Swift object URL from a structured ID.
 
     Unstructured video IDs are not sufficient to identify a unique object.
     Never invent a storage location for those records.
     """
-    existing = value(row, "allas_filename")
+    video_id, existing = recover_media_identity(row)
     if existing:
         return existing
-    video_id = value(row, "video_id")
     match = _HEPP24_ID.fullmatch(video_id)
     if not match:
         return ""
