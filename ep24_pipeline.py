@@ -7,6 +7,7 @@ carried forward unchanged, and only new stage columns are appended/updated.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -134,22 +135,75 @@ def metadata_context(row: pd.Series, *, include_model_fields: bool = True) -> st
     return "\n".join(parts)
 
 
+_HEPP24_ID = re.compile(
+    r"^HEPP24-([A-Z]{2})-([A-Z0-9]+)-([A-Z0-9]+)-(\\d{8})-([A-Za-z0-9._-]+)$",
+    re.IGNORECASE,
+)
+
+
+def recover_allas_filename(row: pd.Series) -> str:
+    """Recover the documented HEPP24 Swift object URL from a structured ID.
+
+    Unstructured video IDs are not sufficient to identify a unique object.
+    Never invent a storage location for those records.
+    """
+    existing = value(row, "allas_filename")
+    if existing:
+        return existing
+    video_id = value(row, "video_id")
+    match = _HEPP24_ID.fullmatch(video_id)
+    if not match:
+        return ""
+    country, account, platform, date, _sequence = match.groups()
+    supplied_country = value(row, "country").strip().casefold()
+    country_names = {
+        "fi": "finland", "pl": "poland", "pt": "portugal",
+        "de": "germany", "es": "spain", "hu": "hungary",
+        "hr": "croatia", "fr": "france", "bg": "bulgaria",
+        "se": "sweden",
+    }
+    if supplied_country and supplied_country not in {
+        country.casefold(), country_names.get(country.casefold(), "")
+    }:
+        return ""
+    base = os.getenv(
+        "LACLAUGPT_ALLAS_HEPP24_BASE_URL", "https://a3s.fi/swift/v1"
+    ).rstrip("/")
+    if not base.startswith(("https://", "http://")):
+        raise ValueError("LACLAUGPT_ALLAS_HEPP24_BASE_URL must be HTTP(S)")
+    return (
+        f"{base}/HEPP24/{country.upper()}/{account.upper()}/"
+        f"{platform.upper()}/{date}/{video_id}.mp4"
+    )
+
+
 def media_key(row: pd.Series) -> str:
-    """Canonical media key. allas_filename is authoritative for new EP24."""
-    key = value(row, "allas_filename")
+    """Resolve a canonical URL/key, recovering only validated HEPP24 IDs."""
+    key = recover_allas_filename(row)
     if not key:
-        raise ValueError("EP24 row has no allas_filename")
+        raise ValueError(
+            "EP24 row has no resolvable allas_filename for video_id="
+            + repr(value(row, "video_id"))
+        )
     return key
 
 
 def local_media_path(row: pd.Series, root: str | Path | None = None) -> Path:
-    """Resolve a staged local copy from allas_filename without rebuilding scraper paths."""
+    """Resolve a staged local copy without treating HTTP URLs as paths."""
     key = media_key(row)
+    base = Path(root or os.getenv("LACLAUGPT_ALLAS_LOCAL_ROOT", "./Allas"))
+    if key.startswith(("https://", "http://")):
+        from urllib.parse import urlsplit
+        from hashlib import sha256
+
+        url = urlsplit(key)
+        # Keep URL data under a deterministic, safe local filename.
+        digest = sha256(key.encode("utf-8")).hexdigest()[:16]
+        return base / "_http" / digest / Path(url.path).name
     direct = Path(key)
     if direct.exists():
         return direct
-    base = Path(root or os.getenv("LACLAUGPT_ALLAS_LOCAL_ROOT", "./Allas"))
-    return base / key
+    return base / key.lstrip("/")
 
 
 def ensure_columns(df: pd.DataFrame, columns: Iterable[str]) -> pd.DataFrame:
