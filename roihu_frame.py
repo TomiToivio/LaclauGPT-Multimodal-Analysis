@@ -44,6 +44,7 @@ OUTPUT_COLUMNS = (
     "frame_analysis_1",
     "frame_analysis_timestamp_seconds",
     "frame_analysis_status",
+    "frame_analysis_error",
     "frame_analysis_model",
     "frame_analysis_context_sha256",
     "frame_quality_status",
@@ -367,6 +368,7 @@ def analyze_videos(language=None):
                 logger.debug("row_field index=%s name=%s value=%s", index, field, _preview(row.get(field, "")))
 
             try:
+                df.at[index, "frame_analysis_error"] = ""
                 frame_file = str(row.get('frame_file', '')).strip()
                 if not frame_file:
                     raise ValueError("Step 2 requires Step 1 field 'frame_file'")
@@ -450,6 +452,7 @@ def analyze_videos(language=None):
                 )
             except Exception as exc:
                 df.at[index, "frame_analysis_status"] = "error"
+                df.at[index, "frame_analysis_error"] = f"{type(exc).__name__}: {exc}"[:2000]
                 old_status = row.get("processing_status", "OK")
                 old_reason = row.get("processing_status_reason", "")
                 frame_quality_status, frame_quality_reason = quality_decision_from_analysis(
