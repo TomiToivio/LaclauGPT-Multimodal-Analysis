@@ -437,7 +437,7 @@ def run_country(
                 ready_query = eligible_query(step, retry_errors=True, force=True)
                 ready_total = collection.count_documents(ready_query)
                 remaining_upstream = max(0, total_rows - upstream)
-                if ready_total == stage_counts["complete"] and not (
+                if total_rows > 0 and ready_total == stage_counts["complete"] and not (
                     stage_counts["error"] or stage_counts["claimed"]
                     or stage_counts["pending"] or stage_counts["retry"]
                 ):
