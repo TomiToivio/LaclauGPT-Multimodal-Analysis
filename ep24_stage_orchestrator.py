@@ -206,6 +206,15 @@ def persist_batch(
         detail_columns = [col for col in ("_storage_id", "video_id", result_field,
                           "preprocess_note", "frame_analysis_error", "vllm_video_error",
                           "dna_error", "sna_error") if col and col in bad.columns]
+        # Preserve a durable failure report instead of relying on the
+        # temporary per-batch CSV (deleted by TemporaryDirectory on exit).
+        report_dir = Path(os.getenv("LACLAUGPT_EP24_OUTPUT_ROOT",
+            "/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/outputs"))
+        report_country = os.getenv("LACLAUGPT_COUNTRY", "unknown").strip().casefold()
+        report = report_dir / report_country / f"step_{step:02d}_failed_batch.csv"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        bad.to_csv(report, index=False, encoding="utf-8")
+        LOG.error("STEP_ROW_FAILURE_REPORT path=%s rows=%d", report, len(bad))
         LOG.error(
             "STEP_ROW_FAILURES step=%d failures=%d total=%d failed_rows=%s; "
             "inspect step_%02d_failed_batch.csv under country output and retry with --retry-errors",
