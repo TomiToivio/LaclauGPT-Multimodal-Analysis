@@ -494,17 +494,11 @@ def process_country(country: str | None = None) -> Path:
     ensure_columns(out, STEP6_COLUMNS)
 
     enriched, context_handle = _prepare_context(out, normalized_country)
-    # Copy only context columns produced by the shared enrichment layer.
-    for column in (
-        "codebook_context_json",
-        "memory_context_json",
-        "rag_context_json",
-        "entity_normalization_json",
-        "theme_normalization_json",
-        "context_evidence_role",
-    ):
-        if column in enriched.columns:
-            out[column] = enriched[column]
+    # The retrieval bootstrap may refresh shared context fields. Use the
+    # refreshed values for this stage's prompt, but never overwrite the
+    # cumulative Step 5 columns. Step 6 owns laclau_* snapshots instead.
+    # Index lookup also avoids depending on the row order of enrichment.
+    context_rows = enriched
 
     redis = RedisCoordinator(normalized_country, 6)
     checkpoint_every = max(1, int(os.getenv("LACLAUGPT_STEP6_CHECKPOINT_EVERY", "10") or 10))
@@ -521,7 +515,8 @@ def process_country(country: str | None = None) -> Path:
 
                 redis.mark(record_id, "processing")
                 started = time.monotonic()
-                context, truncated = build_prompt_context(row)
+                context_row = context_rows.loc[index]
+                context, truncated = build_prompt_context(context_row)
                 context_hash = _prompt_hash(context)
                 LOG.info(
                     "step6 country=%s row=%s id=%s model=%s prompt=%s context_sha256=%s truncated=%s",
@@ -564,9 +559,9 @@ def process_country(country: str | None = None) -> Path:
                     out.at[index, "laclau_context_truncated"] = json.dumps(truncated)
                     bootstrap_fingerprint = context_handle[2].get("codebook_fingerprint", "") if context_handle else ""
                     out.at[index, "laclau_codebook_fingerprint"] = bootstrap_fingerprint or _json_text(row.get("ep24_codebook_fingerprint", ""))
-                    out.at[index, "laclau_codebook_context_json"] = _json_text(row.get("codebook_context_json", ""))
-                    out.at[index, "laclau_memory_context_json"] = _json_text(row.get("memory_context_json", ""))
-                    out.at[index, "laclau_rag_context_json"] = _json_text(row.get("rag_context_json", ""))
+                    out.at[index, "laclau_codebook_context_json"] = _json_text(context_row.get("codebook_context_json", ""))
+                    out.at[index, "laclau_memory_context_json"] = _json_text(context_row.get("memory_context_json", ""))
+                    out.at[index, "laclau_rag_context_json"] = _json_text(context_row.get("rag_context_json", ""))
                     out.at[index, "laclau_raw_response"] = raw
                     out.at[index, "laclau_status"] = "ok"
                     out.at[index, "laclau_error"] = ""
