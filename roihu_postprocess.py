@@ -368,6 +368,7 @@ def analyze_responses(language=None):
             "neutral",
             "negative",
             "postprocess_summary_md",
+            "video_status",
             "processing_status",
             "processing_status_reason",
         ),
@@ -563,7 +564,7 @@ def analyze_responses(language=None):
         normalized = load_cumulative_csv(output, require_canonical=False)
         # Verify enrichment was additive relative to the Step-5 checkpoint.
         for column in df.columns:
-            if normalized[column].astype(str).tolist() != df[column].astype(str).tolist():
+            # CSV has no native missing-value type: both None/NaN and ""\n            # serialize to an empty field. Compare their on-disk equivalents.\n            if normalized[column].fillna("").astype(str).tolist() != df[column].fillna("").astype(str).tolist():
                 raise AssertionError(f"normalization mutated raw Step-5 field: {column}")
         df = normalized
         try:
