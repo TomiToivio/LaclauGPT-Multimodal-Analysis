@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ep24_pipeline import recover_allas_filename, local_media_path
+from ep24_pipeline import recover_allas_filename, recover_media_identity, local_media_path
 
 LOG = logging.getLogger("ep24_allas")
 
@@ -27,8 +27,16 @@ def stage_media(df: pd.DataFrame) -> int:
     staged = 0
     if "allas_filename" not in df.columns:
         df["allas_filename"] = ""
+    if "video_id" not in df.columns:
+        df["video_id"] = ""
     for index, row in df.iterrows():
-        key = recover_allas_filename(row)
+        recovered_id, recovered_url = recover_media_identity(row)
+        if not str(row.get("video_id", "") or "").strip() and recovered_id:
+            df.at[index, "video_id"] = recovered_id
+            LOG.info("Allas recovered video_id from _storage_id=%s", recovered_id)
+        if not str(row.get("allas_filename", "") or "").strip() and recovered_url:
+            df.at[index, "allas_filename"] = recovered_url
+        key = recover_allas_filename(df.loc[index])
         if not key:
             LOG.error("Allas unresolved media identity video_id=%s", row.get("video_id", ""))
             continue
