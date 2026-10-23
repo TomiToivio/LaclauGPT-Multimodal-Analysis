@@ -493,9 +493,17 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                 author = str(ep24_value(row, "author_username") or "")
                 allas = str(ep24_value(row, "allas_filename") or "")
                 source_type = str(ep24_value(row, "source_type") or "video")
-                local_path = str(local_media_path(row))
+                try:
+                    local_path = str(local_media_path(row))
+                except ValueError as exc:
+                    out.at[index, "preprocess_status"] = "missing_video"
+                    out.at[index, "preprocess_note"] = str(exc)
+                    counters["missing_video"] += 1
+                    coordinator.mark(rid, "missing_video")
+                    LOG.error("missing_media_identity country=%s video_id=%s error=%s", country, video_id, exc)
+                    continue
                 media_path = Path(local_path)
-                if not media_path.exists():
+                if not media_path.is_file() or media_path.stat().st_size == 0:
                     out.at[index, "preprocess_status"] = "missing_video"
                     out.at[index, "preprocess_note"] = "Source media is not available after staging."
                     counters["missing_video"] += 1
