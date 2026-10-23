@@ -90,40 +90,70 @@ def build_trim_command(source: str | Path, destination: str | Path) -> list[str]
     ]
 
 
+def _valid_analysis_clip(path: Path) -> bool:
+    """Check container integrity before reusing a previously generated clip."""
+    if not path.is_file() or path.stat().st_size == 0:
+        return False
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries",
+         "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
+         str(path)],
+        capture_output=True, text=True, check=False,
+    )
+    if probe.returncode:
+        return False
+    try:
+        return float(probe.stdout.strip()) > 0
+    except ValueError:
+        return False
+
+
 def prepare_analysis_clip(
     source: str | Path,
     output_dir: str | Path,
     *,
     runner=subprocess.run,
 ) -> Path:
-    """Create/reuse a derived clip after the mandatory initial artifact.
+    """Produce a verified, atomic trimmed clip; never reuse an incomplete MP4.
 
-    The original source is never modified. The derived clip is transcoded so the
-    1.0-second boundary is exact even when it does not land on a source keyframe.
-    Frame extraction may seek the source directly at the
-    canonical analysis start for frame-accurate sampling.
+    A killed Slurm job can leave a nonempty MP4 lacking its final moov atom.
+    Previous code treated nonzero length as valid forever, poisoning retries.
+    A unique temporary filename also prevents concurrent writers sharing a clip.
     """
+    import uuid
+
     source_path = Path(source)
     if not source_path.is_file():
         raise FileNotFoundError(source_path)
     destination = analysis_clip_path(source_path, output_dir)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.is_file() and destination.stat().st_size > 0:
+    if _valid_analysis_clip(destination) and (
+        destination.stat().st_mtime_ns >= source_path.stat().st_mtime_ns
+    ):
         return destination
 
-    completed = runner(
-        build_trim_command(source_path, destination),
-        capture_output=True,
-        text=True,
-        check=False,
+    temporary = destination.with_name(
+        f"{destination.stem}.{uuid.uuid4().hex}.tmp{destination.suffix}"
     )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "ffmpeg could not create EP24 analysis clip: "
-            + (completed.stderr or completed.stdout or "").strip()
+    try:
+        completed = runner(
+            build_trim_command(source_path, temporary),
+            capture_output=True,
+            text=True,
+            check=False,
         )
-    if not destination.is_file() or destination.stat().st_size == 0:
-        raise RuntimeError(f"ffmpeg produced no usable analysis clip: {destination}")
+        if completed.returncode != 0:
+            raise RuntimeError(
+                "ffmpeg could not create EP24 analysis clip: "
+                + (completed.stderr or completed.stdout or "").strip()
+            )
+        if not _valid_analysis_clip(temporary):
+            raise RuntimeError(
+                f"ffmpeg produced an invalid or incomplete analysis clip: {temporary}"
+            )
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
     return destination
 
 
