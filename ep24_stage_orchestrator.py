@@ -20,6 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from ep24_allas import stage_media
+from ep24_pipeline import recover_allas_filename, recover_media_identity
 from ep24_backups import write_checkpoint
 from ep24_context import enrich_dataframe, update_retrieval
 from ep24_redis import RedisCoordinator
@@ -145,6 +146,63 @@ def claim_batch(
             ]
         }
     return claimed
+
+
+def valid_media_identity(doc: dict) -> bool:
+    """Step 1 requires both a resolvable video ID and an Allas object key."""
+    from ep24_schema import value
+
+    video_id, _ = recover_media_identity(doc)
+    try:
+        filename = recover_allas_filename(doc)
+    except ValueError:
+        return False
+    return bool(video_id.strip() and filename.strip())
+
+
+def exclude_unidentifiable_media(storage: MongoStorage, claimed: list[dict],
+                                 *, run_id: str, country: str) -> list[dict]:
+    """Move unprocessable records out of the active dataframe without losing audit data.
+
+    Exclusion happens before stage subprocess/persistence so claim identity
+    accounting remains exact. The original documents are copied to a dedicated
+    collection before they are removed from the active dataframe collection.
+    """
+    source = storage.db[storage.collection_name("dataframe")]
+    excluded = storage.db[storage.collection_name("dataframe_excluded")]
+    retained = []
+    for doc in claimed:
+        if valid_media_identity(doc):
+            retained.append(doc)
+            continue
+        identity = doc.get("_storage_id")
+        if not identity:
+            raise ValueError("Cannot safely exclude a record without _storage_id")
+        # Audit first. Failed audit writes must not remove the source record.
+        audit = {k: v for k, v in doc.items() if k != "_id"}
+        audit["_exclusion"] = {
+            "reason": "missing_video_id_or_allas_filename",
+            "country": country,
+            "run_id": run_id,
+            "excluded_at": datetime.now(timezone.utc).isoformat(),
+        }
+        excluded.replace_one({"_storage_id": identity}, audit, upsert=True)
+        removed = source.delete_one({
+            "_id": doc["_id"],
+            f"{status_path(1)}.run_id": run_id,
+            f"{status_path(1)}.status": "claimed",
+        })
+        if removed.deleted_count != 1:
+            raise RuntimeError(
+                f"Could not remove excluded record {identity!r} from active dataframe"
+            )
+        LOG.warning(
+            "STEP_1_EXCLUDED_INVALID_MEDIA country=%s storage_id=%s "
+            "video_id=%r allas_filename=%r audit_collection=%s",
+            country, identity, doc.get("video_id", ""),
+            doc.get("allas_filename", ""), storage.collection_name("dataframe_excluded"),
+        )
+    return retained
 
 
 def flat_rows(docs: list[dict]) -> pd.DataFrame:
@@ -327,6 +385,7 @@ def run_country(
     soft_seconds = int(os.getenv("LACLAUGPT_STAGE_SOFT_DEADLINE_SECONDS", "126000"))
     started = time.monotonic()
     processed = 0
+    excluded_this_run = 0
 
     try:
         collection = storage.db[storage.collection_name("dataframe")]
@@ -488,6 +547,12 @@ def run_country(
                         "this country before retrying Step 9. --force on Step 9 "
                         "cannot generate missing Step 8 results."
                     )
+                if total_rows == 0 and step == 1 and excluded_this_run:
+                    LOG.info(
+                        "country=%s step=1 excluded=%d invalid media rows; "
+                        "active dataframe now empty", country, excluded_this_run,
+                    )
+                    break
                 if total_rows == 0:
                     raise RuntimeError(
                         f"Step {step} input collection is empty: "
@@ -498,6 +563,19 @@ def run_country(
                     )
                 LOG.info("country=%s step=%d nothing else eligible", country, step)
                 break
+
+            if step == 1:
+                claimed_count = len(claimed)
+                claimed = exclude_unidentifiable_media(
+                    storage, claimed, run_id=run_id, country=country
+                )
+                excluded_this_run += claimed_count - len(claimed)
+                if not claimed:
+                    LOG.info(
+                        "country=%s step=1 batch contained only excluded invalid media; "
+                        "continuing to next eligible batch", country,
+                    )
+                    continue
 
             before = enrich_dataframe(storage, flat_rows(claimed))
             source_ids = set(before["_storage_id"].astype(str))
