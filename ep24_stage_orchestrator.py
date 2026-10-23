@@ -434,24 +434,32 @@ def run_country(
                 upstream = (collection.count_documents(
                     {f"{status_path(step - 1)}.status": "complete"}
                 ) if step > 1 else total_rows)
-                LOG.warning(
-                    "UPSTREAM_READINESS country=%s step=%d valid_input=%d",
-                    country, step, collection.count_documents(
-                        eligible_query(step, retry_errors=True, force=True)),
-                )
-                LOG.warning(
-                    "NO_ELIGIBLE_ROWS country=%s step=%d database=%s collection=%s "
-                    "total=%d upstream_complete=%d stage_not_started=%d "
-                    "stage_counts=%s retry_errors=%s. "
-                    "If total=0 run Step 0 non-dry-run with identical "
-                    "LACLAUGPT_DATASET/LACLAUGPT_MONGO_DATABASE. "
-                    "If error>0, retry with --retry-errors; "
-                    "if claimed>0, check concurrent jobs/stale claims; "
-                    "if complete>0, existing analyses are preserved.",
-                    country, step, storage.config.mongo_database,
-                    storage.collection_name("dataframe"), total_rows, upstream,
-                    unstarted, stage_counts, retry_errors,
-                )
+                ready_query = eligible_query(step, retry_errors=True, force=True)
+                ready_total = collection.count_documents(ready_query)
+                remaining_upstream = max(0, total_rows - upstream)
+                if total_rows > 0 and ready_total == stage_counts["complete"] and not (
+                    stage_counts["error"] or stage_counts["claimed"]
+                    or stage_counts["pending"] or stage_counts["retry"]
+                ):
+                    LOG.info(
+                        "STAGE_COMPLETE country=%s step=%d upstream_complete=%d "
+                        "stage_complete=%d awaiting_upstream=%d total=%d; "
+                        "nothing eligible to retry",
+                        country, step, upstream, stage_counts["complete"],
+                        remaining_upstream, total_rows,
+                    )
+                else:
+                    LOG.warning(
+                        "NO_ELIGIBLE_ROWS country=%s step=%d database=%s "
+                        "collection=%s total=%d upstream_complete=%d "
+                        "ready_input=%d awaiting_upstream=%d stage_not_started=%d "
+                        "stage_counts=%s retry_errors=%s. "
+                        "Check upstream stage completion and eligibility filters.",
+                        country, step, storage.config.mongo_database,
+                        storage.collection_name("dataframe"), total_rows, upstream,
+                        ready_total, remaining_upstream, unstarted, stage_counts,
+                        retry_errors,
+                    )
                 if total_rows == 0:
                     try:
                         alternatives = [
