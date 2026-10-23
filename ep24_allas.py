@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from ep24_pipeline import recover_allas_filename, local_media_path
+
 LOG = logging.getLogger("ep24_allas")
 
 
@@ -23,29 +25,41 @@ def stage_media(df: pd.DataFrame) -> int:
     root.mkdir(parents=True, exist_ok=True)
     template = os.getenv("LACLAUGPT_ALLAS_FETCH_COMMAND", "").strip()
     staged = 0
-    for _, row in df.iterrows():
-        key = str(row.get("allas_filename", "")).strip()
+    if "allas_filename" not in df.columns:
+        df["allas_filename"] = ""
+    for index, row in df.iterrows():
+        key = recover_allas_filename(row)
         if not key:
+            LOG.error("Allas unresolved media identity video_id=%s", row.get("video_id", ""))
             continue
-        direct = Path(key)
-        if direct.exists():
-            continue
-        destination = root / key.lstrip("/")
-        if destination.exists():
-            continue
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        LOG.debug("Allas stage object=%s destination=%s", key, destination)
-        if key.startswith(("https://", "http://")):
-            tmp = destination.with_suffix(destination.suffix + ".part")
-            urllib.request.urlretrieve(key, tmp)
-            os.replace(tmp, destination)
-        elif template:
-            command = template.format(object=key, destination=str(destination))
-            subprocess.run(shlex.split(command), check=True)
-        else:
-            LOG.warning(
-                "media not local and no LACLAUGPT_ALLAS_FETCH_COMMAND configured: %s", key
+        if not str(row.get("allas_filename", "") or "").strip():
+            df.at[index, "allas_filename"] = key
+            LOG.info("Allas recovered filename video_id=%s", row.get("video_id", ""))
+        try:
+            destination = local_media_path(df.loc[index], root=root)
+            if destination.is_file() and destination.stat().st_size > 0:
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            LOG.debug("Allas stage object=%s destination=%s", key, destination)
+            if key.startswith(("https://", "http://")):
+                tmp = destination.with_name(destination.name + ".part")
+                try:
+                    urllib.request.urlretrieve(key, tmp)
+                    if not tmp.is_file() or tmp.stat().st_size == 0:
+                        raise RuntimeError("Downloaded media was empty")
+                    os.replace(tmp, destination)
+                finally:
+                    tmp.unlink(missing_ok=True)
+            elif template:
+                command = template.format(object=key, destination=str(destination))
+                subprocess.run(shlex.split(command), check=True)
+            else:
+                LOG.error("Allas fetch command missing for object=%s", key)
+                continue
+            staged += 1
+        except Exception:
+            LOG.exception(
+                "Allas staging failed video_id=%s object=%s; row remains retryable",
+                row.get("video_id", ""), key,
             )
-            continue
-        staged += 1
     return staged
