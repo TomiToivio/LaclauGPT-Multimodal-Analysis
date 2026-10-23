@@ -535,6 +535,16 @@ def preprocess_dataframe(df: pd.DataFrame, *, source_csv: Path | None = None) ->
                     )
                     cached = None
                 if cached:
+                    # A cached SQLite result is not usable if its generated
+                    # keyframe disappeared from scratch between Slurm jobs.
+                    frame = Path(str(cached.get("frame_file", "") or ""))
+                    if not frame.is_file() or frame.stat().st_size == 0:
+                        LOG.warning(
+                            "cache_missing_keyframe country=%s video_id=%s path=%s; regenerating",
+                            country, video_id, frame,
+                        )
+                        cached = None
+                if cached:
                     for column, value in cached.items():
                         out.at[index, column] = value
                     out.at[index, "preprocess_status"] = "cached"
