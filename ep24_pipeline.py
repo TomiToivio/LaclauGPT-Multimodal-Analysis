@@ -136,7 +136,7 @@ def metadata_context(row: pd.Series, *, include_model_fields: bool = True) -> st
 
 
 _HEPP24_ID = re.compile(
-    r"^HEPP24-([A-Z]{2})-([A-Z0-9]+)-([A-Z0-9]+)-(\\d{8})-([A-Za-z0-9._-]+)$",
+    r"^HEPP24-([A-Z]{2})-([A-Z0-9]+)-([A-Z0-9]+)-(\d{8})-([A-Za-z0-9._-]+)$",
     re.IGNORECASE,
 )
 
