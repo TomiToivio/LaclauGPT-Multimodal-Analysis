@@ -9,6 +9,7 @@ from roihu_storage import StorageConfig
 
 def test_reporter_prints_generated_fields_only(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("LACLAUGPT_ANALYSIS_LOG_DIR", str(tmp_path))
+    monkeypatch.setenv("LACLAUGPT_PRINT_ANALYSIS", "1")
     df = pd.DataFrame([{
         "source_text": "PRIVATE INPUT MUST NOT APPEAR",
         "memory_context_json": "PRIVATE CONTEXT MUST NOT APPEAR",
