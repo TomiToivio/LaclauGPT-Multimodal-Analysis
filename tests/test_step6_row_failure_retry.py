@@ -12,7 +12,8 @@ from ep24_stage_orchestrator import persist_batch
     ("error", "error"),
     ("", "error"),
 ])
-def test_step6_row_status_in_mongo(status, expected):
+def test_step6_row_status_in_mongo(status, expected, tmp_path, monkeypatch):
+    monkeypatch.setenv("LACLAUGPT_EP24_OUTPUT_ROOT", str(tmp_path))
     storage = MagicMock()
     storage.collection_name.return_value = "test_finland_dataframe"
     output = pd.DataFrame([{"_storage_id": "test-1", "laclau_status": status}])
