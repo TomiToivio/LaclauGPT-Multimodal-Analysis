@@ -294,9 +294,94 @@ def discover_provenance(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
+        for chunk in iter(lambda: handle.read(1 << 16), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+#: The visualization contract (#195): per step, the status field that decides failure and the
+#: output fields that decide coverage. The dashboard's ``coverage_rows()`` reads
+#: ``record_counts[country].exported`` as the denominator and ``stage_coverage[country][step]`` as
+#: the numerator, so an export without these keys cannot be opened by the researcher dashboard.
+COVERAGE_STEPS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "0_ingest": ("processing_status", ("processing_status_reason", "needs_resplit")),
+    "1_preprocess": ("preprocess_status", ("asr_transcript", "asr_translated", "ocr_1",
+                                           "frame_file", "preprocess_completed_at")),
+    "2_frame": ("frame_analysis_status", ("frame_analysis_1", "frame_quality_status")),
+    "3_video": ("vllm_video_status", ("vllm_video_analysis", "vllm_video_markdown_analysis",
+                                      "vllm_video_structured_json")),
+    "4_summary": ("summary_quality_status", ("summary_analysis", "summary_summary_md",
+                                             "summary_quality_reason")),
+    "5_postprocess": ("", ("postprocess_entities", "postprocess_themes",
+                           "postprocess_summary_md")),
+    "6_discourse": ("laclau_status", ("laclau_structured_json", "laclau_summary_md")),
+    "7_dna": ("", ("dna_statements_json", "dna_analysis_markdown")),
+    "8_sna": ("", ("sna_nodes_json", "sna_edges_json")),
+    "9_rdf": ("", ("rdf_ttl_path",)),
+}
+
+SUCCESS_STATUSES = frozenset({"done", "ok", "success", "complete", "completed", "available"})
+
+
+def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per step: how many rows carry output, how many carry a failure, and whether it is measurable.
+
+    ``available`` is false when no row carries any of the step's output fields: the source cannot
+    express that step. That is a different finding from ``records: 0``, which means the step is
+    present and produced nothing, and collapsing the two turns an absent stage into a null result.
+    """
+    coverage: dict[str, dict[str, Any]] = {}
+    for step, (status_field, outputs) in COVERAGE_STEPS.items():
+        measurable = any(any(_text(row.get(field)) for field in outputs) for row in rows) or any(
+            field in row for row in rows for field in outputs)
+        present = sum(1 for row in rows if any(_text(row.get(field)) for field in outputs))
+        failed = 0
+        if status_field:
+            failed = sum(1 for row in rows
+                         if _text(row.get(status_field)).lower()
+                         and _text(row.get(status_field)).lower() not in SUCCESS_STATUSES)
+        coverage[step] = {
+            "records": present,
+            "available": measurable,
+            "failed_or_other": failed,
+            "status_field": status_field or None,
+            "pct_of_exported": round(100 * present / len(rows), 1) if rows else 0.0,
+        }
+    return coverage
+
+
+def dashboard_contract(
+    country_stats: Mapping[str, Mapping[str, Any]],
+    rows_by_country: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> dict[str, Any]:
+    """The #195 keys, built from the counts this exporter already produces.
+
+    Additive on top of the exporter's own manifest: ``record_counts`` renames the exporter's
+    ``duplicates_collapsed``/``quarantined`` to ``duplicates``/``invalid_ids`` and adds ``read``,
+    because those are the names the dashboard and the coverage report read.
+    """
+    counts: dict[str, Any] = {}
+    coverage: dict[str, Any] = {}
+    inputs: dict[str, Any] = {}
+    for country, stats in country_stats.items():
+        rows = rows_by_country.get(country, ())
+        counts[country] = {
+            "read": int(stats.get("source_documents", stats.get("read", 0)) or 0),
+            "exported": int(stats.get("records", 0)),
+            "duplicates": int(stats.get("duplicates_collapsed", 0) or 0),
+            "invalid_ids": int(stats.get("quarantined", 0) or 0),
+            "distinct_media": int(stats.get("distinct_media", 0) or 0),
+        }
+        steps = stage_coverage(rows)
+        coverage[country] = steps
+        inputs[country] = {
+            "profile": "mongo",
+            "stage_unavailable": sorted(step for step, entry in steps.items()
+                                        if not entry["available"]),
+        }
+    counts["exported_total"] = sum(entry["exported"] for entry in counts.values()
+                                   if isinstance(entry, Mapping))
+    return {"record_counts": counts, "stage_coverage": coverage, "inputs": inputs}
 
 
 def write_manifest(
@@ -308,6 +393,7 @@ def write_manifest(
     collections_read: Mapping[str, Mapping[str, str]],
     provenance: Mapping[str, Mapping[str, Any]],
     outputs: Sequence[Path],
+    contract: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The manifest is the contract: unit, counts, provenance and what was missing."""
     total_records = sum(int(c.get("records", 0)) for c in countries.values())
@@ -332,6 +418,7 @@ def write_manifest(
             for p in outputs
         ],
     }
+    manifest.update(contract or {})
     (output / "MANIFEST.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8"
     )
