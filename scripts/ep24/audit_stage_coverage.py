@@ -52,11 +52,24 @@ def dedupe(rows: list[dict[str, Any]], unit: str) -> list[dict[str, Any]]:
         if not key:
             key = f"row:{id(row)}"
         groups.setdefault(key, []).append(row)
+    # Status, provenance and identity columns are not analysis outputs. A failed retry may
+    # populate more bookkeeping columns than the successful run it followed.
+    output_fields = {
+        field for stage in STAGE_CONTRACT for field in stage.appends
+        if not field.endswith(("_status", "_reason", "_error", "_model", "_version",
+                               "_runtime_ms", "_generated_at", "_prompt_version",
+                               "_context_sha256"))
+    }
+
+    def substantive_count(row: dict[str, Any]) -> int:
+        return sum(not audit.empty_value(row.get(field)) for field in output_fields)
+
     kept = []
     for key in sorted(groups):
         candidates = groups[key]
-        kept.append(max(candidates, key=lambda r: (sum(1 for v in r.values() if v is not None),
-                                                   str(r.get("_storage_id") or ""))))
+        kept.append(max(candidates, key=lambda r: (
+            substantive_count(r), str(r.get("_storage_id") or "")
+        )))
     return kept
 
 
