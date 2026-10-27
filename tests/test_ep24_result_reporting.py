@@ -8,6 +8,9 @@ from roihu_storage import StorageConfig
 
 
 def test_reporter_prints_generated_fields_only(tmp_path, monkeypatch, capsys):
+    # Printing is opt-in by design (see report_stage_rows): without this the reporter returns
+    # immediately and the test asserts against empty output.
+    monkeypatch.setenv("LACLAUGPT_PRINT_ANALYSIS", "1")
     monkeypatch.setenv("LACLAUGPT_ANALYSIS_LOG_DIR", str(tmp_path))
     monkeypatch.setenv("LACLAUGPT_PRINT_ANALYSIS", "1")
     df = pd.DataFrame([{

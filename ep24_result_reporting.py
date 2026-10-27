@@ -31,7 +31,9 @@ def report_stage_rows(step: int, country: str, frame: pd.DataFrame, csv_path: st
     """Emit completed model/results fields to stdout and a private per-stage log.
 
     Never print all dataframe fields; those include original research inputs.
-    Opt in with LACLAUGPT_PRINT_ANALYSIS=1 on authorized private hosts only.\n    Generated fields can quote private research inputs. Never opt in on CI or\n    publicly archived Slurm logs.
+    Opt in with LACLAUGPT_PRINT_ANALYSIS=1 on authorized private hosts only.
+    Generated fields can quote private research inputs. Never opt in on CI or
+    publicly archived Slurm logs.
     """
     if os.getenv("LACLAUGPT_PRINT_ANALYSIS", "0").lower() in {"0", "false", "no"}:
         return
