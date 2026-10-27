@@ -92,13 +92,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         source = export.collection_name(country, export.CANONICAL_SUFFIX)
         if source not in existing:
             raise SystemExit(f"collection missing for {country}: {source}")
-        # Project only what the audit reads. Pulling whole documents means dragging every
-        # transcript and context blob over the network for a handful of status fields.
-        wanted = {"_storage_id", "allas_filename", "video_id", "country", "asr_language"}
+        # Emptiness is decided in Mongo: each *output* column is reduced to 0/1 so transcripts and
+        # context blobs never leave the server. Status columns stay verbatim -- their values are what
+        # the four buckets are built from.
+        status_names = {c for stage in STAGE_CONTRACT for c in stage.appends if c.endswith("_status")}
+        # Identity and language fields must stay verbatim: reducing them to 0/1 would make every
+        # media key identical (a "distinct media" count of 1) while leaving stage counts correct --
+        # a silent wrong answer, which is worse than a loud one.
+        verbatim = {"_storage_id", "allas_filename", "video_id", "country", "asr_language"}
+        wanted = set(verbatim)
         for stage in STAGE_CONTRACT:
             wanted.update(stage.appends)
-        projection = {name: 1 for name in sorted(wanted)}
-        rows = list(db[source].find({}, projection=projection, batch_size=args.batch_size))
+        projection: dict[str, Any] = {"_id": 0}
+        for name in sorted(wanted):
+            if name in verbatim or name in status_names:
+                projection[name] = 1
+                continue
+            projection[name] = {
+                "$cond": [
+                    {"$in": [{"$ifNull": [f"${name}", None]}, [None, "", [], {}]]},
+                    0,
+                    1,
+                ]
+            }
+        raw = db[source].aggregate([{"$project": projection}], batchSize=args.batch_size)
+        # 0 means "no result"; hand the auditor None so it sees an empty value, not a zero result.
+        rows = [{k: (None if v == 0 else v) for k, v in doc.items()} for doc in raw]
         report["countries"][country] = audit.audit_rows(rows, STAGE_CONTRACT)
         print(f"{country}: {len(rows)} rows audited")
 
