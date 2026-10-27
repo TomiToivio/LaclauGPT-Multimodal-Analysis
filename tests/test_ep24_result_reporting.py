@@ -9,6 +9,7 @@ from roihu_storage import StorageConfig
 
 def test_reporter_prints_generated_fields_only(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("LACLAUGPT_ANALYSIS_LOG_DIR", str(tmp_path))
+    monkeypatch.setenv("LACLAUGPT_PRINT_ANALYSIS", "1")
     df = pd.DataFrame([{
         "source_text": "PRIVATE INPUT MUST NOT APPEAR",
         "memory_context_json": "PRIVATE CONTEXT MUST NOT APPEAR",
@@ -44,7 +45,8 @@ def test_review_csv_contains_generated_results_only(tmp_path, monkeypatch):
     monkeypatch.setenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", str(tmp_path))
     monkeypatch.setenv("LACLAUGPT_EP24_REVIEW_DIR", str(tmp_path / "review"))
     monkeypatch.setenv("LACLAUGPT_ANALYSIS_LOG_DIR", str(tmp_path / "logs"))
-    monkeypatch.setenv("SLURM_JOB_ID", "1234")\n    monkeypatch.setenv("LACLAUGPT_PRINT_ANALYSIS", "1")
+    monkeypatch.setenv("SLURM_JOB_ID", "1234")
+    monkeypatch.setenv("LACLAUGPT_PRINT_ANALYSIS", "1")
     source = pd.DataFrame([{
         "_storage_id": "synthetic-01",
         "source_text": "PRIVATE ORIGINAL SOURCE",
