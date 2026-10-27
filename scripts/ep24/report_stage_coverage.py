@@ -44,7 +44,14 @@ ERRORISH = ("error", "fail")
 
 
 def _blank(value: str | None) -> bool:
-    return value is None or value.strip().lower() in ABSENT
+    if value is None or value.strip().lower() in ABSENT:
+        return True
+    # Serialized empty containers/nulls are not substantive analysis results.
+    try:
+        parsed = json.loads(value)
+    except (ValueError, TypeError):
+        return False
+    return parsed is None or parsed == [] or parsed == {} or parsed == ""
 
 
 def _errored(status: str | None) -> bool:
@@ -119,21 +126,23 @@ def report_country(path: Path) -> dict[str, Any]:
 def render_markdown(report: dict[str, Any]) -> str:
     lines = ["# EP24 step coverage by country", "",
              "Denominators are the country's canonical record count. Absent, errored and",
-             "substantive are counted separately: a step that never started and a step that",
-             "failed are different states and are not merged here.", ""]
+             "projected text are measured separately. Status presence does not establish",
+             "completion; projected text presence does not validate analytic quality.",
+             "Missing CSV columns are unobserved, not evidence of missing source results.", ""]
     for country, data in report.items():
         lines.append(f"## {country} — {data['records']} records "
                      f"({data['with_record_id']} with record_id)")
         lines.append("")
-        lines.append("| step | surface | ran (status) | text projected | errored | absent | share |")
+        lines.append("| step | surface | status present | text projected | errored | absent | share |")
         lines.append("|---|---|---|---|---|---|---|")
         for step in sorted(data["steps"], key=int):
             s = data["steps"][step]
             if s.get("status_present") is None:
                 lines.append(f"| {step} | {s['label']} | — | — | — | — | {s.get('note','')} |")
             else:
+                share = "—" if s["share"] is None else f"{s['share']:.1%}"
                 lines.append(f"| {step} | {s['label']} | {s['status_present']} | {s['text_present']} "
-                             f"| {s['errored']} | {s['absent']} | {s['share']:.1%} |")
+                             f"| {s['errored']} | {s['absent']} | {share} |")
         lines.append("")
     return "\n".join(lines)
 
