@@ -1444,7 +1444,9 @@ def main(argv: list[str] | None = None) -> int:
     assert_source_metadata_preserved(
         before.loc[selected].reset_index(drop=True),
         out_df,
-        mutable_columns=QUALITY_COLUMNS,
+        # Cumulative inputs can contain scroll flags and prior Step 3 results.
+        # Refresh only this stage's declared outputs; protect all upstream fields.
+        mutable_columns=OUTPUT_COLUMNS,
     )
     try:
         mongo_status = persist_mongo_patch(
@@ -1474,3 +1476,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
