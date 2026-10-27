@@ -34,6 +34,7 @@ def tally(rows):
     counters = [Counter() for _ in range(10)]
     total = 0
     valid_id = 0
+    source_media_id = 0
     with_complete_chain = 0
     run_ids = set()
     for row in rows:
@@ -42,6 +43,9 @@ def tally(rows):
                        for key in ("video_id", "allas_filename", "_storage_id"))
         if identity:
             valid_id += 1
+        if any(isinstance(row.get(key), str) and row[key].strip()
+               for key in ("video_id", "allas_filename")):
+            source_media_id += 1
         counters[0]["imported"] += 1
         counters[0]["identity_valid" if identity else "identity_missing"] += 1
         provenance = row.get("_provenance")
@@ -51,11 +55,21 @@ def tally(rows):
         if not isinstance(pipeline, dict):
             pipeline = {}
         chain = identity
+        previous_complete = identity
         for stage in range(1, 10):
             data = pipeline.get(f"step_{stage:02d}") or {}
             state = data.get("status") if isinstance(data, dict) else None
             state = str(state).lower() if state else "missing"
             counters[stage][state] += 1
+            if previous_complete:
+                counters[stage]["eligible_by_previous_stage"] += 1
+            elif state == "complete":
+                counters[stage]["complete_with_upstream_gap"] += 1
+            elif state in ("missing", "pending"):
+                counters[stage]["upstream_blocked_or_identity_missing"] += 1
+            if isinstance(data, dict) and data.get("run_id"):
+                run_ids.add(str(data["run_id"]))
+            previous_complete = state == "complete"
             if state == "complete" and chain:
                 counters[stage]["upstream_chain_complete"] += 1
             else:
@@ -66,6 +80,8 @@ def tally(rows):
         "records_read": total,
         "identity_valid": valid_id,
         "identity_missing": total - valid_id,
+        "source_media_identity_present": source_media_id,
+        "source_media_identity_missing": total - source_media_id,
         "all_steps_status_complete_with_valid_identity": with_complete_chain,
         "run_ids": sorted(run_ids),
         "stage_counts": [{k: v for k, v in sorted(counter.items())}

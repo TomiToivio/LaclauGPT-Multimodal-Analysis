@@ -30,3 +30,20 @@ until aggregate disclosure review. Never commit real exports, credentials or
 internal endpoints to public GitHub. FI/PL/PT source-run, manual codebook
 review, actual payload validation, reruns and dashboard deployment remain
 separate acceptance gates.
+
+## Dependency diagnostics
+
+For each stage N, `eligible_by_previous_stage` counts rows with a completed
+immediate previous stage (or a recognized identity for stage 1).
+`complete_with_upstream_gap` flags a completed stage with an immediate
+upstream non-complete status, while
+`upstream_blocked_or_identity_missing` flags pending/missing downstream
+work without the prerequisite. These are **diagnostic flags**, not mutually
+exclusive pipeline states; do not sum them with `complete/error/missing`.
+
+`identity_valid` permits a Mongo storage key; the separate
+`source_media_identity_present` / `source_media_identity_missing`
+metrics require actual `video_id` or `allas_filename`. This prevents a
+storage-generated identifier from being mistaken for resolvable source media.
+Run IDs are inventoried from stage markers as well as row-level provenance;
+this does not establish same-run consistency or verify the result payload.
