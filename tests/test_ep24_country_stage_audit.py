@@ -1,9 +1,53 @@
 """Synthetic regression tests for the read-only country status auditor."""
 import unittest
-from scripts.ep24.audit_country_stages import dataframe_collections, tally
+from unittest.mock import patch
+
+from scripts.ep24.audit_country_stages import (
+    country_inventory,
+    csv_rows,
+    dataframe_collections,
+    tally,
+)
 
 
 class CountryAuditTests(unittest.TestCase):
+    def test_requested_missing_country_is_not_silently_dropped(self):
+        name = "laclaugpt_ep2024_reprocess_finland_dataframe"
+        with patch("scripts.ep24.audit_country_stages.scan",
+                   return_value={"read_status": "ok", **tally([])}) as scan:
+            result = country_inventory(object(), [name],
+                                       ["FINLAND", "poland", "poland"], 25)
+        self.assertEqual(list(result), ["finland", "poland"])
+        self.assertEqual(scan.call_count, 1)
+        self.assertEqual(result["poland"]["read_status"], "collection_not_found")
+        self.assertIsNone(result["poland"]["records_read"])
+        self.assertEqual(result["finland"]["records_read"], 0)
+
+    def test_csv_preserves_empty_failed_and_missing_countries(self):
+        countries = {
+            "empty": {"read_status": "ok", **tally([])},
+            "failed": {"read_status": "read_failed"},
+            "missing": {"read_status": "collection_not_found",
+                        "records_read": None},
+            "anomaly": {"read_status": "metadata_nonzero_but_cursor_empty",
+                        **tally([])},
+        }
+        rows = list(csv_rows(countries))
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[0]["records_read"], 0)
+        self.assertIsNone(rows[1]["records_read"])
+        self.assertTrue(all(row["stage"] == "" for row in rows))
+        self.assertTrue(all(row["count"] == "" for row in rows))
+        self.assertEqual(rows[3]["read_status"],
+                         "metadata_nonzero_but_cursor_empty")
+
+    def test_csv_retains_existing_stage_counts(self):
+        summary = {"read_status": "ok", **tally([{"video_id": "synthetic"}])}
+        rows = list(csv_rows({"example": summary}))
+        self.assertTrue(any(row["stage"] == 1 and row["state"] == "missing"
+                            and row["count"] == 1 for row in rows))
+        self.assertFalse(any(row["state"] == "inventory_only" for row in rows))
+
     def test_excludes_archived_collections(self):
         self.assertEqual(dataframe_collections([
             "laclauGPT_ep2024_reprocess_finland_dataframe",
@@ -53,3 +97,4 @@ class CountryAuditTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
