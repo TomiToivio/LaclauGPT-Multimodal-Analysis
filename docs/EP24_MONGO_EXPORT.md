@@ -1,6 +1,6 @@
 # EP24 MongoDB export (issue #306, section 1)
 
-`ep24_mongo_export.py` turns the reanalysis results held in shared MongoDB into the artifact set the
+`ep24_mongo_dashboard_export.py` turns the reanalysis results held in shared MongoDB into the artifact set the
 researcher dashboard already reads. It is the missing link between the pipeline and
 `LaclauGPT-Data-Visualization`'s exporter contract: the visualization repository exports from **CSV
 frames**, and this produces those frames from the database.
@@ -22,7 +22,7 @@ identifier is fabricated, and no row is dropped silently.
 export LACLAUGPT_MONGO_URI=...            # or LACLAUGPT_MONGODB_URI (private runtime config)
 export LACLAUGPT_MONGO_DATABASE=...
 
-python ep24_mongo_export.py --countries fi pl pt \
+python ep24_mongo_dashboard_export.py --countries fi pl pt \
     --output /private/LaclauGPT-Private/analysis/ep24/mongo-export
 ```
 
@@ -87,3 +87,9 @@ absent stage into a null finding, which is the failure mode issue #195 already f
 Running this requires the shared MongoDB URI. Where it is not available, the module is testable
 without it (synthetic documents, no network) and the export is reported as not produced — never
 simulated.
+
+## Compatibility
+
+The existing `ep24_mongo_export.py` API and `scripts/ep24/export_mongo_results.py` CLI remain unchanged. Use `ep24_mongo_dashboard_export.py` explicitly for the dashboard artifact contract described here. Their identity rules and manifests differ; do not combine their record counts or substitute one export directory for the other without validating the consuming application.
+
+Subset exports (`--query` or `--limit`) deliberately omit child tables and mark them unavailable because child-to-parent run alignment is unverified. Cursor failures after emitting records abort rather than replaying documents.

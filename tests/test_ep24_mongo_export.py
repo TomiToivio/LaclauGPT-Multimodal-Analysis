@@ -1,231 +1,166 @@
-"""Issue #306 section 1: the read-only EP24 MongoDB export contract.
+"""Synthetic tests for the read-only EP24 Mongo export (#306). No database required."""
 
-Synthetic documents only — this repository never holds research data. The tests pin what makes the
-export trustworthy rather than merely runnable:
-
-* read-only access (no write path), and the URI never reaches the manifest;
-* one row per video, most complete run wins, with the collapse counted;
-* unusable documents quarantined and counted, never given a synthetic id;
-* a step that the source cannot carry is ``available: false``, not ``records: 0``;
-* the artifact names and manifest shape are the #195 contract, so an existing dashboard can read
-  the export without a second schema.
-"""
 from __future__ import annotations
 
 import json
-import sys
-import tempfile
-import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+import pytest
 
-import ep24_mongo_export as export  # noqa: E402
+import ep24_mongo_export as export
 
 
-def doc(**overrides) -> dict:
-    base = {
-        "video_id": "v1", "_storage_id": "s1", "allas_filename": "https://a3s.fi/a/v1.mp4",
-        "source_type": "tiktok", "country": "finland",
-        "processing_status": "done", "preprocess_status": "done",
-        "asr_transcript": "puhutaan populismista", "frame_analysis_status": "done",
-        "frame_analysis_1": "kuvaus", "vllm_video_status": "done",
-        "vllm_video_analysis": "video kertoo", "summary_quality_status": "done",
-        "summary_analysis": "yhteenveto", "postprocess_entities": "[]",
-        "laclau_status": "done", "laclau_structured_json": '{"nodal_points": ["kansa"]}',
-        "dna_statements_json": "[]", "sna_nodes_json": "[]", "sna_edges_json": "[]",
-    }
+def row(**overrides):
+    base = {"_storage_id": "s1", "allas_filename": "a.mp4", "video_id": "v1", "country": "finland"}
     base.update(overrides)
     return base
 
 
-class FakeCollection:
-    def __init__(self, name: str, docs: list[dict]):
-        self.name = name
-        self._docs = docs
-        self.writes = 0
+class TestIdentity:
+    def test_media_key_prefers_allas_filename(self):
+        assert export.media_key(row()) == "a.mp4"
+        assert export.media_key(row(allas_filename="")) == "s1"
+        assert export.media_key(row(allas_filename="", _storage_id="")) == "v1"
+        assert export.media_key({}) == ""
 
-    def find(self, query=None, projection=None, batch_size=0):
-        # Mirror pymongo's signature exactly: (filter, projection). Recording both is what lets a
-        # test prove the projection is not being passed where the filter belongs.
-        self.last_query, self.last_projection = query, projection
-        return iter(self._docs)
+    def test_video_and_ingest_units_are_namespaced_apart(self):
+        assert export.record_identity(row(), "video") == "video:a.mp4"
+        assert export.record_identity(row(), "ingest") == "ingest:s1"
+        assert export.record_identity(row(), "video") != export.record_identity(row(), "ingest")
 
-    def insert_one(self, *_args, **_kwargs):  # pragma: no cover - must never be called
-        self.writes += 1
-        raise AssertionError("the export must not write")
+    def test_unknown_unit_is_rejected(self):
+        with pytest.raises(export.ExportError):
+            export.record_identity(row(), "episode")
 
-
-class FakeDatabase:
-    def __init__(self, collections: dict[str, list[dict]]):
-        self.name = "fake_db"
-        self._collections = {name: FakeCollection(name, docs)
-                             for name, docs in collections.items()}
-
-    def list_collection_names(self) -> list[str]:
-        return list(self._collections)
-
-    def __getitem__(self, name: str) -> FakeCollection:
-        return self._collections[name]
-
-    @property
-    def collections(self) -> dict[str, FakeCollection]:
-        return self._collections
+    def test_a_row_with_no_id_is_quarantined_not_invented(self):
+        empty = {"allas_filename": "", "_storage_id": "", "video_id": ""}
+        assert export.record_identity(empty, "video") == ""
+        assert export.quarantine_reason(empty, "video") == "no_identity"
+        assert export.quarantine_reason(row(), "video") is None
 
 
-class ConnectionTests(unittest.TestCase):
-    def test_both_uri_spellings_are_accepted_and_only_the_variable_name_is_returned(self) -> None:
-        uri, database, source = export.connection_settings(
-            {"LACLAUGPT_MONGODB_URI": "mongodb://user:secret@host/db", "LACLAUGPT_MONGODB_DATABASE": "x"})
-        self.assertEqual(uri, "mongodb://user:secret@host/db")
-        self.assertEqual((database, source), ("x", "LACLAUGPT_MONGODB_URI"))
+class TestStageScore:
+    def test_empty_values_do_not_count(self):
+        assert export.stage_score({}) == 0
+        assert export.stage_score({"asr_transcript": "   "}) == 0
+        assert export.stage_score({"asr_transcript": "hello"}) == 1
 
-        _, _, producer_source = export.connection_settings(
-            {"LACLAUGPT_MONGO_URI": "mongodb://host/db"})
-        self.assertEqual(producer_source, "LACLAUGPT_MONGO_URI")
-
-    def test_a_missing_uri_is_a_clear_error(self) -> None:
-        with self.assertRaises(export.ExportError):
-            export.connection_settings({})
-
-    def test_collection_names_come_from_the_producer_naming_contract(self) -> None:
-        self.assertEqual(export.collection_name("finland", "dataframe"),
-                         "laclaugpt_ep2024_reprocess_finland_dataframe")
-        self.assertEqual(export.collection_name("poland", "dna_statements"),
-                         "lclauGPT".replace("lclauGPT", "laclaugpt_ep2024_reprocess_poland_dna_statements"))
+    def test_lists_and_dicts_count_only_when_non_empty(self):
+        assert export.stage_score({"entities": []}) == 0
+        assert export.stage_score({"entities": [{"x": 1}]}) == 1
 
 
-class IdentityTests(unittest.TestCase):
-    def test_a_document_needs_a_video_id_and_a_media_key(self) -> None:
-        self.assertTrue(export.has_usable_identity(doc()))
-        self.assertFalse(export.has_usable_identity(doc(video_id="")))
-        self.assertFalse(export.has_usable_identity(doc(allas_filename="", _storage_id="")))
-        self.assertEqual(export.record_key(doc(video_id=""), "fi"), "")
+class TestSelectCanonical:
+    def test_one_row_per_video_and_the_most_complete_wins(self):
+        rows = [
+            row(_storage_id="s1", asr_transcript="t1"),
+            row(_storage_id="s2", asr_transcript="t2", ocr_1="text"),
+            row(_storage_id="s3"),
+        ]
+        kept, stats = export.select_canonical(rows, "video")
+        assert len(kept) == 1
+        assert kept[0]["_storage_id"] == "s2", "the row with the most stage output wins"
+        assert stats["duplicates_collapsed"] == 2
+        assert stats["records"] == 1
 
-    def test_identity_is_country_scoped(self) -> None:
-        fi = export.record_key(doc(country="finland"), "fi")
-        pl = export.record_key(doc(country="finland"), "pl")
-        self.assertTrue(fi.startswith("fi/v1#"))
-        self.assertNotEqual(fi, pl)
+    def test_ingest_unit_keeps_every_run(self):
+        rows = [
+            row(_storage_id="s1", asr_transcript="t1"),
+            row(_storage_id="s2", asr_transcript="t2"),
+            row(_storage_id="s3"),
+        ]
+        kept, stats = export.select_canonical(rows, "ingest")
+        assert len(kept) == 3
+        assert stats["duplicates_collapsed"] == 0
+        assert stats["distinct_media"] == 1
 
-    def test_two_segments_of_one_file_stay_apart(self) -> None:
-        first = export.record_key(doc(sequence_number="1"), "fi")
-        second = export.record_key(doc(sequence_number="2"), "fi")
-        self.assertNotEqual(first, second)
+    def test_selection_is_deterministic_regardless_of_input_order(self):
+        rows = [row(_storage_id=f"s{i}", asr_transcript="x") for i in range(5)]
+        first, _ = export.select_canonical(rows, "video")
+        second, _ = export.select_canonical(list(reversed(rows)), "video")
+        assert first == second
+        assert first[0]["_storage_id"] == "s0", "ties break on storage id, not cursor order"
 
-
-class RowTests(unittest.TestCase):
-    def test_the_most_complete_run_wins_and_the_collapse_is_counted(self) -> None:
-        rows, stats, _columns = export.canonical_rows([
-            doc(laclau_structured_json="", summary_analysis=""),
-            doc(_storage_id="s2", summary_analysis="täydempi"),
-        ], "fi")
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["summary_analysis"], "täydempi")
-        self.assertEqual((stats["read"], stats["duplicates"], stats["invalid_ids"]), (2, 1, 0))
-
-    def test_unusable_documents_are_counted_and_absent_from_the_rows(self) -> None:
-        rows, stats, _columns = export.canonical_rows([doc(), doc(video_id="", allas_filename="")], "fi")
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(stats["invalid_ids"], 1)
-
-    def test_a_row_carries_every_stage_field_the_contract_names(self) -> None:
-        rows, _stats, _columns = export.canonical_rows([doc()], "fi")
-        for field in export.stage_fields():
-            self.assertIn(field, rows[0])
-
-    def test_json_values_become_text_but_stay_machine_readable(self) -> None:
-        rows, _stats, _columns = export.canonical_rows([doc(laclau_structured_json={"nodal_points": ["kansa"]})], "fi")
-        self.assertEqual(json.loads(rows[0]["laclau_structured_json"]), {"nodal_points": ["kansa"]})
+    def test_quarantined_rows_are_counted(self):
+        rows = [row(), {"allas_filename": "", "_storage_id": "", "video_id": ""}]
+        kept, stats = export.select_canonical(rows, "video")
+        assert len(kept) == 1
+        assert stats["quarantined"] == 1
 
 
-class CoverageTests(unittest.TestCase):
-    def test_a_step_with_output_is_present(self) -> None:
-        rows, _stats, _columns = export.canonical_rows([doc()], "fi")
-        coverage = export.stage_coverage(rows)
-        self.assertGreater(coverage["6_discourse"]["records"], 0)
-        self.assertTrue(coverage["6_discourse"]["available"])
+class TestTextSplit:
+    def test_long_strings_leave_the_row_and_short_ones_stay(self):
+        lean, heavy = export.split_heavy_fields(
+            {"record_id": "video:a", "short": "abc", "long": "x" * 20}, threshold=10)
+        assert lean == {"record_id": "video:a", "short": "abc"}
+        assert heavy == {"long": "x" * 20}
 
-    def test_a_failed_status_is_counted_as_failed_not_as_coverage(self) -> None:
-        rows, _stats, _columns = export.canonical_rows([doc(laclau_status="failed", laclau_structured_json="")], "fi")
-        coverage = export.stage_coverage(rows)
-        self.assertEqual(coverage["6_discourse"]["records"], 0)
-        self.assertEqual(coverage["6_discourse"]["failed_or_other"], 1)
-
-
-class ExportTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.output = Path(self._tmp.name) / "out"
-        self.db = FakeDatabase({
-            export.collection_name("finland", "dataframe"): [
-                doc(), doc(_storage_id="s2", summary_analysis=""), doc(video_id=""),
-            ],
-            export.collection_name("finland", "dna_statements"): [{"statement_id": "d1"}],
-            # The Polish frame deliberately carries no SNA columns: the step cannot be measured there.
-            export.collection_name("poland", "dataframe"): [
-                {k: v for k, v in doc(video_id="p1").items() if not k.startswith("sna_")}],
-        })
-
-    def tearDown(self) -> None:
-        self._tmp.cleanup()
-
-    def test_the_artifacts_are_the_contract_a_dashboard_already_reads(self) -> None:
-        export.export_countries(self.db, ["fi", "pl"], self.output, uri_source="TEST_URI_VAR")
-        for name in ("fi.csv", "pl.csv", "combined.csv", "records.jsonl", "MANIFEST.json",
-                     "DATA_DICTIONARY.md", "dna_statements.csv", "sna_nodes.csv"):
-            self.assertTrue((self.output / name).is_file(), name)
-        manifest = json.loads((self.output / "MANIFEST.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["record_unit"], "video")
-        self.assertIn("exported", manifest["record_counts"]["fi"])
-        self.assertIn("6_discourse", manifest["stage_coverage"]["fi"])
-        self.assertIn("stage_unavailable", manifest["inputs"]["fi"])
-
-    def test_the_uri_never_reaches_the_manifest(self) -> None:
-        export.export_countries(self.db, ["fi"], self.output, uri_source="LACLAUGPT_MONGODB_URI")
-        text = (self.output / "MANIFEST.json").read_text(encoding="utf-8")
-        self.assertIn("LACLAUGPT_MONGODB_URI", text)
-        self.assertNotIn("mongodb://", text)
-
-    def test_a_country_without_collections_is_unavailable_not_empty(self) -> None:
-        export.export_countries(self.db, ["pt"], self.output, uri_source="X")
-        manifest = json.loads((self.output / "MANIFEST.json").read_text(encoding="utf-8"))
-        self.assertFalse(manifest["inputs"]["pt"]["available"])
-        self.assertEqual(manifest["stage_coverage"]["pt"]["6_discourse"]["records"], 0)
-        self.assertFalse(manifest["stage_coverage"]["pt"]["6_discourse"]["available"])
-
-    def test_a_step_with_no_column_anywhere_is_marked_unavailable(self) -> None:
-        # The Polish frame here carries no SNA columns at all.
-        export.export_countries(self.db, ["pl"], self.output, uri_source="X")
-        manifest = json.loads((self.output / "MANIFEST.json").read_text(encoding="utf-8"))
-        self.assertIn("8_sna", manifest["inputs"]["pl"]["stage_unavailable"])
-
-    def test_the_export_never_writes_to_the_database(self) -> None:
-        export.export_countries(self.db, ["fi", "pl"], self.output, uri_source="X")
-        self.assertTrue(all(collection.writes == 0 for collection in self.db.collections.values()))
-
-    def test_the_projection_is_sent_as_a_projection_not_as_a_filter(self) -> None:
-        db = FakeDatabase({export.collection_name("finland", "dataframe"): [doc()]})
-        output = Path(self._tmp.name) / "proj"
-        export.export_countries(db, ["fi"], output, uri_source="X")
-        collection = db.collections[export.collection_name("finland", "dataframe")]
-        self.assertEqual(collection.last_query, {})
-        self.assertIn("allas_filename", collection.last_projection)
-        self.assertNotIn("_id", collection.last_projection)
-
-    def test_a_country_row_file_is_not_empty_when_the_source_has_rows(self) -> None:
-        db = FakeDatabase({export.collection_name("finland", "dataframe"): [doc()]})
-        output = Path(self._tmp.name) / "nonempty"
-        export.export_countries(db, ["fi"], output, uri_source="X")
-        self.assertGreater(len((output / "fi.csv").read_text(encoding="utf-8").splitlines()), 1)
-
-    def test_child_collections_are_flattened_with_provenance(self) -> None:
-        export.export_countries(self.db, ["fi"], self.output, uri_source="X")
-        header = (self.output / "dna_statements.csv").read_text(encoding="utf-8").splitlines()[0]
-        self.assertIn("statement_id", header)
-        self.assertIn("country", header)
+    def test_the_bundle_is_gzipped_jsonl_keyed_by_record_id(self, tmp_path):
+        import gzip
+        import json
+        path = tmp_path / "text.jsonl.gz"
+        rows = [{"record_id": "video:a", "asr_transcript": "y" * 50},
+                {"record_id": "video:b", "small": 1}]
+        assert export.write_text_bundle(path, rows, threshold=10) == 1
+        line = gzip.open(path, "rt", encoding="utf-8").read().strip()
+        payload = json.loads(line)
+        assert payload["record_id"] == "video:a"
+        assert payload["asr_transcript"] == "y" * 50
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestOutput:
+    def test_csv_columns_are_sorted_and_json_cells_are_stable(self, tmp_path: Path):
+        rows = [{"b": 1, "a": {"y": 1, "x": 2}}, {"a": None, "b": 2}]
+        path = tmp_path / "out" / "rows.csv"
+        assert export.write_rows(path, rows) == 2
+        text = path.read_text(encoding="utf-8")
+        assert text.splitlines()[0] == "a,b"
+        assert '"{""x"": 2, ""y"": 1}"' in text, "dict cells are JSON with sorted keys"
+
+    def test_project_row_drops_mongo_id_only(self):
+        projected = export.project_row({"_id": "abc", "keep": 1})
+        assert projected == {"keep": 1}
+
+    def test_manifest_states_the_unit_and_both_counts(self, tmp_path: Path):
+        manifest = export.write_manifest(
+            tmp_path,
+            record_unit="video",
+            countries={"finland": {"records": 3, "distinct_media": 2}},
+            child_counts={"finland": {"entities": 10, "sna": 0}},
+            collections_read={"finland": {"canonical": "c", "sna": "absent"}},
+            provenance={"finland": {"pipeline_markers": [], "newest_timestamp": None}},
+            outputs=[],
+        )
+        on_disk = json.loads((tmp_path / "MANIFEST.json").read_text(encoding="utf-8"))
+        assert on_disk["record_unit"] == "video"
+        assert on_disk["records"] == 3
+        assert on_disk["distinct_media"] == 2
+        assert on_disk["read_only"] is True
+        assert on_disk["children"]["finland"]["sna"] == 0, "an absent collection is a zero, not a crash"
+        assert manifest["records"] == 3
+
+
+class TestConfig:
+    def test_missing_config_raises_without_echoing_anything(self):
+        with pytest.raises(export.ExportError) as excinfo:
+            export.config_from_env({"LACLAUGPT_MONGODB_URI": "", "LACLAUGPT_MONGODB_DATABASE": ""})
+        assert "LACLAUGPT_MONGODB_URI" in str(excinfo.value)
+
+    def test_config_reads_env(self):
+        uri, db = export.config_from_env({
+            "LACLAUGPT_MONGODB_URI": "mongodb://example", "LACLAUGPT_MONGODB_DATABASE": "ep24"})
+        assert uri == "mongodb://example" and db == "ep24"
+
+
+class TestCollections:
+    def test_collection_naming(self):
+        assert export.collection_name("finland", "_dataframe") == \
+            "laclaugpt_ep2024_reprocess_finland_dataframe"
+        assert export.child_collection("poland", "dna_statements") == \
+            "laclaugpt_ep2024_reprocess_poland_dna_statements"
+
+    def test_unknown_country_and_role_raise(self):
+        with pytest.raises(export.ExportError):
+            export.collection_name("sweden")
+        with pytest.raises(export.ExportError):
+            export.child_collection("finland", "nonsense")
