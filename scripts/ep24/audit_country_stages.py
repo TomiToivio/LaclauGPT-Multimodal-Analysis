@@ -129,7 +129,7 @@ def main(argv=None):
     if not dbname:
         parser.error("Mongo database must be configured in private environment")
     client = MongoClient(uri, serverSelectionTimeoutMS=args.timeout_ms,
-                         retryReads=True, readPreference="primary")
+                         retryReads=True)
     try:
         db = client[dbname]
         all_names = db.list_collection_names()
