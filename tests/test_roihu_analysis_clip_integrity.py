@@ -19,7 +19,7 @@ def test_truncated_existing_clip_is_rebuilt_atomically(tmp_path, monkeypatch):
         candidate = Path(command[-1])
         valid = candidate.read_bytes() == b"complete mp4"
         return SimpleNamespace(returncode=0 if valid else 1,
-                               stdout="4.0\\n" if valid else "",
+                               stdout="4.0\n" if valid else "",
                                stderr="moov atom not found" if not valid else "")
 
     monkeypatch.setattr(ep24_video.subprocess, "run", probe)
