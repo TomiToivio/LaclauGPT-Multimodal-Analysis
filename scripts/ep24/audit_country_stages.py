@@ -120,6 +120,40 @@ def scan(db, name, batch_size):
     return meta
 
 
+def country_inventory(db, names, countries, batch_size):
+    """Keep requested but undiscovered countries explicit, without guessing rows."""
+    discovered = dataframe_collections(names)
+    selected = sorted({c.lower() for c in countries} or discovered.keys())
+    return {
+        country: (scan(db, discovered[country], batch_size)
+                  if country in discovered else {
+                      "read_status": "collection_not_found",
+                      "records_read": None,
+                      "output_payloads_verified": False,
+                      "run_coherence_verified": False,
+                  })
+        for country in selected
+    }
+
+
+def csv_rows(countries):
+    """Preserve empty and unsuccessful reads in the flat inventory too."""
+    for country, summary in countries.items():
+        emitted = False
+        for stage, counts in enumerate(summary.get("stage_counts", [])):
+            for state, count in sorted(counts.items()):
+                emitted = True
+                yield {"country": country, "stage": stage,
+                       "records_read": summary.get("records_read"),
+                       "state": state, "count": count,
+                       "read_status": summary["read_status"]}
+        if not emitted:
+            yield {"country": country, "stage": "",
+                   "records_read": summary.get("records_read"),
+                   "state": "inventory_only", "count": "",
+                   "read_status": summary["read_status"]}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True,
@@ -138,7 +172,7 @@ def main(argv=None):
         from pymongo import MongoClient
     except ImportError:
         parser.error("pymongo is required")
-    from urllib.parse import urlsplit, unquote
+    from urllib.parse import unquote, urlsplit
     dbname = (os.getenv("LACLAUGPT_MONGO_DATABASE")
               or os.getenv("LACLAUGPT_MONGODB_DATABASE")
               or unquote(urlsplit(uri).path.lstrip("/")))
@@ -149,16 +183,12 @@ def main(argv=None):
     try:
         db = client[dbname]
         all_names = db.list_collection_names()
-        selected = dataframe_collections(all_names)
-        if args.countries:
-            requested = set(c.lower() for c in args.countries)
-            selected = {k: v for k, v in selected.items() if k in requested}
         report = {
             "generated_utc": datetime.now(timezone.utc).isoformat(),
             "scope": "read_only_status_inventory",
             "database_name_withheld": True,
-            "countries": {country: scan(db, collection, args.batch_size)
-                          for country, collection in sorted(selected.items())},
+            "countries": country_inventory(db, all_names, args.countries,
+                                           args.batch_size),
         }
         args.output.mkdir(parents=True, exist_ok=True)
         (args.output / "country_stage_status.json").write_text(
@@ -168,13 +198,7 @@ def main(argv=None):
             writer = csv.DictWriter(output, fieldnames=[
                 "country", "stage", "records_read", "state", "count", "read_status"])
             writer.writeheader()
-            for country, summary in report["countries"].items():
-                for stage, counts in enumerate(summary.get("stage_counts", [])):
-                    for state, count in sorted(counts.items()):
-                        writer.writerow({"country": country, "stage": stage,
-                                         "records_read": summary["records_read"],
-                                         "state": state, "count": count,
-                                         "read_status": summary["read_status"]})
+            writer.writerows(csv_rows(report["countries"]))
         print("Country stage status audit written to private output directory.")
         return 0
     except Exception:
@@ -187,3 +211,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
