@@ -1,7 +1,7 @@
 """Human-readable, private, per-stage analysis reporting.
 
 Stage CSVs are the authoritative full-fidelity artifacts. This companion log
-prints only generated result fields, not private input records or prompt context.
+writes only selected generated result fields. Reporting is disabled by default\nbecause model outputs can reproduce restricted source text and must not leak\ninto shared scheduler logs.
 """
 from __future__ import annotations
 
@@ -31,9 +31,9 @@ def report_stage_rows(step: int, country: str, frame: pd.DataFrame, csv_path: st
     """Emit completed model/results fields to stdout and a private per-stage log.
 
     Never print all dataframe fields; those include original research inputs.
-    Control with LACLAUGPT_PRINT_ANALYSIS=0 or LACLAUGPT_ANALYSIS_MAX_CHARS.
+    Opt in with LACLAUGPT_PRINT_ANALYSIS=1 on authorized private hosts only.\n    Generated fields can quote private research inputs. Never opt in on CI or\n    publicly archived Slurm logs.
     """
-    if os.getenv("LACLAUGPT_PRINT_ANALYSIS", "1").lower() in {"0", "false", "no"}:
+    if os.getenv("LACLAUGPT_PRINT_ANALYSIS", "0").lower() in {"0", "false", "no"}:
         return
     maximum = max(100, int(os.getenv("LACLAUGPT_ANALYSIS_MAX_CHARS", "12000")))
     selected = [name for name in OUTPUT_FIELDS.get(step, ()) if name in frame.columns]

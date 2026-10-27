@@ -44,7 +44,7 @@ def test_review_csv_contains_generated_results_only(tmp_path, monkeypatch):
     monkeypatch.setenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", str(tmp_path))
     monkeypatch.setenv("LACLAUGPT_EP24_REVIEW_DIR", str(tmp_path / "review"))
     monkeypatch.setenv("LACLAUGPT_ANALYSIS_LOG_DIR", str(tmp_path / "logs"))
-    monkeypatch.setenv("SLURM_JOB_ID", "1234")
+    monkeypatch.setenv("SLURM_JOB_ID", "1234")\n    monkeypatch.setenv("LACLAUGPT_PRINT_ANALYSIS", "1")
     source = pd.DataFrame([{
         "_storage_id": "synthetic-01",
         "source_text": "PRIVATE ORIGINAL SOURCE",
@@ -61,3 +61,15 @@ def test_review_csv_contains_generated_results_only(tmp_path, monkeypatch):
     assert rows[0]["asr_transcript"] == "Generated synthetic transcript"
     assert "source_text" not in rows[0]
     assert "PRIVATE ORIGINAL SOURCE" not in review.read_text()
+
+
+def test_private_model_output_is_disabled_by_default(tmp_path, monkeypatch, capsys):
+    """Generated output can quote restricted transcripts; never log by default."""
+    monkeypatch.delenv("LACLAUGPT_PRINT_ANALYSIS", raising=False)
+    monkeypatch.setenv("LACLAUGPT_EP24_REVIEW_DIR", str(tmp_path / "review"))
+    monkeypatch.setenv("LACLAUGPT_ANALYSIS_LOG_DIR", str(tmp_path / "logs"))
+    frame = pd.DataFrame([{"video_id": "synthetic-id", "asr_transcript": "SENSITIVE QUOTE"}])
+    report_stage_rows(1, "finland", frame, tmp_path / "checkpoint.csv")
+    assert "SENSITIVE QUOTE" not in capsys.readouterr().out
+    assert not (tmp_path / "logs").exists()
+    assert not (tmp_path / "review").exists()
