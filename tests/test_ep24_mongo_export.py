@@ -92,7 +92,10 @@ class TestTextSplit:
     def test_long_strings_leave_the_row_and_short_ones_stay(self):
         lean, heavy = export.split_heavy_fields(
             {"record_id": "video:a", "short": "abc", "long": "x" * 20}, threshold=10)
-        assert lean == {"record_id": "video:a", "short": "abc"}
+        # The marker is deliberate (#331): a cell that moved must not look like a cell that was never
+        # written. Everything else about the split is unchanged.
+        assert lean == {"record_id": "video:a", "short": "abc",
+                        "heavy_fields_in_text_bundle": "long"}
         assert heavy == {"long": "x" * 20}
 
     def test_the_bundle_is_gzipped_jsonl_keyed_by_record_id(self, tmp_path):
