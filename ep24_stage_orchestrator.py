@@ -130,6 +130,15 @@ def claim_batch(
 
     claimed: list[dict] = []
     query = eligible_query(step, retry_errors=retry_errors, force=force)
+    sample_file = os.getenv("LACLAUGPT_SAMPLE_IDS_FILE", "").strip()
+    if sample_file:
+        sample_path = Path(sample_file)
+        if not sample_path.is_file():
+            raise FileNotFoundError(f"sample IDs file missing: {sample_path}")
+        sample_ids = [line.strip() for line in sample_path.read_text().splitlines() if line.strip()]
+        if not sample_ids or len(set(sample_ids)) != len(sample_ids):
+            raise ValueError("sample IDs file must contain unique nonempty _storage_id values")
+        query = {"$and": [query, {"_storage_id": {"$in": sample_ids}}]}
     while len(claimed) < batch_size:
         doc = collection.find_one_and_update(
             query,
@@ -398,6 +407,10 @@ def run_country(
         collection = storage.db[storage.collection_name("dataframe")]
         if dry_run:
             query = eligible_query(step, retry_errors=retry_errors, force=force)
+            sample_file = os.getenv("LACLAUGPT_SAMPLE_IDS_FILE", "").strip()
+            if sample_file:
+                sample_ids = [line.strip() for line in Path(sample_file).read_text().splitlines() if line.strip()]
+                query = {"$and": [query, {"_storage_id": {"$in": sample_ids}}]}
             count = collection.count_documents(query)
             if limit > 0:
                 count = min(count, limit)
