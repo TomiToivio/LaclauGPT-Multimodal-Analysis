@@ -226,7 +226,7 @@ def persist_batch(
     output: pd.DataFrame,
     *,
     source_ids: set[str],
-) -> None:
+) -> set[str]:
     if "_storage_id" not in output.columns:
         raise RuntimeError(f"step {step} output dropped _storage_id")
     output_ids = set(output["_storage_id"].astype(str))
@@ -242,6 +242,7 @@ def persist_batch(
                      3: "vllm_video_status", 6: "laclau_status", 7: "dna_status", 8: "sna_status"}
     result_field = status_fields.get(step)
     failures = 0
+    succeeded_ids: set[str] = set()
     for _, row in output.iterrows():
         rid = str(row["_storage_id"])
         fields = {str(k): v for k, v in row.to_dict().items()}
@@ -249,6 +250,8 @@ def persist_batch(
         accepted = {"ok", "cached", "no_evidence"} if step == 8 else {"ok", "cached"}
         failed = bool(result_field and result not in accepted)
         pipeline_status = "error" if failed else "complete"
+        if not failed:
+            succeeded_ids.add(rid)
         fields.update(
             {
                 f"{status_path(step)}.status": pipeline_status,
@@ -281,6 +284,7 @@ def persist_batch(
             bad[detail_columns].head(10).to_dict(orient="records"), step,
         )
         LOG.warning("Step %d: %d/%d rows failed; retryable errors persisted; continuing other records", step, failures, len(output))
+    return succeeded_ids
 
 
 def mark_claimed_error(storage: MongoStorage, step: int, run_id: str, exc: Exception) -> None:
@@ -593,7 +597,7 @@ def run_country(
                     output_root=output_root,
                     run_id=run_id,
                 )
-                persist_batch(
+                succeeded_ids = persist_batch(
                     storage,
                     step,
                     run_id,
@@ -615,7 +619,7 @@ def run_country(
                 raise
 
             processed += len(after)
-            for rid in source_ids:
+            for rid in succeeded_ids:
                 redis.mark(rid, "complete")
 
             # Backup the COMPLETE cumulative subset after every durable batch.
