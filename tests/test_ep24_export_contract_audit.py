@@ -35,9 +35,9 @@ def build_export(root: Path) -> Path:
          "parent_join": "unjoined"},
     ]
     export.write_rows(root / "children" / "finland_dna_statements.csv", children)
-    contract = {
-        "finland": {"dna_statements": export.child_contract(
-            children, country="finland", role="dna_statements")}
+    # The manifest states child QA as records/matched/orphan (#352); the auditor re-derives them.
+    child_detail = {
+        "finland": {"dna_statements": {"records": 3, "matched": 2, "orphan": 1}},
     }
     coverage = export.dashboard_contract(
         {"finland": {"records": 2, "source_documents": 2}},
@@ -52,8 +52,8 @@ def build_export(root: Path) -> Path:
         provenance={},
         outputs=[root / "combined.csv"],
         contract={"stage_coverage": coverage},
-        children_contract={"unit": "video", "countries": contract},
-        heavy_splits={"finland": {"threshold": 1000, "records_with_heavy_fields": 0, "fields": {}}},
+        child_detail=child_detail,
+        heavy_fields={"finland": {}},
     )
     return root
 
@@ -76,7 +76,7 @@ class TestExportContractAudit:
     def test_child_join_drift_fails(self, tmp_path: Path):
         root = build_export(tmp_path)
         manifest = json.loads((root / "MANIFEST.json").read_text())
-        manifest["children_contract"]["countries"]["finland"]["dna_statements"]["joined_rows"] = 99
+        manifest["children_detail"]["finland"]["dna_statements"]["matched"] = 99
         (root / "MANIFEST.json").write_text(json.dumps(manifest))
         report = audit_mod.audit(root)
         assert not report["ok"]

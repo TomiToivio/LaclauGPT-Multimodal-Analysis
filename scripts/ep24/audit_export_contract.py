@@ -23,6 +23,46 @@ def _rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def _child_qa(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Child join QA per ``country/role``, under either manifest spelling.
+
+    The delivered manifest states it as ``children_detail`` (``records``/``matched``/``orphan``);
+    exports written before that key existed carried ``children_contract.countries`` with
+    ``rows``/``joined_rows``/``unjoined_rows``. The auditor re-derives the same four numbers, so it
+    reads whichever is present and compares like with like instead of failing on a rename.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for country, roles in (manifest.get("children_detail") or {}).items():
+        for role, entry in (roles or {}).items():
+            entry = entry or {}
+            out[f"{country}/{role}"] = {
+                "rows": entry.get("records"),
+                "joined_rows": entry.get("matched"),
+                "unjoined_rows": entry.get("orphan"),
+                "duplicate_statement_ids": entry.get("duplicate_statement_ids"),
+            }
+    legacy = ((manifest.get("children_contract") or {}).get("countries") or {})
+    for country, roles in legacy.items():
+        for role, entry in (roles or {}).items():
+            out.setdefault(f"{country}/{role}", dict(entry or {}))
+    return out
+
+
+def _heavy_fields(manifest: dict[str, Any]) -> dict[str, dict[str, int]]:
+    """Which CSV cells were elided into the text bundle, per country.
+
+    ``heavy_fields`` is the current statement; ``heavy_field_splits`` wrapped the same counts one
+    level deeper. Either way the auditor needs ``country -> field -> rows affected``.
+    """
+    current = manifest.get("heavy_fields") or {}
+    if current:
+        return {str(country): {str(f): int(n or 0) for f, n in (fields or {}).items()}
+                for country, fields in current.items() if isinstance(fields, dict)}
+    legacy = manifest.get("heavy_field_splits") or {}
+    return {str(country): {str(f): int(n or 0) for f, n in ((split or {}).get("fields") or {}).items()}
+            for country, split in legacy.items()}
+
+
 def _truthy_count(value: str | None) -> bool:
     try:
         return int(float(value or 0)) > 0
@@ -36,7 +76,7 @@ def audit(export_dir: Path) -> dict[str, Any]:
     if not manifest_path.is_file():
         return {"ok": False, "problems": [f"missing {manifest_path}"], "children": {}}
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    contract = manifest.get("children_contract", {}).get("countries", {})
+    contract = _child_qa(manifest)
     children: dict[str, Any] = {}
 
     parent_rows = _rows(export_dir / "combined.csv") if (export_dir / "combined.csv").is_file() else []
@@ -64,9 +104,10 @@ def audit(export_dir: Path) -> dict[str, Any]:
                 unjoined_rows=len(rows) - len(joined),
                 duplicate_statement_ids=len([i for i in ids if i]) - len({i for i in ids if i}),
             )
-            reported = contract.get(country, {}).get(role, {})
+            reported = contract.get(f"{country}/{role}", {})
             for field in ("rows", "joined_rows", "unjoined_rows", "duplicate_statement_ids"):
-                if field in reported and reported[field] != entry[field]:
+                # A manifest that does not state this number is silent, not wrong.
+                if reported.get(field) is not None and reported[field] != entry[field]:
                     problems.append(
                         f"{country}/{role}: {field} manifest={reported[field]} derived={entry[field]}")
             unknown = sorted({str(row.get("parent_record_id")) for row in joined} - parent_ids)
@@ -90,12 +131,10 @@ def audit(export_dir: Path) -> dict[str, Any]:
                 f"{country}: stage_coverage.{HEAVY_STEP}.records={step['records']} "
                 f"but {derived} rows report dna_statement_count > 0")
 
-    splits = manifest.get("heavy_field_splits", {})
-    for country, split in splits.items():
+    for country, fields in _heavy_fields(manifest).items():
         country_csv = export_dir / f"{country}.csv"
         if not country_csv.is_file():
             continue
-        fields: dict[str, int] = split.get("fields", {})
         rows = _rows(country_csv)
         for field, declared in fields.items():
             if field not in (rows[0].keys() if rows else ()):

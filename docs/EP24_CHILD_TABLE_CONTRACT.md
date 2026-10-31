@@ -32,31 +32,22 @@ parent key returns nothing by construction.
 
 ```jsonc
 "children": { "finland": { "dna_statements": 1583 } },   // raw child rows written
-"children_contract": {
-  "unit": "video",
-  "join": "source_record_id -> parent_record_id",
-  "source_unit": "ingest",
-  "cross_country_duplicate_statement_ids": 0,
-  "countries": {
-    "finland": {
-      "dna_statements": {
-        "rows": 1583, "joined_rows": 1490, "unjoined_rows": 93,
-        "duplicate_statement_ids": 0,
-        "parent_key_field": "parent_record_id", "join_field": "source_record_id"
-      }
-    }
-  }
+"children_unit": { "dna_statements": "video" },
+"child_parent_join_key": { "dna_statements": ["parent_country", "parent_record_id"] },
+"children_detail": {                                     // re-derived by the auditor
+  "finland": { "dna_statements": { "records": 1583, "matched": 1490, "orphan": 93 } }
 },
-"heavy_field_splits": {
-  "finland": { "threshold": 1000, "records_with_heavy_fields": 517,
-               "fields": { "dna_statements_json": 517, "asr_transcript": 490 } }
-}
+"heavy_fields": { "finland": { "dna_statements_json": 517, "asr_transcript": 490 } },
+"text_bundle": { "suffix": "_text.jsonl.gz", "key": "record_id", "threshold": 1000 }
 ```
 
-- `children` counts are **child rows**, not videos. `children_contract.<country>.<role>.joined_rows`
-  is the number reachable from an exported video.
-- `heavy_field_splits` explains why an index CSV cell is empty: the value moved to the text bundle
-  keyed by `record_id`.
+- `children` counts are **child rows**, not videos. `children_detail.<country>.<role>.matched`
+  is the number reachable from an exported video; `orphan` is what could not be attached and is kept
+  rather than dropped. (Pre-#352 exports wrote the same numbers as
+  `children_contract.countries.<country>.<role>.{rows,joined_rows,unjoined_rows}`; the auditor reads
+  either spelling and compares like with like.)
+- `heavy_fields` explains why an index CSV cell is empty: the value moved to the text bundle keyed by
+  `record_id`, and the count says how many rows were affected.
 - Coverage (`stage_coverage`) is row-level: for `7_dna` it reads `dna_statements_json` **or**
   `dna_statement_count`, so a child-table export reports coverage instead of "not available".
 
