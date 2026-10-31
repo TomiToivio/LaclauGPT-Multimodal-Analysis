@@ -6,11 +6,18 @@ Slurm commands it would submit. This command is a PREVIEW and manifest writer on
 live-collection-backed, per-record Slurm submission path exists. ``--apply`` writes a local manifest;
 it does not submit work or mutate MongoDB.
 
+``--records`` narrows selection to named record ids. It fails closed on an unknown or empty id: a typo
+must never silently produce a smaller batch than the operator asked for. Naming a record does not
+override eligibility, so verified output is still never rescheduled.
+
 Eligibility comes from `ep24_eligibility`: a record with usable output is never selected, even if an old
 failure flag or a blank index cell says otherwise; a record with usable input but no output always is.
 
     # what would run?
     python scripts/roihu/reprocess_selected.py --export <export-dir> --steps 3,4,6 --countries poland
+
+    # only these records, and an unknown id is an error rather than a smaller batch
+    python scripts/roihu/reprocess_selected.py --export <export-dir> --steps 6 --records r1,r2
 
     # write the manifest for an audit trail
     python scripts/roihu/reprocess_selected.py --export <export-dir> --steps 3 --apply --manifest out.json
@@ -71,6 +78,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--export", type=Path, required=True)
     parser.add_argument("--steps", required=True, help="comma-separated stage numbers, e.g. 3,4,6")
     parser.add_argument("--countries", nargs="*", choices=COUNTRIES)
+    parser.add_argument(
+        "--records", default=None,
+        help="comma-separated record ids; only these are considered, and an unknown id fails closed")
     parser.add_argument("--include-empty", action="store_true",
                         help="also reselect stages whose status says success but produced no output")
     parser.add_argument("--apply", action="store_true", help="write the manifest to disk")
@@ -96,11 +106,27 @@ def main(argv: list[str] | None = None) -> int:
         print("no rows found for the requested countries", file=sys.stderr)
         return 2
 
+    wanted_records: list[str] | None = None
+    if args.records is not None:
+        wanted_records = [item.strip() for item in args.records.split(",") if item.strip()]
+        if not wanted_records:
+            print("--records was given but lists no record ids", file=sys.stderr)
+            return 2
+        available = {str(row.get("record_id") or "") for row in rows}
+        unknown = [rid for rid in wanted_records if rid not in available]
+        if unknown:
+            # Fail closed: a typo must not silently select fewer records than asked for.
+            print("unknown record id(s) for this export: " + ", ".join(unknown), file=sys.stderr)
+            return 2
+        keep = set(wanted_records)
+        rows = [row for row in rows if str(row.get("record_id") or "") in keep]
+
     manifest = eligibility.select_reprocess(
         rows, steps, countries=args.countries, include_empty=args.include_empty)
     manifest["source"] = {"export": args.export.name, "steps": steps,
                           "countries": args.countries or list(COUNTRIES),
-                          "include_empty": args.include_empty}
+                          "include_empty": args.include_empty,
+                          "records": wanted_records}
 
     if args.json:
         print(json.dumps(manifest, indent=2))

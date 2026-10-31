@@ -54,3 +54,39 @@ def test_ids_are_deduplicated():
     rows = [_row("v1"), _row("v1"), _row("v2")]
     plan = select(rows, ("6_discourse",))
     assert plan["6_discourse"]["missing"] == ["v1", "v2"]
+
+
+def test_elided_fields_are_country_scoped(tmp_path):
+    import json
+    import gzip
+    from scripts.ep24.plan_ep24_retry import elided_fields
+
+    (tmp_path / "MANIFEST.json").write_text(json.dumps({
+        "heavy_fields": {"finland": ["asr_transcript"], "poland": ["vllm_video_analysis"]}
+    }), encoding="utf-8")
+    with gzip.open(tmp_path / "portugal_text.jsonl.gz", "wt", encoding="utf-8") as handle:
+        handle.write(json.dumps({"record_id": "p1", "video_summary": "available"}) + "\n")
+    assert elided_fields(tmp_path, "finland") == {"asr_transcript"}
+    assert elided_fields(tmp_path, "poland") == {"vllm_video_analysis"}
+    assert elided_fields(tmp_path, "portugal") == {"video_summary"}
+    assert "vllm_video_analysis" not in elided_fields(tmp_path, "finland")
+
+
+def test_country_scoped_retry_plan_does_not_hide_missing_output(tmp_path):
+    import csv
+    import json
+    from scripts.ep24.plan_ep24_retry import plan_for_export
+
+    (tmp_path / "MANIFEST.json").write_text(json.dumps({
+        "heavy_fields": {"poland": ["vllm_video_analysis"]}
+    }), encoding="utf-8")
+    with (tmp_path / "combined.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["record_id", "country", "vllm_video_analysis"])
+        writer.writeheader()
+        writer.writerow({"record_id": "fi1", "country": "finland", "vllm_video_analysis": ""})
+        writer.writerow({"record_id": "pl1", "country": "poland", "vllm_video_analysis": ""})
+    result = plan_for_export(tmp_path, ("3_video",), None)
+    assert result["countries"]["finland"]["steps"]["3_video"]["missing"] == 1
+    assert result["countries"]["finland"]["steps"]["3_video"]["unverifiable"] == 0
+    assert result["countries"]["poland"]["steps"]["3_video"]["missing"] == 0
+    assert result["countries"]["poland"]["steps"]["3_video"]["unverifiable"] == 1
