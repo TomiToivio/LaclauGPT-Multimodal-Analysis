@@ -56,7 +56,8 @@ python scripts/roihu/reprocess_selected.py \
     --export /private/ep24/mongo_export_210 --steps 3 --apply --manifest /private/ep24/rerun.json
 ```
 
-Measured on the 2026-10-28 snapshot (`fi 2125 / pl 1781 / pt 960`):
+Historical preview on the 2026-10-28 snapshot (`fi 2125 / pl 1781 / pt 960`),
+**invalid as a retry worklist** because this version ignored heavy-field elision:
 
 ```
 selected 11814 record-stage pairs, skipped 2784 (3:4866, 6:3217, 7:3731)
@@ -76,7 +77,9 @@ manifest and a diff between them is meaningful.
 
 ### Before any live run
 
-The script reads an **authorized export**, not live Mongo. Its manifest is **not** a validated live retry plan: the exporter can elide data into sidecar bundles, and the separate `plan_ep24_retry.py` identifies such rows as `unverifiable`. Do not pass this preview to Slurm as a worklist without live output verification. A real run must additionally pin: source
+The script reads an **authorized export**, not live Mongo. Its manifest is **not** a validated live retry plan: the exporter can elide data into sidecar bundles, and both preview commands now use the country-specific elision detection from `plan_ep24_retry.py`.
+The Roihu manifest records these pairs as `unverifiable_output` and does not select them, even with
+`--records` or `--include-empty`. This conservative exclusion does not prove the output is valid. Do not pass this preview to Slurm as a worklist without live output verification. A real run must additionally pin: source
 collection identity, repo SHA, run/checkpoint ids, model and prompt versions, and the destination.
 Those are job-level facts, so they belong in the manifest the operator attaches to the Slurm job, not in
 a CSV-derived selection.
@@ -86,3 +89,16 @@ a CSV-derived selection.
 - Step 3 results are present in FI/PL/PT text bundles; the index CSV alone cannot establish which individual results are absent. Live output checks and quality review are required before any retry.
 - Steps 6–7 producer diagnoses, current live coverage and selective execution (Steps 8–9 are intentionally paused by #346). Historical Poland discourse metrics are superseded by the refreshed pinned-export readiness report; consult `docs/EP24_STEPS_1_7_READINESS.md`.
 - Any before/after quality claim for codebook or prompt changes (#333 deliverable 4).
+
+## Evidence-preserving preview correction (#333 / #342)
+
+The preview now recognizes the canonical `vllm_video_structured_json` output and
+`vllm_video_status`, retaining the older video field names for compatibility. A failed stage with
+output keeps its failure status and diagnostic, remains available to downstream consumers, and is
+not selected for retry. Manifest entries carry execution status, output availability and retry
+eligibility separately. A success label without an artifact does not make downstream output available.
+
+Synthetic regressions cover failure-with-output, success-without-output, canonical video fields,
+country-isolated elision, and explicitly named records whose outputs were relocated. These are
+preview fixes only: `--records` filters the export manifest; it is not a record selector in the
+Slurm stage runners. No live submission backend, live audit, or blinded quality comparison is claimed.
