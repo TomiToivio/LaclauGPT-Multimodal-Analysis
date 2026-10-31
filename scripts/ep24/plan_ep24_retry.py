@@ -53,33 +53,65 @@ def _has_any_output(row: dict, outputs: tuple[str, ...]) -> bool:
     return any(exporter._has_output(row.get(field)) for field in outputs)
 
 
-def select(rows: list[dict], steps: tuple[str, ...]) -> dict[str, dict[str, list[str]]]:
+def select(rows: list[dict], steps: tuple[str, ...],
+           elided: set[str] | None = None) -> dict[str, dict[str, list[str]]]:
     """Record ids needing work, split by *why* they need it.
 
-    ``missing`` — the step produced no output for the record. Retry these by default.
-    ``failed_with_output`` — a status reports failure but output exists. These are **reported, not
-    retried by default**: output is evidence, and a blind rerun can overwrite a usable result with a
-    worse one. They are the records a human should look at.
+    ``missing`` — the step produced no output and the export can *prove* that absence. Retry these.
+
+    ``unverifiable`` — the step's output fields are known to live outside the index CSV, because every
+    cell over 1,000 characters moved to ``<country>_text.jsonl.gz`` (#331/#333). A blank column there
+    is not evidence of missing work: on the pinned export Step 3's whole output is elided, and treating
+    the blank as absence schedules all 4,016 records that already have video output.
+
+    ``failed_with_output`` — a status reports failure but output exists. **Reported, not retried by
+    default**: output is evidence, and a blind rerun can overwrite a usable result with a worse one.
     """
+    elided = elided or set()
     plan: dict[str, dict[str, list[str]]] = {}
     for step in steps:
         status_field, outputs = exporter.COVERAGE_STEPS[step]
+        carries_remotely = bool(set(outputs) & elided)
         missing: list[str] = []
         partial: list[str] = []
+        unverifiable: list[str] = []
         for row in rows:
             record_id = row.get("record_id") or row.get("video_id") or ""
             if not record_id:
                 continue
             has_output = _has_any_output(row, outputs)
             if not has_output:
-                missing.append(record_id)
+                (unverifiable if carries_remotely else missing).append(record_id)
             elif _status_failed(row, status_field):
                 partial.append(record_id)
         plan[step] = {
             "missing": sorted(set(missing)),
             "failed_with_output": sorted(set(partial)),
+            "unverifiable": sorted(set(unverifiable)),
         }
     return plan
+
+
+def elided_fields(export_dir: Path) -> set[str]:
+    """Fields the export moved out of the row CSV: from the manifest, or from a bundle's schema.
+
+    Reading one line per bundle is a schema probe, not a corpus read — the field names are identical on
+    every line, and ``heavy_fields`` is absent from exports that predate #330.
+    """
+    fields: set[str] = set()
+    manifest_path = export_dir / "MANIFEST.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for country_fields in (manifest.get("heavy_fields") or {}).values():
+            fields.update(country_fields or {})
+    for path in sorted(export_dir.glob("*_text.jsonl.gz")):
+        import gzip
+
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            line = handle.readline()
+        if line:
+            fields.update(name for name in json.loads(line) if name != "record_id")
+    return fields
 
 
 def plan_for_export(export_dir: Path, steps: tuple[str, ...], countries: list[str] | None) -> dict:
@@ -94,15 +126,17 @@ def plan_for_export(export_dir: Path, steps: tuple[str, ...], countries: list[st
         if countries and country not in countries:
             continue
         rows = by_country[country]
-        plan = select(rows, steps)
+        plan = select(rows, steps, elided=elided_fields(export_dir))
         out["countries"][country] = {
             "records": len(rows),
             "steps": {
                 step: {
                     "missing": len(buckets["missing"]),
+                    "unverifiable": len(buckets["unverifiable"]),
                     "failed_with_output": len(buckets["failed_with_output"]),
                     "of": len(rows),
                     "record_ids": buckets["missing"],
+                    "unverifiable_ids": buckets["unverifiable"],
                     "failed_with_output_ids": buckets["failed_with_output"],
                 }
                 for step, buckets in plan.items()
@@ -120,6 +154,8 @@ def summarise(plan: dict) -> str:
         for s in plan["steps"]:
             entry = data["steps"][s]
             cell = str(entry["missing"])
+            if entry.get("unverifiable"):
+                cell += f" (+{entry['unverifiable']} unverifiable)"
             if entry["failed_with_output"]:
                 cell += f" (+{entry['failed_with_output']} partial)"
             cells.append(cell)
@@ -128,6 +164,8 @@ def summarise(plan: dict) -> str:
         "",
         "Counts are records needing work. A record is selected when its step status reports failure or",
         "when the step produced no output for it; records that already hold output are never selected.",
+        "`unverifiable` is not work: those cells live in the text bundle (#331/#333), so the index",
+        "cannot prove absence. Decide them from live status, not from a blank CSV column.",
         "",
     ]
     return "\n".join(lines)

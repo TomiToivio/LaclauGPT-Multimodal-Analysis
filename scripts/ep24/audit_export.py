@@ -119,8 +119,9 @@ def audit_coverage(frame: list[dict[str, str]], manifest: dict[str, Any],
         elided = [field for field in outputs if field in heavy or any(
             field in str(row.get("heavy_fields_in_text_bundle") or "").split(",")
             for row in frame[:50])]
+        paused = int(str(step).split("_", 1)[0]) in (manifest.get("paused_stages") or [])
         rows.append({
-            "country": country, "step": step,
+            "country": country, "step": step, "paused": paused,
             "manifest_records": int(entry.get("records") or 0),
             "available": entry.get("available"),
             "failed_or_other": int(entry.get("failed_or_other") or 0),
@@ -129,6 +130,9 @@ def audit_coverage(frame: list[dict[str, str]], manifest: dict[str, Any],
             "output_columns_elided": elided,
         })
         claimed = int(entry.get("records") or 0)
+        if paused:
+            # Paused on purpose (#346): no output is the intended state, not a defect.
+            continue
         if claimed and not reproducible and not elided and entry.get("evidence_source") != "children":
             anomalies.append({
                 "severity": ERROR, "code": "coverage-unreproducible", "country": country,
@@ -494,6 +498,7 @@ def main(argv: list[str] | None = None) -> int:
             elided = ",".join(row["output_columns_elided"]) or "-"
             print(f"  {row['country']:<9} {row['step']:<13} manifest={row['manifest_records']:>5} "
                   f"csv={row['recomputable_from_csv']:>5} available={str(row['available']):<5} "
+                  f"{'PAUSED ' if row.get('paused') else ''}"
                   f"elided={elided}")
         print("\nchildren:")
         for row in children:
