@@ -129,6 +129,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     country_stats: dict[str, dict[str, Any]] = {}
     contract_parts: dict[str, dict[str, Any]] = {}
     child_counts: dict[str, dict[str, int]] = {}
+    qa_parts: dict[str, dict] = {}
+    heavy_report: dict[str, dict[str, int]] = {}
     collections_read: dict[str, dict[str, str]] = {}
     provenance: dict[str, dict[str, Any]] = {}
     combined: list[dict[str, Any]] = []
@@ -154,6 +156,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         stats["text_bundle_records"] = bundle
         rows = lean_rows
 
+        heavy_report[country] = export.heavy_field_report(projected, threshold=args.text_threshold)
         written = export.write_rows(output / f"{country}.csv", rows)
         combined.extend(rows)
         read_count = len(raw)
@@ -164,14 +167,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Coverage is measured on the projected rows, before heavy text moves to the bundle: a step
         # whose only output is a long field is still a step that ran. Only the resulting counts are
         # kept, so peak memory stays one country rather than the whole corpus.
-        contract_parts[country] = export.dashboard_contract(
-            {country: {**stats, "source_documents": read_count}}, {country: projected})
-        # Release this country's frames before the next one is read: a full corpus otherwise sits at
-        # the memory ceiling by Portugal and dies while hashing the last bundle.
-        del projected, lean_rows, raw, kept
-        gc.collect()
-
+        # Children are read while the country's frames are still in memory: coverage for a step whose
+        # output is a child table must be computed with the child counts, or it reports "unavailable"
+        # for a stage that produced thousands of statements (#332).
         child_counts[country] = {}
+        child_rows[country] = {}
         for role in args.children:
             name = export.child_collection(country, role)
             if name not in existing:
@@ -181,9 +181,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
             documents = [export.project_row(doc) for doc in
                          iter_documents(db[name], batch_size=args.batch_size, limit=args.limit)]
+            # An explicit, documented parent key: the alias is derived from what the pipeline wrote,
+            # never synthesised. Without it consumers join on `_storage_id` and silently get nothing.
+            for document in documents:
+                source_parent = str(document.get("source_record_id") or "").strip()
+                if source_parent and not document.get("parent_record_id"):
+                    document["parent_record_id"] = source_parent
             export.write_rows(output / "children" / f"{country}_{role}.csv", documents)
             child_counts[country][role] = len(documents)
+            child_rows[country][role] = documents
             collections_read[country][role] = name
+
+        contract_parts[country] = export.dashboard_contract(
+            {country: {**stats, "source_documents": read_count}}, {country: projected},
+            child_counts={country: child_counts[country]})
+        # QA the child join while both sides are in memory: the parent key is `source_record_id` on the
+        # child and `_storage_id` on the parent, which is documented but was not checkable before.
+        parent_ids = {str(row.get("_storage_id") or "") for row in projected} | {
+            str(row.get("record_id") or "") for row in projected}
+        for role, documents in child_rows.get(country, {}).items():
+            if documents:
+                qa_parts[f"{country}:{role}"] = export.children_qa(documents, parent_ids)
+
+        # Release this country's frames before the next one is read: a full corpus otherwise sits at
+        # the memory ceiling by Portugal and dies while hashing the last bundle. The child rows are
+        # kept only long enough to QA the parent join, then dropped with them.
+        child_rows[country] = {}
+        del projected, lean_rows, raw, kept
+        gc.collect()
 
         print(f"{country}: {read_count} read -> {stats['records']} records "
               f"({stats['duplicates_collapsed']} collapsed, {stats['quarantined']} quarantined)")
@@ -194,9 +219,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     outputs = ([output / "combined.csv"]
                + [output / f"{c}.csv" for c in args.country]
                + [output / f"{c}_text.jsonl.gz" for c in args.country])
+    qa_report = qa_parts
     manifest = export.write_manifest(
         output,
         record_unit=args.record_unit,
+        children_unit="ingest",
+        heavy_fields=heavy_report,
+        children_qa_report=qa_report,
         countries=country_stats,
         child_counts=child_counts,
         collections_read=collections_read,

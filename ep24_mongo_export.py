@@ -213,23 +213,50 @@ def project_row(row: Mapping[str, Any]) -> dict[str, Any]:
 DEFAULT_TEXT_THRESHOLD = 1000
 
 
+#: Marker left in the index CSV where a heavy cell was moved to the text bundle (#331.3).
+#: An elided cell that reads as empty is indistinguishable from an absent stage; this keeps coverage
+#: legible in the index while the full value stays in ``<country>_text.jsonl.gz``.
+HEAVY_SENTINEL = "<<elided: {chars} chars in {country}_text.jsonl.gz>>"
+
+
 def split_heavy_fields(
-    row: Mapping[str, Any], *, threshold: int = DEFAULT_TEXT_THRESHOLD
+    row: Mapping[str, Any],
+    *,
+    threshold: int = DEFAULT_TEXT_THRESHOLD,
+    sentinel: str | None = None,
+    country: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return ``(lean_row, heavy_fields)``.
 
     Without this split the Finland frame alone is ~900 MB of transcript and context JSON, which no
     dashboard will load. The record survives in the lean CSV; its prose survives in the text bundle,
     keyed by the same ``record_id``.
+
+    Passing ``sentinel`` leaves a readable marker in the lean row instead of deleting the cell, so a
+    consumer can tell "elided, fetch the bundle" from "the stage produced nothing".
     """
     lean: dict[str, Any] = {}
     heavy: dict[str, Any] = {}
     for key, value in row.items():
         if isinstance(value, str) and len(value) > threshold:
             heavy[key] = value
+            if sentinel:
+                lean[key] = sentinel.format(chars=len(value), country=country or "country",
+                                            field=key)
         else:
             lean[key] = value
     return lean, heavy
+
+
+def heavy_field_report(rows: Sequence[Mapping[str, Any]], *,
+                       threshold: int = DEFAULT_TEXT_THRESHOLD) -> dict[str, int]:
+    """How many rows had each field elided, so elision becomes data rather than a silent hole."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        for key, value in row.items():
+            if isinstance(value, str) and len(value) > threshold:
+                counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def write_text_bundle(path: Path, rows: Sequence[Mapping[str, Any]], *, threshold: int = DEFAULT_TEXT_THRESHOLD) -> int:
@@ -323,7 +350,18 @@ COVERAGE_STEPS: dict[str, tuple[str, tuple[str, ...]]] = {
 SUCCESS_STATUSES = frozenset({"done", "ok", "success", "complete", "completed", "available"})
 
 
-def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+#: Steps whose real output is a normalized child table, not a row-level cell (#332). A child-table
+#: export leaves the row cell empty by design, so row-only coverage reports the stage as unavailable.
+CHILD_STEPS: dict[str, str] = {
+    "7_dna": "dna_statements",
+    "8_sna": "sna",
+}
+
+
+def stage_coverage(
+    rows: Sequence[Mapping[str, Any]],
+    child_counts: Mapping[str, int] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Per step: how many rows carry output, how many carry a failure, and whether it is measurable.
 
     ``available`` is false when no row carries any of the step's output fields: the source cannot
@@ -340,12 +378,26 @@ def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any
             failed = sum(1 for row in rows
                          if _text(row.get(status_field)).lower()
                          and _text(row.get(status_field)).lower() not in SUCCESS_STATUSES)
+        source = "rows" if present else "none"
+        # A step that lives in a child table is measured by that table when the row cell is empty.
+        # Reporting it from rows alone is what made DNA read as "unavailable" while the manifest said
+        # 1,583 statements (#332): two files, two answers, same export.
+        child_role = CHILD_STEPS.get(step)
+        if child_role and child_counts is not None:
+            child_total = int(child_counts.get(child_role, 0) or 0)
+            if present == 0 and child_total > 0:
+                present = child_total
+                measurable = True
+                source = "children"
+            elif child_total > 0:
+                source = "rows+children"
         coverage[step] = {
             "records": present,
             "available": measurable,
             "failed_or_other": failed,
             "status_field": status_field or None,
             "pct_of_exported": round(100 * present / len(rows), 1) if rows else 0.0,
+            "source": source,
         }
     return coverage
 
@@ -353,6 +405,7 @@ def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any
 def dashboard_contract(
     country_stats: Mapping[str, Mapping[str, Any]],
     rows_by_country: Mapping[str, Sequence[Mapping[str, Any]]],
+    child_counts: Mapping[str, Mapping[str, int]] | None = None,
 ) -> dict[str, Any]:
     """The #195 keys, built from the counts this exporter already produces.
 
@@ -372,7 +425,7 @@ def dashboard_contract(
             "invalid_ids": int(stats.get("quarantined", 0) or 0),
             "distinct_media": int(stats.get("distinct_media", 0) or 0),
         }
-        steps = stage_coverage(rows)
+        steps = stage_coverage(rows, (child_counts or {}).get(country))
         coverage[country] = steps
         inputs[country] = {
             "profile": "mongo",
@@ -384,10 +437,69 @@ def dashboard_contract(
     return {"record_counts": counts, "stage_coverage": coverage, "inputs": inputs}
 
 
+def parent_key(row: Mapping[str, Any]) -> str:
+    """The child row's parent key, without inventing one.
+
+    ``parent_record_id`` is written by the exporter as an explicit alias of ``source_record_id``; the
+    older field is still read so exports produced before #330 remain joinable. ``_storage_id`` is
+    deliberately **not** a candidate: on child rows it holds the statement's own id, and joining on it
+    silently returns nothing (#331.2).
+    """
+    for field in ("parent_record_id", "source_record_id"):
+        value = str(row.get(field) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def children_qa(
+    child_rows: Sequence[Mapping[str, Any]],
+    parent_ids: set[str],
+    *,
+    parent_field: str = "parent_record_id",
+) -> dict[str, Any]:
+    """Check that a child table can actually be joined to the exported corpus (#330).
+
+    Reports rather than repairs: an orphan statement is counted, never given an invented parent, and a
+    duplicate statement id is counted because a duplicated statement inflates a consumer's totals while
+    looking like extra evidence.
+    """
+    rows = len(child_rows)
+    statement_ids: list[str] = [str(row.get("statement_id") or "") for row in child_rows]
+    non_empty = [value for value in statement_ids if value]
+    unique_statements = len(set(non_empty))
+    duplicate_statements = len(non_empty) - unique_statements
+    resolved = 0
+    orphans = 0
+    missing_parent_field = 0
+    for row in child_rows:
+        parent = parent_key(row)
+        if not parent:
+            missing_parent_field += 1
+            continue
+        if parent in parent_ids:
+            resolved += 1
+        else:
+            orphans += 1
+    return {
+        "rows": rows,
+        "unique_statement_ids": unique_statements,
+        "duplicate_statement_ids": duplicate_statements,
+        "parent_field": parent_field,
+        "parents_resolved": resolved,
+        "orphans": orphans,
+        "missing_parent_field": missing_parent_field,
+        "join_complete": rows > 0 and orphans == 0 and missing_parent_field == 0,
+    }
+
+
 def write_manifest(
     output: Path,
     *,
     record_unit: str,
+    children_unit: str = "ingest",
+    heavy_fields: Mapping[str, Mapping[str, int]] | None = None,
+    children_qa_report: Mapping[str, Mapping[str, Any]] | None = None,
     countries: Mapping[str, Mapping[str, Any]],
     child_counts: Mapping[str, Mapping[str, int]],
     collections_read: Mapping[str, Mapping[str, str]],
@@ -407,6 +519,12 @@ def write_manifest(
         "distinct_media": total_media,
         "countries": dict(countries),
         "children": dict(child_counts),
+        # The children block is exported from the pipeline's own collections, which are keyed at ingest
+        # level; the record_counts block is keyed at ``record_unit``. Saying so is what lets a consumer
+        # reconcile them instead of measuring two populations unknowingly (#331.1).
+        "children_unit": children_unit,
+        "heavy_fields": {country: dict(fields) for country, fields in (heavy_fields or {}).items()},
+        "children_qa": {country: dict(report) for country, report in (children_qa_report or {}).items()},
         "collections_read": dict(collections_read),
         "provenance": dict(provenance),
         "outputs": [
