@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Submit an ordered, restartable Step 1-9 SLURM dependency chain for one country.
+# Submit an ordered, restartable SLURM dependency chain for one country.
+#
+# Default scope is Steps 1-7 (#346): Steps 8 (SNA) and 9 (RDF) are paused, not deleted, so a normal run
+# spends no compute on them and cannot accidentally schedule them. Opt in explicitly with
+# LACLAUGPT_EP24_ENABLE_SNA_RDF=1 and --to-step 8|9.
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 Usage: bash scripts/roihu/run_country_pipeline.sh COUNTRY [--limit N] [--retry-errors] [--from-step N] [--to-step N]
+Steps 8-9 are paused (#346). They need LACLAUGPT_EP24_ENABLE_SNA_RDF=1 as well as --to-step.
 Example: bash scripts/roihu/run_country_pipeline.sh portugal --limit 0 --retry-errors
 Each stage starts only after the previous stage's SLURM job exits successfully.
 Completed MongoDB records are preserved; this chain never forces a reset.
@@ -19,7 +24,7 @@ shift
 }
 LIMIT=0
 FROM_STEP=1
-TO_STEP=9
+TO_STEP=7
 RETRY=0
 while (($#)); do
   case "${1}" in
@@ -38,6 +43,13 @@ while (($#)); do
   esac
 done
 (( FROM_STEP <= TO_STEP )) || { echo "--from-step must be <= --to-step" >&2; exit 2; }
+
+# Steps 8-9 are paused for the current EP24 scope (#346). The code, tests and historical outputs stay;
+# what stops is the default path scheduling them. Opt-in is explicit and loud.
+if (( TO_STEP >= 8 )) && [[ "${LACLAUGPT_EP24_ENABLE_SNA_RDF:-0}" != "1" ]]; then
+  echo "Steps 8-9 are paused (#346): pass --to-step 7, or set LACLAUGPT_EP24_ENABLE_SNA_RDF=1 to opt in." >&2
+  exit 2
+fi
 command -v sbatch >/dev/null 2>&1 || { echo "sbatch unavailable; run from Roihu login node" >&2; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
