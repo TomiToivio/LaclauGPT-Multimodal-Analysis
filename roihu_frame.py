@@ -61,10 +61,10 @@ try:  # one log directory and one filename convention (#324)
     configure_from_env(default_step=2)
 except Exception:  # never let log setup break a pipeline step
     pass
-    import sys
-    stream = logging.StreamHandler(sys.stdout)
-    stream.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s'))
-    logger.addHandler(stream)
+import sys
+stream = logging.StreamHandler(sys.stdout)
+stream.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s'))
+logger.addHandler(stream)
 logger.setLevel(logging.DEBUG)
 
 DB_PATH = Path(os.getenv("LACLAUGPT_FRAME_SQLITE", "./database/frame.db"))
