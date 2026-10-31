@@ -2,8 +2,9 @@
 
 Preview first, always. The default is a **dry run** that reads an authorized export, classifies every
 record and stage, and prints the manifest of what would run — by reason, country and stage — plus the
-Slurm commands it would submit. Nothing is submitted unless ``--execute`` is passed, and nothing is
-mutated without ``--apply``.
+Slurm commands it would submit. This command is a PREVIEW and manifest writer only. ``--execute`` is deliberately rejected until a
+live-collection-backed, per-record Slurm submission path exists. ``--apply`` writes a local manifest;
+it does not submit work or mutate MongoDB.
 
 Eligibility comes from `ep24_eligibility`: a record with usable output is never selected, even if an old
 failure flag or a blank index cell says otherwise; a record with usable input but no output always is.
@@ -14,8 +15,7 @@ failure flag or a blank index cell says otherwise; a record with usable input bu
     # write the manifest for an audit trail
     python scripts/roihu/reprocess_selected.py --export <export-dir> --steps 3 --apply --manifest out.json
 
-    # print the sbatch commands (no submission)
-    python scripts/roihu/reprocess_selected.py --export <export-dir> --steps 3 --commands
+    # preview is the only supported operating mode; no jobs are submitted
 
 Privacy: prints record ids and counts only — no transcripts, no quotes, no paths beyond the export
 directory name.
@@ -75,11 +75,17 @@ def main(argv: list[str] | None = None) -> int:
                         help="also reselect stages whose status says success but produced no output")
     parser.add_argument("--apply", action="store_true", help="write the manifest to disk")
     parser.add_argument("--manifest", type=Path, default=None)
-    parser.add_argument("--commands", action="store_true", help="print the sbatch commands")
+    parser.add_argument("--commands", action="store_true", help="unsupported: placeholder sbatch commands are unsafe")
     parser.add_argument("--execute", action="store_true",
-                        help="actually submit (requires CSC credentials); dry run otherwise")
+                        help="unsupported: live submission not implemented; fails closed")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+
+    if args.execute or args.commands:
+        print("Live submission and sbatch command generation are not implemented. "
+              "Use --apply for a local selection manifest only; verify against live "
+              "Mongo/Slurm before constructing any job.", file=sys.stderr)
+        return 2
 
     if not args.export.is_dir():
         print(f"not a directory: {args.export}", file=sys.stderr)
@@ -105,14 +111,8 @@ def main(argv: list[str] | None = None) -> int:
         print("|---|---|")
         for reason, count in manifest["counts"]["by_reason"].items():
             print(f"| {reason} | {count} |")
-        if args.commands:
-            print()
-            print("## Commands (not submitted)")
-            for line in commands_for(manifest, steps):
-                print(line)
-        if not args.execute:
-            print()
-            print("Dry run. Nothing was submitted.")
+        print()
+        print("Preview only. No jobs submitted or database records changed.")
 
     if args.apply:
         target = args.manifest or (args.export.parent / f"reprocess_manifest_{args.export.name}.json")
