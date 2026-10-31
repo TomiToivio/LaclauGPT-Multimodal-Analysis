@@ -37,14 +37,16 @@ def _merge_contracts(parts: dict[str, dict[str, Any]]) -> dict[str, Any]:
     counts: dict[str, Any] = {}
     coverage: dict[str, Any] = {}
     inputs: dict[str, Any] = {}
+    states: dict[str, Any] = {}
     for country, block in parts.items():
         counts.update(block["record_counts"])
         coverage.update(block["stage_coverage"])
         inputs.update(block["inputs"])
+        states.update(block["stage_states"])
     counts.pop("exported_total", None)
     counts["exported_total"] = sum(int(entry.get("exported", 0)) for entry in counts.values()
                                    if isinstance(entry, dict))
-    return {"record_counts": counts, "stage_coverage": coverage, "inputs": inputs}
+    return {"record_counts": counts, "stage_coverage": coverage, "inputs": inputs, "stage_states": states}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -117,9 +119,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     except export.ExportError as error:
         raise SystemExit(str(error)) from error
 
-    from pymongo import MongoClient  # imported late so the pure logic is testable without it
+    from pymongo import (
+        MongoClient,  # imported late so the pure logic is testable without it
+    )
 
     output: Path = args.output.expanduser().resolve()
+    if output.exists() and any(output.iterdir()):
+        raise SystemExit("output directory must be empty; preserve historical exports")
     output.mkdir(parents=True, exist_ok=True)
 
     client = MongoClient(uri, serverSelectionTimeoutMS=args.timeout_ms, readPreference="primary")
@@ -129,11 +135,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     country_stats: dict[str, dict[str, Any]] = {}
     contract_parts: dict[str, dict[str, Any]] = {}
     child_counts: dict[str, dict[str, int]] = {}
+    child_detail: dict[str, dict[str, dict[str, int]]] = {}
+    heavy_fields: dict[str, dict[str, int]] = {}
     collections_read: dict[str, dict[str, str]] = {}
     provenance: dict[str, dict[str, Any]] = {}
     combined: list[dict[str, Any]] = []
+    child_join_qa: dict[str, dict[str, dict[str, int]]] = {}
 
-    for country in args.country:
+    child_outputs: list[Path] = []
+    for country in dict.fromkeys(args.country):
         source = export.collection_name(country, export.CANONICAL_SUFFIX)
         if source not in existing:
             raise SystemExit(f"collection missing for {country}: {source}")
@@ -141,14 +151,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         raw = list(iter_documents(db[source], batch_size=args.batch_size, limit=args.limit))
         kept, stats = export.select_canonical(raw, args.record_unit)
         projected = [export.project_row(row) for row in kept]
+        selected_parents = [{key: row.get(key) for key in
+                             ("_storage_id", "record_id", "dna_statement_count")} for row in kept]
+        for row in projected:
+            row["country"] = country
+
 
         # The lean frame answers "which records, with what coverage"; the bundle carries the prose.
         lean_rows: list[dict[str, Any]] = []
         heavy_records = 0
+        heavy_fields[country] = {}
         for row in projected:
             lean, heavy = export.split_heavy_fields(row, threshold=args.text_threshold)
             lean_rows.append(lean)
             heavy_records += 1 if heavy else 0
+            # Which cells left the CSV, and how many rows each: elision is data, not a silent hole.
+            for name in heavy:
+                heavy_fields[country][name] = heavy_fields[country].get(name, 0) + 1
         bundle = export.write_text_bundle(output / f"{country}_text.jsonl.gz", projected,
                                           threshold=args.text_threshold)
         stats["text_bundle_records"] = bundle
@@ -168,23 +187,42 @@ def main(argv: Sequence[str] | None = None) -> int:
             {country: {**stats, "source_documents": read_count}}, {country: projected})
         # Release this country's frames before the next one is read: a full corpus otherwise sits at
         # the memory ceiling by Portugal and dies while hashing the last bundle.
+        # The parent identities survive the frame release: children are attached to the *video*
+        # that this export keeps, not to an ingest run the collapse dropped.
         del projected, lean_rows, raw, kept
         gc.collect()
 
         child_counts[country] = {}
+        child_join_qa[country] = {}
         for role in args.children:
             name = export.child_collection(country, role)
             if name not in existing:
                 # Absence is a finding: Poland has no DNA statements collection, PL/PT have no SNA.
                 child_counts[country][role] = 0
                 collections_read[country][role] = "absent"
+                if role == "dna_statements":
+                    export.reconcile_dna_coverage(contract_parts[country]["stage_coverage"][country],
+                                                  [], selected_parents, available=False)
                 continue
             documents = [export.project_row(doc) for doc in
-                         iter_documents(db[name], batch_size=args.batch_size, limit=args.limit)]
-            export.write_rows(output / "children" / f"{country}_{role}.csv", documents)
+                         iter_documents(db[name], batch_size=args.batch_size, limit=None)]
+            if role == "dna_statements":
+                documents, child_join_qa[country][role] = export.select_parent_children(
+                    documents, selected_parents, country=country)
+                export.reconcile_dna_coverage(contract_parts[country]["stage_coverage"][country],
+                                              documents, selected_parents, available=True)
+                child_detail.setdefault(country, {})[role] = {
+                    "records": len(documents), "matched": len(documents), "orphan": 0,
+                }
+            path = output / "children" / f"{country}_{role}.csv"
+            export.write_rows(path, documents)
+            child_outputs.append(path)
             child_counts[country][role] = len(documents)
             collections_read[country][role] = name
 
+        steps = contract_parts[country]["stage_coverage"][country]
+        contract_parts[country]["inputs"][country]["stage_unavailable"] = sorted(
+            step for step, entry in steps.items() if not entry["available"])
         print(f"{country}: {read_count} read -> {stats['records']} records "
               f"({stats['duplicates_collapsed']} collapsed, {stats['quarantined']} quarantined)")
 
@@ -201,13 +239,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         child_counts=child_counts,
         collections_read=collections_read,
         provenance=provenance,
-        outputs=outputs,
+        outputs=outputs + child_outputs,
+        export_qa={"heavy_fields": heavy_fields, "child_join_qa": child_join_qa,
+                   "text_bundle": {"filename": "<country>_text.jsonl.gz", "key": ["country", "record_id"],
+                                   "threshold": args.text_threshold, "row_marker": "_text_bundle_fields"}},
         contract=_merge_contracts(contract_parts),
+        child_detail=child_detail,
+        heavy_fields=heavy_fields,
+        text_threshold=args.text_threshold,
     )
     print(f"manifest: {manifest['records']} records, {manifest['distinct_media']} distinct media, "
           f"unit={manifest['record_unit']} -> {output}")
+    for warning in manifest.get("contract_warnings") or []:
+        print(f"WARNING {warning['kind']} {warning.get('country')} {warning.get('step')}: "
+              f"{warning['detail']}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
