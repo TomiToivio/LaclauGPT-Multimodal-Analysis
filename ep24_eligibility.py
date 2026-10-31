@@ -39,7 +39,8 @@ OUTPUT_FIELDS: dict[int, tuple[str, ...]] = {
     0: ("processing_status",),
     1: ("asr_transcript", "ocr_1", "frame_file"),
     2: ("frame_analysis_1", "frame_quality_status"),
-    3: ("vllm_video_analysis", "vllm_structured_output", "vllm_video_markdown_analysis"),
+    3: ("vllm_video_analysis", "vllm_structured_output", "vllm_video_markdown_analysis",
+        "vllm_video_structured_json"),
     4: ("summary_analysis", "summary_summary_md"),
     5: ("postprocess_entities", "postprocess_themes", "postprocess_summary_md"),
     6: ("laclau_structured_json", "laclau_summary_md"),
@@ -62,7 +63,7 @@ STATUS_FIELDS: dict[int, str] = {
     9: "",
 }
 
-SUCCESS_WORDS = frozenset({"ok", "done", "success", "complete", "completed", "available", "cached"})
+SUCCESS_WORDS = frozenset({"ok", "done", "success", "succeeded", "complete", "completed", "available", "cached"})
 
 #: The minimum a stage needs from its predecessor, expressed as *data*, not as a predecessor status.
 #: Absence of one route is not absence of all routes: text-only records can reach discourse without
@@ -89,6 +90,8 @@ def _text(value: Any) -> str:
 
 
 def _status(row: Mapping[str, Any], step: int) -> str:
+    if step == 3 and _text(row.get("vllm_video_status")):
+        return _text(row.get("vllm_video_status")).lower()
     field = STATUS_FIELDS.get(step) or ""
     return _text(row.get(field)).lower() if field else ""
 
@@ -129,14 +132,15 @@ class Assessment:
     @property
     def usable_by_downstream(self) -> bool:
         """Downstream stages may proceed on this, with the diagnostic attached."""
-        return self.execution_status in USABLE_STATUSES
+        return self.output_available
 
 
 def assess(row: Mapping[str, Any], step: int, *, retry_errors: bool = True,
-           include_empty: bool = False) -> Assessment:
+           include_empty: bool = False, elided_fields: Iterable[str] = ()) -> Assessment:
     """Classify one record for one stage.
 
-    * usable output -> succeeded, never retryable
+    * usable output -> recorded status retained, never retryable
+    * output relocated outside the index -> unverifiable, never retryable from this snapshot
     * status says success but no output -> partial, retryable (the artifact is what consumers need)
     * status says failure with no output -> failed, retryable
     * no output, no status, no usable input -> skipped (recorded, not retried)
@@ -147,7 +151,20 @@ def assess(row: Mapping[str, Any], step: int, *, retry_errors: bool = True,
     ok_input, input_note = usable_input(row, step)
 
     if has_output:
+        if status and status not in SUCCESS_WORDS:
+            execution = {
+                "partial": PARTIAL, "running": RUNNING, "in_progress": RUNNING,
+                "skipped": SKIPPED, "skip": SKIPPED,
+                "pending": NOT_RUN, "not_run": NOT_RUN,
+            }.get(status, FAILED)
+            return Assessment(step, execution, True, f"status={status}; output retained",
+                              False, "output_present")
         return Assessment(step, SUCCEEDED, True, "", False, "output_present")
+
+    if set(OUTPUT_FIELDS.get(step, ())) & set(elided_fields):
+        return Assessment(step, PARTIAL, False,
+                          f"status={status or 'unknown'}; output relocated outside index; verify source",
+                          False, "unverifiable_output")
 
     if status and status not in SUCCESS_WORDS:
         # A recorded failure with no artifact. Retryable, because nothing usable exists.
@@ -177,6 +194,7 @@ def select_reprocess(
     retry_errors: bool = True,
     record_id_field: str = "record_id",
     country_field: str = "country",
+    elided_by_country: Mapping[str, Iterable[str]] | None = None,
 ) -> dict[str, Any]:
     """Build the manifest a selective rerun needs: what to run, what to skip, and why.
 
@@ -194,13 +212,17 @@ def select_reprocess(
         if wanted_countries is not None and country and country not in wanted_countries:
             continue
         for step in steps:
-            verdict = assess(row, step, retry_errors=retry_errors, include_empty=include_empty)
+            verdict = assess(row, step, retry_errors=retry_errors, include_empty=include_empty,
+                             elided_fields=(elided_by_country or {}).get(country, ()))
             entry = {
                 "record_id": record_id,
                 "country": country,
                 "stage": step,
                 "reason_code": verdict.reason_code,
                 "diagnostic": verdict.diagnostic,
+                "execution_status": verdict.execution_status,
+                "output_available": verdict.output_available,
+                "retry_eligible": verdict.retry_eligible,
             }
             if verdict.retry_eligible:
                 selected.append(entry)

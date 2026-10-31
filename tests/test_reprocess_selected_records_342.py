@@ -60,3 +60,25 @@ def test_naming_a_record_never_reschedules_verified_output(tmp_path, capsys):
     manifest = json.loads(capsys.readouterr().out)
     assert code == 0
     assert manifest["selected"] == []
+
+
+def test_preview_honors_country_specific_heavy_fields(tmp_path, capsys):
+    export = _export(tmp_path, [{"record_id": "fi", "country": "finland", "laclau_status": "error"}])
+    (export / "poland.csv").write_text("record_id,country,laclau_status\npl,poland,error\n")
+    (export / "MANIFEST.json").write_text(json.dumps({
+        "heavy_fields": {"poland": ["laclau_structured_json"]}}))
+    assert _mod.main(["--export", str(export), "--steps", "6", "--json"]) == 0
+    manifest = json.loads(capsys.readouterr().out)
+    assert [entry["record_id"] for entry in manifest["selected"]] == ["fi"]
+    assert manifest["skipped"][0]["record_id"] == "pl"
+    assert manifest["skipped"][0]["reason_code"] == "unverifiable_output"
+
+
+def test_named_record_with_relocated_video_is_not_rescheduled(tmp_path, capsys):
+    export = _export(tmp_path, [{"record_id": "r1", "country": "finland", "vllm_video_status": "error"}])
+    (export / "MANIFEST.json").write_text(json.dumps({
+        "heavy_fields": {"finland": ["vllm_video_structured_json"]}}))
+    assert _mod.main(["--export", str(export), "--steps", "3", "--records", "r1", "--json"]) == 0
+    manifest = json.loads(capsys.readouterr().out)
+    assert manifest["selected"] == []
+    assert manifest["skipped"][0]["reason_code"] == "unverifiable_output"

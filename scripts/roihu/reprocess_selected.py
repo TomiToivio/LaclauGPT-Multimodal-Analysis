@@ -1,8 +1,7 @@
 """Selective EP24 reprocessing on Roihu (#342).
 
 Preview first, always. The default is a **dry run** that reads an authorized export, classifies every
-record and stage, and prints the manifest of what would run — by reason, country and stage — plus the
-Slurm commands it would submit. This command is a PREVIEW and manifest writer only. ``--execute`` is deliberately rejected until a
+record and stage, and prints the manifest of candidate work — by reason, country and stage. This command is a PREVIEW and manifest writer only. ``--execute`` is deliberately rejected until a
 live-collection-backed, per-record Slurm submission path exists. ``--apply`` writes a local manifest;
 it does not submit work or mutate MongoDB.
 
@@ -38,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import ep24_eligibility as eligibility  # noqa: E402
+from scripts.ep24.plan_ep24_retry import elided_fields  # noqa: E402
 
 COUNTRIES = ("finland", "poland", "portugal")
 
@@ -122,7 +122,9 @@ def main(argv: list[str] | None = None) -> int:
         rows = [row for row in rows if str(row.get("record_id") or "") in keep]
 
     manifest = eligibility.select_reprocess(
-        rows, steps, countries=args.countries, include_empty=args.include_empty)
+        rows, steps, countries=args.countries, include_empty=args.include_empty,
+        elided_by_country={country: elided_fields(args.export, country)
+                           for country in (args.countries or COUNTRIES)})
     manifest["source"] = {"export": args.export.name, "steps": steps,
                           "countries": args.countries or list(COUNTRIES),
                           "include_empty": args.include_empty,

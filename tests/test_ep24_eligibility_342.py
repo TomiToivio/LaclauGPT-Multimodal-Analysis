@@ -168,3 +168,36 @@ def test_dry_run_schedules_zero_already_successful_pairs() -> None:
 def test_repeating_a_dry_run_produces_the_same_selection() -> None:
     rows = [{"record_id": f"r{i}", "country": "portugal", "asr_transcript": "t"} for i in range(3)]
     assert el.select_reprocess(rows, [6, 7]) == el.select_reprocess(rows, [6, 7])
+
+
+def test_failed_output_keeps_status_and_diagnostic_but_can_feed_downstream():
+    verdict = el.assess(row(laclau_status="error", laclau_summary_md="usable"), 6)
+    assert verdict.execution_status == el.FAILED
+    assert "status=error" in verdict.diagnostic
+    assert verdict.usable_by_downstream
+    assert not verdict.retry_eligible
+    manifest = el.select_reprocess([row(laclau_status="error", laclau_summary_md="usable")], [6])
+    entry = manifest["skipped"][0]
+    assert entry["execution_status"] == el.FAILED
+    assert entry["output_available"] is True
+    assert entry["retry_eligible"] is False
+
+
+def test_success_without_artifact_is_not_usable_by_downstream():
+    assert not el.assess(row(summary_quality_status="ok"), 4).usable_by_downstream
+
+
+def test_canonical_video_json_is_preserved_with_original_failure_status():
+    verdict = el.assess(row(vllm_video_status="error", vllm_video_structured_json='{"x": 1}'), 3)
+    assert verdict.output_available
+    assert verdict.execution_status == el.FAILED
+    assert not verdict.retry_eligible
+
+
+def test_relocated_output_is_not_scheduled_even_with_failure_or_include_empty():
+    for status in ("error", "ok", ""):
+        verdict = el.assess(row(vllm_video_status=status), 3, include_empty=True,
+                            elided_fields={"vllm_video_structured_json"})
+        assert verdict.reason_code == "unverifiable_output"
+        assert not verdict.retry_eligible
+        assert not verdict.output_available
