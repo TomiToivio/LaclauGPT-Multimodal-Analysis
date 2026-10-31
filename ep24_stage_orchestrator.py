@@ -26,6 +26,7 @@ from ep24_context import enrich_dataframe, update_retrieval
 from ep24_redis import RedisCoordinator
 from ep24_cli import normalize_country
 from roihu_storage import MongoStorage, StorageConfig
+import ep24_logs
 
 LOG = logging.getLogger("ep24_stage")
 PRIORITY = ("finland", "poland", "portugal")
@@ -660,6 +661,11 @@ def run_country(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
+    args, _unknown = parser.parse_known_args(argv)
+    # #324: orchestrator logs land in the one canonical directory, named step-country.
+    ep24_logs.configure_logging(
+        "stage_orchestrator", os.environ.get("EP24_LOG_COUNTRY", "all"))
+
     parser.add_argument("--step", type=int, required=True, choices=range(1, 10))
     parser.add_argument("--script", type=Path, required=True)
     parser.add_argument("-c", "--country")
