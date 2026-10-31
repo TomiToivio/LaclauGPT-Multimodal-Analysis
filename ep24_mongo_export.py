@@ -232,6 +232,50 @@ def split_heavy_fields(
     return lean, heavy
 
 
+def select_parent_children(
+    documents: Sequence[Mapping[str, Any]],
+    selected_parents: Sequence[Mapping[str, Any]],
+    *,
+    country: str,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Export only children reachable from selected ingest parents.
+
+    Child _storage_id is frequently a statement identifier, NOT the parent.
+    source_record_id is the supported ingest join, scoped to one country.
+    Unjoinable rows are quarantined rather than incorrectly attributed.
+    """
+    by_storage: dict[str, str] = {}
+    for parent in selected_parents:
+        source = _text(parent.get("_storage_id"))
+        record = _text(parent.get("record_id"))
+        if source and record:
+            by_storage[source] = record
+    result: list[dict[str, Any]] = []
+    excluded = 0
+    for document in documents:
+        source = _text(document.get("source_record_id"))
+        parent_id = by_storage.get(source)
+        if not parent_id:
+            excluded += 1
+            continue
+        child = dict(document)
+        child["parent_record_id"] = parent_id
+        child["parent_country"] = country
+        result.append(child)
+    return result, {"matched": len(result), "excluded_unmatched": excluded}
+
+
+def heavy_field_counts(rows: Sequence[Mapping[str, Any]], threshold: int = DEFAULT_TEXT_THRESHOLD
+                       ) -> dict[str, int]:
+    """Number of source records with each field moved into a text bundle."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        _, heavy = split_heavy_fields(row, threshold=threshold)
+        for field in heavy:
+            counts[field] = counts.get(field, 0) + 1
+    return counts
+
+
 def write_text_bundle(path: Path, rows: Sequence[Mapping[str, Any]], *, threshold: int = DEFAULT_TEXT_THRESHOLD) -> int:
     """Write ``record_id`` + the heavy fields, gzipped JSONL. Returns the record count."""
     import gzip
@@ -315,7 +359,7 @@ COVERAGE_STEPS: dict[str, tuple[str, tuple[str, ...]]] = {
     "5_postprocess": ("", ("postprocess_entities", "postprocess_themes",
                            "postprocess_summary_md")),
     "6_discourse": ("laclau_status", ("laclau_structured_json", "laclau_summary_md")),
-    "7_dna": ("", ("dna_statements_json", "dna_analysis_markdown")),
+    "7_dna": ("", ("dna_statements_json", "dna_analysis_markdown", "dna_statement_count")),
     "8_sna": ("", ("sna_nodes_json", "sna_edges_json")),
     "9_rdf": ("", ("rdf_ttl_path",)),
 }
@@ -393,6 +437,7 @@ def write_manifest(
     collections_read: Mapping[str, Mapping[str, str]],
     provenance: Mapping[str, Mapping[str, Any]],
     outputs: Sequence[Path],
+    export_qa: Mapping[str, Any] | None = None,
     contract: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The manifest is the contract: unit, counts, provenance and what was missing."""
@@ -407,6 +452,10 @@ def write_manifest(
         "distinct_media": total_media,
         "countries": dict(countries),
         "children": dict(child_counts),
+        "children_unit": record_unit,
+        "child_parent_join_key": "parent_record_id",
+        "heavy_fields": dict((export_qa or {}).get("heavy_fields", {})),
+        "child_join_qa": dict((export_qa or {}).get("child_join_qa", {})),
         "collections_read": dict(collections_read),
         "provenance": dict(provenance),
         "outputs": [
