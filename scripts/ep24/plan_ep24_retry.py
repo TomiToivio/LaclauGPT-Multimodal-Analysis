@@ -92,31 +92,21 @@ def select(rows: list[dict], steps: tuple[str, ...],
     return plan
 
 
-def elided_fields(export_dir: Path, country: str | None = None) -> set[str]:
-    """Find relocated columns for one country, without cross-country leakage.
+def elided_fields(export_dir: Path) -> set[str]:
+    """Fields the export moved out of the row CSV: from the manifest, or from a bundle's schema.
 
-    The export manifest owns the heavy-field contract. Older exports may omit it,
-    in which case only that country's text bundle schema is inspected.
-    Country=None retains backwards-compatible aggregate inspection.
+    Reading one line per bundle is a schema probe, not a corpus read — the field names are identical on
+    every line, and ``heavy_fields`` is absent from exports that predate #330.
     """
     fields: set[str] = set()
     manifest_path = export_dir / "MANIFEST.json"
     if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        heavy = manifest.get("heavy_fields") or {}
-        groups = heavy.values() if country is None else [heavy.get(country, [])]
-        for country_fields in groups:
-            if isinstance(country_fields, dict):
-                fields.update(country_fields.keys())
-            else:
-                fields.update(country_fields or [])
-    import gzip
+        for country_fields in (manifest.get("heavy_fields") or {}).values():
+            fields.update(country_fields or {})
+    for path in sorted(export_dir.glob("*_text.jsonl.gz")):
+        import gzip
 
-    bundles = (sorted(export_dir.glob("*_text.jsonl.gz")) if country is None
-               else [export_dir / f"{country}_text.jsonl.gz"])
-    for path in bundles:
-        if not path.is_file():
-            continue
         with gzip.open(path, "rt", encoding="utf-8") as handle:
             line = handle.readline()
         if line:
@@ -136,7 +126,7 @@ def plan_for_export(export_dir: Path, steps: tuple[str, ...], countries: list[st
         if countries and country not in countries:
             continue
         rows = by_country[country]
-        plan = select(rows, steps, elided=elided_fields(export_dir, country))
+        plan = select(rows, steps, elided=elided_fields(export_dir))
         out["countries"][country] = {
             "records": len(rows),
             "steps": {
