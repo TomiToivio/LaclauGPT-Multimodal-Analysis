@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=ep24-issue128-bench
 #SBATCH --account=project_2009497
-#SBATCH --output=/scratch/project_2009497/logs/ep24_issue128_bench_%j.out
-#SBATCH --error=/scratch/project_2009497/logs/ep24_issue128_bench_%j.err
+#SBATCH --output=logs/ep24_issue128_bench_%j.out
+#SBATCH --error=logs/ep24_issue128_bench_%j.err
 #SBATCH --partition=gpumedium
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1

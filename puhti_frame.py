@@ -10,7 +10,11 @@ from logging.handlers import RotatingFileHandler
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
-logging.basicConfig(handlers=[RotatingFileHandler('./logs/frame.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
+from ep24_logging import configure_from_env
+try:
+    configure_from_env(default_step=2, level=logging.DEBUG)
+except Exception:  # never let log setup break a pipeline step
+    pass
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Use sqlite3 database to store TikTok video frame analysis results

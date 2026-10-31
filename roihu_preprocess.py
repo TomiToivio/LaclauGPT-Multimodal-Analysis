@@ -101,18 +101,18 @@ CACHE_COLUMNS = tuple(
     column for column in PREPROCESS_COLUMNS if column not in CACHE_STATUS_COLUMNS
 )
 
-Path("./logs").mkdir(exist_ok=True)
 Path("./database").mkdir(exist_ok=True)
 Path("./Keyframes").mkdir(exist_ok=True)
 
 LOG = logging.getLogger("roihu_preprocess")
 if not LOG.handlers:
-    handler = RotatingFileHandler(
-        "./logs/preprocess.log", encoding="utf-8", maxBytes=5_000_000, backupCount=10
-    )
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
-    LOG.addHandler(handler)
-    # Mirror OCR, ASR and per-record progress into Slurm stdout.
+    # File logging goes through the canonical EP24 log directory (#324); stdout still mirrors progress
+    # into the Slurm log so a running job can be followed live.
+    from ep24_logging import configure_from_env
+    try:
+        configure_from_env(default_step=1, level=logging.DEBUG)
+    except Exception:  # never let log setup break a pipeline step
+        pass
     stream = logging.StreamHandler(sys.stdout)
     stream.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     LOG.addHandler(stream)

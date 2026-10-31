@@ -69,11 +69,9 @@ def report_stage_rows(step: int, country: str, frame: pd.DataFrame, csv_path: st
                 lines.append(f"{column}: {value[:maximum]}{' [TRUNCATED; FULL CSV RETAINS VALUE]' if len(value)>maximum else ''}")
     lines.append(f"=== EP24 step={step} end ===")
     content = "\n".join(lines) + "\n"
-    log_dir = Path(os.getenv("LACLAUGPT_ANALYSIS_LOG_DIR") or
-                   Path(os.getenv("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", ".")) / "logs" / "analysis")
-    log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    # Private model output may contain research material. Restrict new log files.
-    log_path = log_dir / f"step_{step:02d}_{country}.log"
+    # One directory, one convention (#324): <step_name>-<country>.log, never a per-step folder.
+    from ep24_logging import canonical_log_path
+    log_path = canonical_log_path(step, country)
     fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a", encoding="utf-8") as handle:
         handle.write(content)

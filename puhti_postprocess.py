@@ -6,7 +6,11 @@ from datetime import datetime
 from pydantic import BaseModel
 from logging.handlers import RotatingFileHandler
 logger = logging.getLogger(__name__)
-logging.basicConfig(handlers=[RotatingFileHandler('postprocess.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
+from ep24_logging import configure_from_env
+try:
+    configure_from_env(default_step=5)
+except Exception:  # never let log setup break a pipeline step
+    pass
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
