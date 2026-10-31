@@ -132,6 +132,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     collections_read: dict[str, dict[str, str]] = {}
     provenance: dict[str, dict[str, Any]] = {}
     combined: list[dict[str, Any]] = []
+    heavy_fields: dict[str, dict[str, int]] = {}
+    child_join_qa: dict[str, dict[str, dict[str, int]]] = {}
 
     for country in args.country:
         source = export.collection_name(country, export.CANONICAL_SUFFIX)
@@ -141,6 +143,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         raw = list(iter_documents(db[source], batch_size=args.batch_size, limit=args.limit))
         kept, stats = export.select_canonical(raw, args.record_unit)
         projected = [export.project_row(row) for row in kept]
+        heavy_fields[country] = export.heavy_field_counts(projected, args.text_threshold)
+        selected_parent_ids = {str(row.get("_storage_id", "")): str(row["record_id"])
+                               for row in kept if row.get("_storage_id") and row.get("record_id")}
 
         # The lean frame answers "which records, with what coverage"; the bundle carries the prose.
         lean_rows: list[dict[str, Any]] = []
@@ -172,6 +177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         gc.collect()
 
         child_counts[country] = {}
+        child_join_qa[country] = {}
         for role in args.children:
             name = export.child_collection(country, role)
             if name not in existing:
@@ -181,6 +187,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
             documents = [export.project_row(doc) for doc in
                          iter_documents(db[name], batch_size=args.batch_size, limit=args.limit)]
+            if role == "dna_statements":
+                # Statement _storage_id is NOT its parent id. Exclude ingest runs
+                # which did not survive the selected canonical video projection.
+                matched = []
+                for doc in documents:
+                    parent_id = selected_parent_ids.get(str(doc.get("source_record_id", "")))
+                    if parent_id:
+                        matched.append({**doc, "parent_record_id": parent_id,
+                                        "parent_country": country})
+                child_join_qa[country][role] = {
+                    "source_rows": len(documents), "matched": len(matched),
+                    "excluded_unmatched": len(documents) - len(matched),
+                }
+                documents = matched
             export.write_rows(output / "children" / f"{country}_{role}.csv", documents)
             child_counts[country][role] = len(documents)
             collections_read[country][role] = name
@@ -202,6 +222,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         collections_read=collections_read,
         provenance=provenance,
         outputs=outputs,
+        export_qa={"heavy_fields": heavy_fields, "child_join_qa": child_join_qa},
         contract=_merge_contracts(contract_parts),
     )
     print(f"manifest: {manifest['records']} records, {manifest['distinct_media']} distinct media, "
