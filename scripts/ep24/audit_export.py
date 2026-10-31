@@ -585,7 +585,9 @@ def _elided_fields(row: Mapping[str, Any]) -> set[str]:
     """
     raw = row.get("_text_bundle_fields")
     if not raw:
-        return set()
+        # Historical exports used the pre-#353 comma-separated key.
+        return {part.strip() for part in str(row.get("heavy_fields_in_text_bundle") or "").split(",")
+                if part.strip()}
     if isinstance(raw, (list, tuple)):
         return {str(item) for item in raw if str(item)}
     text = str(raw).strip()

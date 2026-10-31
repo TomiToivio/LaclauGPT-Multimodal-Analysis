@@ -44,3 +44,8 @@ def test_it_tolerates_a_legacy_comma_joined_value():
 def test_a_list_value_is_accepted_as_is():
     audit = _audit()
     assert audit._elided_fields({"_text_bundle_fields": ["summary"]}) == {"summary"}
+
+
+def test_legacy_column_marker_is_supported():
+    audit = _audit()
+    assert audit._elided_fields({"heavy_fields_in_text_bundle": "summary,asr_transcript"}) == {"summary", "asr_transcript"}
