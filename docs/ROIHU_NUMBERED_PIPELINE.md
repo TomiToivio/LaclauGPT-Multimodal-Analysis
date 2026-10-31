@@ -34,11 +34,11 @@ Replace `portugal` with `finland`, `poland`, or another available country.
 `--retry-errors` includes previously failed rows but does not invalidate
 already-completed checkpoints. **Do not run separate jobs manually.**
 
-This submits nine jobs with `afterok` dependencies. Step N+1 starts only
-after Step N's SLURM job exits successfully. If a stage fails, downstream
-jobs remain blocked (and may be marked dependency-never-satisfied by SLURM).
-Fix the cause and submit the command again; previously completed MongoDB
-records are preserved. Each stage has its own environment and resource profile
+This submits nine jobs with `afterany` dependencies. Step N+1 starts after
+Step N terminates, including after a non-zero exit. Per-record failures remain
+retryable and are not rewritten to success. A fatal producer error may still
+leave a downstream stage without usable inputs; inspect failure reports and retry
+selectively. Previously completed MongoDB records are preserved. Each stage has its own environment and resource profile
 (GPU where needed, CPU for Step 9).
 
 To continue only later stages after earlier ones are complete:
