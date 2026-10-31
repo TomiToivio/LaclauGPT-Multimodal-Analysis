@@ -71,7 +71,6 @@ def select(rows: list[dict], steps: tuple[str, ...],
     plan: dict[str, dict[str, list[str]]] = {}
     for step in steps:
         status_field, outputs = exporter.COVERAGE_STEPS[step]
-        carries_remotely = bool(set(outputs) & elided)
         missing: list[str] = []
         partial: list[str] = []
         unverifiable: list[str] = []
@@ -79,11 +78,16 @@ def select(rows: list[dict], steps: tuple[str, ...],
             record_id = row.get("record_id") or row.get("video_id") or ""
             if not record_id:
                 continue
-            has_output = _has_any_output(row, outputs)
-            if not has_output:
-                (unverifiable if carries_remotely else missing).append(record_id)
-            elif _status_failed(row, status_field):
-                partial.append(record_id)
+            carries_remotely = bool(set(outputs) & elided)
+            if _has_any_output(row, outputs):
+                if _status_failed(row, status_field):
+                    partial.append(record_id)
+                continue
+            # Every output field of this step is blank. When the export relocates any of them into the
+            # text bundle, the blank cannot prove absence: the fields are alternative artefacts (a video
+            # step may write prose and no JSON), so one relocatable field makes the whole step
+            # unverifiable. Only a step whose fields never leave the CSV can be called missing.
+            (unverifiable if carries_remotely else missing).append(record_id)
         plan[step] = {
             "missing": sorted(set(missing)),
             "failed_with_output": sorted(set(partial)),
