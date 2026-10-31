@@ -376,6 +376,41 @@ def run_legacy_batch(
         return after
 
 
+
+def export_completed_monday500(storage: MongoStorage, country: str, output_root: Path) -> Path | None:
+    """Emit one cumulative, lossless 500-record CSV when Step 7 is finished.
+
+    Opt-in to avoid exporting a full non-sample corpus. The source documents are
+    read from the country-scoped Mongo dataframe collection; no stage reruns or
+    database mutations occur. Refuse partial/error datasets instead of silently
+    declaring an incomplete country finished.
+    """
+    if os.getenv("LACLAUGPT_MONDAY500_AUTO_EXPORT", "0") != "1":
+        return None
+    collection = storage.db[storage.collection_name("dataframe")]
+    total = collection.count_documents({})
+    completed = collection.count_documents({f"{status_path(7)}.status": "complete"})
+    if total != 500 or completed != 500:
+        LOG.info(
+            "MONDAY500_EXPORT_DEFERRED country=%s complete=%d total=%d expected=500",
+            country, completed, total,
+        )
+        return None
+    documents = list(collection.find({f"{status_path(7)}.status": "complete"}))
+    # Stable ordering makes exports reproducible and keeps the source IDs visible.
+    documents.sort(key=lambda doc: str(doc.get("_storage_id", "")))
+    frame = flat_rows(documents)
+    destination = output_root / "monday500_exports" / f"{country}_steps_1_7.csv"
+    manifest = write_checkpoint(
+        frame, destination, stage="step_07_final_dataframe", country=country,
+    )
+    LOG.info(
+        "MONDAY500_EXPORT_COMPLETE country=%s rows=%d path=%s sha256=%s",
+        country, len(frame), destination, manifest["csv_sha256"],
+    )
+    return destination
+
+
 def run_country(
     country: str,
     *,
@@ -669,6 +704,8 @@ def run_country(
                 checkpoint,
                 manifest["csv_sha256"],
             )
+        if step == 7:
+            export_completed_monday500(storage, country, output_root)
         return processed
     finally:
         storage.close()
