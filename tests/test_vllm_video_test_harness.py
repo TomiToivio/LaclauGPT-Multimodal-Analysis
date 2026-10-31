@@ -136,9 +136,13 @@ def test_reprocessing_refreshes_video_outputs_and_preserves_upstream(
     ]) == 0
     out = pd.read_csv(output, dtype=str, keep_default_na=False)
     assert len(persisted) == 1
-    assert set(out["SCROLL"]) == {"TRUE" if scroll else "FALSE"}
-    assert set(out["SCROLL_SECONDS"]) == {"[3.0]" if scroll else "[]"}
-    assert set(out["needs_resplit"]) == {"TRUE" if scroll else "FALSE"}
+    # The input row already carries scroll metadata, and a stage may not mutate an incoming column
+    # (assert_source_metadata_preserved). The canonical column therefore keeps the upstream value and
+    # this run's inference is recorded beside it (#323).
+    expected_scroll = "TRUE" if scroll else "FALSE"
+    assert set(out["SCROLL"]) == {"FALSE" if scroll else "TRUE"}
+    assert set(out["vllm_video_scroll"]) == {expected_scroll}
+    assert set(out["vllm_video_scroll_seconds"]) == {"[3.0]" if scroll else "[]"}
     assert set(out["vllm_video_status"]) == {"ok"}
     selected = out["vllm_video_source_row_index"].astype(int).tolist()
     module.assert_source_metadata_preserved(

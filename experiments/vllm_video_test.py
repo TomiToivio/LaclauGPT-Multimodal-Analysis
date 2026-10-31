@@ -992,6 +992,11 @@ def _row_json(row: dict) -> str:
     return json.dumps(cleaned, ensure_ascii=False, sort_keys=True, default=str)
 
 
+SCROLL_METADATA_COLUMNS = frozenset(
+    {"SCROLL", "SCROLL_SECONDS", "needs_resplit", "video_initial_skip_seconds"}
+)
+
+
 def write_local_checkpoint(
     source_df: pd.DataFrame,
     selected: list[int],
@@ -1005,14 +1010,12 @@ def write_local_checkpoint(
     out_df = source_df.loc[done].reset_index(drop=True).copy()
     for column in OUTPUT_COLUMNS:
         values = [result[column] for result in results]
-        # Reprocessing must not overwrite earlier stages' columns. In particular,
-        # SCROLL / SCROLL_SECONDS can already be present in cumulative input.
-        if column in source_df.columns and column not in QUALITY_COLUMNS:
-            # Keep the new inference available without changing upstream data.
-            if column in {"SCROLL", "SCROLL_SECONDS", "needs_resplit", "video_initial_skip_seconds"}:
-                out_df["vllm_video_" + column.lower()] = values
-            elif column.startswith("vllm_"):
-                out_df["step3_" + column] = values
+        if column in SCROLL_METADATA_COLUMNS and column in source_df.columns:
+            # `assert_source_metadata_preserved` forbids a stage from mutating an incoming column, and
+            # that guard is right: a rerun must not silently rewrite what the pipeline already carried.
+            # The canonical column keeps the upstream value; this run's inference is recorded beside it
+            # as `vllm_video_<column>` so a disagreement stays visible instead of overwriting (#323).
+            out_df["vllm_video_" + column.lower()] = values
             continue
         out_df[column] = values
 

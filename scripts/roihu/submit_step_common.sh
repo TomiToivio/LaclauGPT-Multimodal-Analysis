@@ -60,13 +60,19 @@ for arg in "$@"; do
   prev="${arg}"
 done
 case "${COUNTRY}" in
-  fi|fin) COUNTRY="finland" ;; pl|pol) COUNTRY="poland" ;; pt|port) COUNTRY="portugal" ;;
+  fi|fin) COUNTRY=finland ;;
+  pl|pol) COUNTRY=poland ;;
+  pt|port) COUNTRY=portugal ;;
+  finland|poland|portugal|all) : ;;
+  *) echo "requires --country finland|poland|portugal (got '${COUNTRY}')" >&2; exit 2 ;;
 esac
+# One canonical name per step and country; the job id is appended by SLURM.
+LOG_STEM="${STEP_NAME}-${COUNTRY}"
 if [[ "${COUNTRY_ARGUMENT}" == "1" ]]; then
   export LACLAUGPT_COUNTRY="${COUNTRY}"
 fi
 
-SBATCH_ARGS=(--parsable --output="${LOG_DIR}/${STEP_NAME}-${COUNTRY}-%j.out" --error="${LOG_DIR}/${STEP_NAME}-${COUNTRY}-%j.err" --job-name="ep24-${STEP_NAME}-${COUNTRY}" --account="${CSC_PROJECT}" --partition="${PARTITION}" --cpus-per-task="${CPUS}" --time="${TIME}")
+SBATCH_ARGS=(--parsable --output="${LOG_DIR}/${LOG_STEM}-%j.log" --error="${LOG_DIR}/${LOG_STEM}-%j.log" --job-name="ep24-${STEP_NAME}-${COUNTRY}" --open-mode=append --account="${CSC_PROJECT}" --partition="${PARTITION}" --cpus-per-task="${CPUS}" --time="${TIME}")
 [[ "${MEM}" != "0" && -n "${MEM}" ]] && SBATCH_ARGS+=(--mem="${MEM}")
 [[ -n "${GRES}" ]] && SBATCH_ARGS+=(--gres="${GRES}")
 [[ -n "${LACLAUGPT_SBATCH_DEPENDENCY:-}" ]] && SBATCH_ARGS+=(--dependency="${LACLAUGPT_SBATCH_DEPENDENCY}")
@@ -74,7 +80,11 @@ SBATCH_ARGS=(--parsable --output="${LOG_DIR}/${STEP_NAME}-${COUNTRY}-%j.out" --e
 echo "Submitting EP24 Step ${STEP} ($(roihu_step_name "${STEP}")) partition=${PARTITION} cpus=${CPUS} gres=${GRES:-none} time=${TIME}" >&2
 job_id="$(sbatch "${SBATCH_ARGS[@]}" --export=ALL "${SCRIPT_DIR}/step_runner.sbatch" "$@")"
 job_id="${job_id%%;*}"
-echo "Slurm stdout: ${LOG_DIR}/${STEP_NAME}-${COUNTRY}-${job_id}.out" >&2
-echo "Slurm stderr: ${LOG_DIR}/${STEP_NAME}-${COUNTRY}-${job_id}.err" >&2
-echo "Follow live: tail -f ${LOG_DIR}/${STEP_NAME}-${COUNTRY}-${job_id}.out ${LOG_DIR}/${STEP_NAME}-${COUNTRY}-${job_id}.err" >&2
+# Canonical pointer files: one name per step and country that always resolves to the newest job,
+# while every job keeps its own timestamped archive.
+printf '%s\n' "${LOG_DIR}/${LOG_STEM}-${job_id}.log" > "${LOG_DIR}/.${LOG_STEM}.latest.$$"
+mv -f "${LOG_DIR}/.${LOG_STEM}.latest.$$" "${LOG_DIR}/${LOG_STEM}.log"
+ln -sfn "${LOG_DIR}/${LOG_STEM}-${job_id}.log" "${LOG_DIR}/${LOG_STEM}.latest.log"
+echo "Job archive: ${LOG_DIR}/${LOG_STEM}-${job_id}.log" >&2
+echo "Follow live: tail -f ${LOG_DIR}/${LOG_STEM}-${job_id}.log" >&2
 echo "${job_id}"
