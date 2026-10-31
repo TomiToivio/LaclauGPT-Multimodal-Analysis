@@ -129,6 +129,30 @@ cannot distinguish an orphan from a matched row. The known consequence is the 1,
 gap (93 ingest-level orphans) reported in #331. A re-export with the new exporter resolves this and
 records `children_detail` so the gap is visible instead of inferred.
 
+### D6 — Stale contract tests were reddening `main` (fixed here)
+
+Two clusters failed on `main` before this work, for the same reason: the behaviour moved and the
+assertions did not.
+
+* `tests/test_issue324_log_naming.py` asserted the **shell** implementation of the canonical log
+  (`LOG_STEM`, `--open-mode=append`, a `ln -sfn` alias). That was moved into `ep24_logging` when the two
+  halves were reconciled (#329), so the test now checks the split contract: the submission script names
+  one scheduler log per country in one directory, and `canonical_log_path()` owns the
+  `<step>-<country>.log` file. Retargeted, not deleted — the properties are still covered.
+* `tests/test_vllm_video_test_harness.py` expects Step 3 to overwrite `SCROLL` with the new inference.
+
+### D7 — Step 3 refresh-vs-resume is an unresolved decision (open, `xfail(strict=True)`)
+
+The harness above now fails only where the cumulative input already carries `vllm_*` output. The module
+preserves upstream columns and records the new inference in `vllm_video_scroll` / `step3_*`
+(`tests/test_step3_scroll_preservation.py`), while the harness still expects `SCROLL` itself to be
+overwritten.
+
+Whether Step 3 should **refresh** such rows or **resume** them is a pipeline-semantics decision, not a
+test-maintenance one, so the test is marked `xfail(strict=True)` with that question attached instead of
+being rewritten to match whatever the code happens to do. `strict=True` means the moment either side
+changes, the suite goes red and forces the decision.
+
 ### D5 — Nothing else disagrees
 
 Hashes match, no duplicate `record_id`, no cross-country contamination, no bundle key without an index
