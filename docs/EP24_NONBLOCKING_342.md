@@ -49,7 +49,7 @@ express "any of four routes" without risking a false negative.
 ```bash
 # what would run? (dry run is the default)
 python scripts/roihu/reprocess_selected.py \
-    --export /private/ep24/mongo_export_210 --steps 3,6,7 --commands
+    --export /private/ep24/mongo_export_210 --steps 3,6,7
 
 # record the decision for the audit trail
 python scripts/roihu/reprocess_selected.py \
@@ -72,18 +72,17 @@ manifest and a diff between them is meaningful.
 - select a record whose stage output exists;
 - treat a blank index cell as proof of absence (#331);
 - rerun a stage whose status says success but produced nothing, unless `--include-empty` is given;
-- submit anything without `--execute`; the default and the printed commands are a preview.
+- submit anything: **live submission is not implemented**; `--execute` and `--commands` explicitly fail closed, rather than silently succeeding or printing placeholder `sbatch` paths. `--apply` only writes a local manifest.
 
 ### Before any live run
 
-The script reads an **authorized export**, not live Mongo. A real run must additionally pin: source
+The script reads an **authorized export**, not live Mongo. Its manifest is **not** a validated live retry plan: the exporter can elide data into sidecar bundles, and the separate `plan_ep24_retry.py` identifies such rows as `unverifiable`. Do not pass this preview to Slurm as a worklist without live output verification. A real run must additionally pin: source
 collection identity, repo SHA, run/checkpoint ids, model and prompt versions, and the destination.
 Those are job-level facts, so they belong in the manifest the operator attaches to the Slurm job, not in
 a CSV-derived selection.
 
 ## What remains unproven without Roihu access
 
-- Whether Step 3's absence is a media-availability problem, a model/runtime problem, or lost output.
-  The selection says *what* to rerun; the run says *why* it failed.
-- Steps 6–9 producer diagnoses (Poland's 1 of 1,781 discourse records; Portugal's missing summaries).
+- Step 3 results are present in FI/PL/PT text bundles; the index CSV alone cannot establish which individual results are absent. Live output checks and quality review are required before any retry.
+- Steps 6–7 producer diagnoses, current live coverage and selective execution (Steps 8–9 are intentionally paused by #346). Historical Poland discourse metrics are superseded by the refreshed pinned-export readiness report; consult `docs/EP24_STEPS_1_7_READINESS.md`.
 - Any before/after quality claim for codebook or prompt changes (#333 deliverable 4).
