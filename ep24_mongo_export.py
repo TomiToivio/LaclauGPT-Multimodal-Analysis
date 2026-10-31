@@ -232,6 +232,10 @@ def split_heavy_fields(
         else:
             lean[key] = value
     if heavy:
+        # #331: a consumer reading only the index CSV saw these cells simply vanish. One marker names
+        # them, as a JSON list, so the absence is legible instead of indistinguishable from "the
+        # producer wrote nothing". The merge of #344 left a second, pre-#331 spelling in place; two
+        # markers for one fact is how a consumer learns to trust neither.
         lean["_text_bundle_fields"] = json.dumps(sorted(heavy))
     return lean, heavy
 
@@ -369,13 +373,9 @@ def parent_index(parents: Iterable[Mapping[str, Any]]) -> dict[str, str]:
 
 
 def attach_parent_ids(
-    children: Iterable[Mapping[str, Any]], parents: Iterable[Mapping[str, Any]], *, country: str = ""
+    children: Iterable[Mapping[str, Any]], parents: Iterable[Mapping[str, Any]]
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Give every child row an explicit ``parent_record_id``, and count what could not be attached.
-
-    ``parent_country`` is written too. The manifest declares the child join key as
-    ``[parent_country, parent_record_id]``, so a consumer that follows the manifest needs both columns
-    present; emitting only the record id left every such join keyed on a field that did not exist.
 
     Child collections are keyed at pipeline-run level and carry the parent only in
     ``source_record_id`` (their own ``_storage_id`` is the statement's id), so the join is done here,
@@ -387,7 +387,7 @@ def attach_parent_ids(
     for child in children:
         parent = (index.get(_text(child.get("source_record_id")))
                   or index.get(_text(child.get("_storage_id"))) or "")
-        out.append({**child, "parent_record_id": parent, "parent_country": country,
+        out.append({**child, "parent_record_id": parent,
                     "parent_join": "source_record_id" if parent else "unjoined"})
         counts["records"] += 1
         counts["matched" if parent else "orphan"] += 1

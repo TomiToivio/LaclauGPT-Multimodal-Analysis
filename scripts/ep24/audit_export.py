@@ -28,7 +28,7 @@ import json
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -57,26 +57,6 @@ FRESHNESS_FIELDS = ("laclau_generated_at", "dna_generated_at", "sna_generated_at
 CHILD_TABLES = ("entities", "themes", "dna_statements", "sna")
 MISSING = {"", "none", "nan", "null", "<na>", "[]", "{}"}
 ERROR, WARN, INFO = "error", "warn", "info"
-
-
-def _bundle_fields(row: Mapping[str, Any]) -> list[str]:
-    """Fields the exporter moved out of the index row into the text bundle.
-
-    `main` writes ``_text_bundle_fields`` as a JSON list. Exports produced before that rename carry
-    ``heavy_fields_in_text_bundle`` as a comma-separated string. Reading only one of the two makes the
-    audit report "nothing was shipped" for a stage that did ship its prose - the precise defect
-    #331/#332 closed - so both names are read here on purpose.
-    """
-    raw_json = row.get("_text_bundle_fields")
-    if raw_json:
-        try:
-            parsed = json.loads(str(raw_json))
-        except (TypeError, ValueError):
-            parsed = None
-        if isinstance(parsed, list):
-            return [str(item) for item in parsed if str(item)]
-    raw_legacy = row.get("heavy_fields_in_text_bundle")
-    return [text for text in str(raw_legacy or "").split(",") if text]
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -137,7 +117,7 @@ def audit_coverage(frame: list[dict[str, str]], manifest: dict[str, Any],
                            if any(_has_output(row.get(field)) for field in outputs))
         carried = [field for field in outputs if field in (frame[0] if frame else {})]
         elided = [field for field in outputs if field in heavy or any(
-            field in _bundle_fields(row) for row in frame[:50])]
+            field in _elided_fields(row) for row in frame[:50])]
         paused = int(str(step).split("_", 1)[0]) in (manifest.get("paused_stages") or [])
         rows.append({
             "country": country, "step": step, "paused": paused,
@@ -281,7 +261,7 @@ def audit_records(export: Path, frame: list[dict[str, str]], country: str,
     elided = set((manifest.get("heavy_fields") or {}).get(country) or {})
     elided.update(bundle_fields or ())
     for row in frame[:50]:
-        elided.update(_bundle_fields(row))
+        elided.update(_elided_fields(row))
     report: dict[str, Any] = {"country": country, "records": len(frame), "statuses": {},
                               "success_without_output": {}, "output_in_text_bundle": {},
                               "language": {}, "freshness": {}, "evidence": {}}
@@ -595,6 +575,28 @@ def coverage_reconciliation(manifest: dict[str, Any], suppressed: set[str] | Non
     return warnings
 
 
+def _elided_fields(row: Mapping[str, Any]) -> set[str]:
+    """Fields that left this row for the text bundle.
+
+    main settled the marker as ``_text_bundle_fields``, a JSON list. The auditor used to read a
+    comma-joined ``heavy_fields_in_text_bundle``, which no longer exists, so it saw *no* elision and
+    reported every elided cell as output the stage never produced. A status audit that cannot tell
+    "moved" from "missing" is worse than no audit: it looks authoritative while being wrong.
+    """
+    raw = row.get("_text_bundle_fields")
+    if not raw:
+        # Historical exports used the pre-#353 comma-separated key.
+        return {part.strip() for part in str(row.get("heavy_fields_in_text_bundle") or "").split(",")
+                if part.strip()}
+    if isinstance(raw, (list, tuple)):
+        return {str(item) for item in raw if str(item)}
+    text = str(raw).strip()
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return {part for part in text.split(",") if part}
+    return {str(item) for item in parsed} if isinstance(parsed, list) else set()
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
-

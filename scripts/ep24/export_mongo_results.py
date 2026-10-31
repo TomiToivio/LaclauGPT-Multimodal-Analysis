@@ -129,6 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     country_stats: dict[str, dict[str, Any]] = {}
     contract_parts: dict[str, dict[str, Any]] = {}
     child_counts: dict[str, dict[str, int]] = {}
+    child_outputs: list[Path] = []
     child_detail: dict[str, dict[str, dict[str, int]]] = {}
     children_contract: dict[str, dict[str, Any]] = {}
     child_statement_countries: dict[str, set[str]] = {}
@@ -145,7 +146,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         raw = list(iter_documents(db[source], batch_size=args.batch_size, limit=args.limit))
         kept, stats = export.select_canonical(raw, args.record_unit)
-        projected = [export.project_row(row) for row in kept]
+        # Stamp the country on every row. The manifest documents the child join key as
+        # (parent_country, parent_record_id); a per-country CSV that only implies its country from the
+        # file name cannot satisfy that join, and combined.csv mixes three countries in one file.
+        projected = [export.project_row({**row, "country": country}) for row in kept]
 
         # The lean frame answers "which records, with what coverage"; the bundle carries the prose.
         lean_rows: list[dict[str, Any]] = []
@@ -182,7 +186,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         # the memory ceiling by Portugal and dies while hashing the last bundle.
         # The parent identities survive the frame release: children are attached to the *video*
         # that this export keeps, not to an ingest run the collapse dropped.
-        parents = [{"record_id": row.get("record_id"), "_storage_id": row.get("_storage_id")}
+        # `dna_statement_count` rides along: reconcile_dna_coverage compares the count the pipeline
+        # claimed with the children that actually reached this export, and that comparison is the only
+        # thing standing between "step ran" and "step is missing" (#333).
+        parents = [{"record_id": row.get("record_id"), "_storage_id": row.get("_storage_id"),
+                    "dna_statement_count": row.get("dna_statement_count")}
                    for row in kept]
         del projected, lean_rows, raw, kept
         gc.collect()
@@ -198,10 +206,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
             documents = [export.project_row(doc) for doc in
                          iter_documents(db[name], batch_size=args.batch_size, limit=args.limit)]
-            documents, detail = export.attach_parent_ids(documents, parents, country=country)
-            export.write_rows(output / "children" / f"{country}_{role}.csv", documents)
-            child_counts[country][role] = detail["records"]
-            child_detail.setdefault(country, {})[role] = detail
+            documents, detail = export.attach_parent_ids(documents, parents)
+            # The manifest promises the join on (parent_country, parent_record_id); the child collection
+            # is queried per country, so the country is known here and nowhere later.
+            documents = [{**doc, "parent_country": country} for doc in documents]
+            # A child whose parent is not in this export cannot be joined by anyone downstream. Keep the
+            # delivered table joinable and account for what was held back, rather than shipping rows that
+            # break every consumer's join: the count travels in the manifest, the rows stay in Mongo.
+            joined = [doc for doc in documents if str(doc.get("parent_record_id") or "")]
+            child_path = output / "children" / f"{country}_{role}.csv"
+            export.write_rows(child_path, joined)
+            child_outputs.append(child_path)
+            child_counts[country][role] = len(joined)
+            child_detail.setdefault(country, {})[role] = {
+                "records": len(joined), "matched": len(joined),
+                "orphan": detail.get("orphan", 0),
+                "rows_read": detail.get("records", len(documents)),
+            }
             children_contract[country][role] = export.child_contract(
                 documents, country=country, role=role)
             for document in documents:
@@ -209,8 +230,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if statement_id:
                     child_statement_countries.setdefault(statement_id, set()).add(country)
             if detail["orphan"]:
-                print(f"{country}: {role} {detail['records']} rows, {detail['orphan']} with no "
-                      f"parent in this {args.record_unit}-unit export (kept, parent_record_id='')")
+                print(f"{country}: {role} {detail['orphan']} of {detail['records']} rows have no "
+                      f"parent in this {args.record_unit}-unit export (held back, counted in "
+                      f"children_detail)")
+            if role == "dna_statements":
+                # Children are the evidence that Step 7 produced output for an exported video; without
+                # this, coverage reports the step as unavailable while the statements sit in their own
+                # CSV (the #333 contradiction).
+                export.reconcile_dna_coverage(
+                    contract_parts[country]["stage_coverage"][country], joined, parents, available=True)
             collections_read[country][role] = name
 
         print(f"{country}: {read_count} read -> {stats['records']} records "
@@ -221,7 +249,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     outputs = ([output / "combined.csv"]
                + [output / f"{c}.csv" for c in args.country]
-               + [output / f"{c}_text.jsonl.gz" for c in args.country])
+               + [output / f"{c}_text.jsonl.gz" for c in args.country]
+               + child_outputs)  # a delivered file the manifest does not list cannot be verified
     collisions = sum(1 for countries in child_statement_countries.values() if len(countries) > 1)
     manifest = export.write_manifest(
         output,
