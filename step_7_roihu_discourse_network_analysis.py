@@ -295,27 +295,42 @@ def analyze_context(context: str) -> tuple[str, Any]:
 
     DNAResult = _models()
     metadata = _model_metadata()
-    response = ollama.chat(
-        model=metadata["model"],
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": context},
-        ],
-        format=DNAResult.model_json_schema(),
-        options={
-            "temperature": 0.0,
-            "num_ctx": metadata["num_ctx"],
-            "num_predict": metadata["num_predict"],
-        },
-    )
-    raw = response["message"]["content"]
-    try:
-        parsed = DNAResult.model_validate_json(raw)
-    except Exception as exc:
-        raise Step7ParseError(
-            f"Step 7 structured JSON validation failed: {exc}", raw_response=raw
-        ) from exc
-    return raw, parsed
+    # A successful HTTP response can still contain an empty or truncated JSON
+    # document (notably when the model exhausts its generation budget).
+    # Retry validation failures with progressively larger output budgets.
+    max_attempts = max(1, int(os.getenv("LACLAUGPT_STEP7_PARSE_ATTEMPTS", "3")))
+    last_error = None
+    raw = ""
+    for attempt in range(max_attempts):
+        num_predict = metadata["num_predict"] * (2 ** attempt)
+        response = ollama.chat(
+            model=metadata["model"],
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": context},
+            ],
+            format=DNAResult.model_json_schema(),
+            options={
+                "temperature": 0.0,
+                "num_ctx": metadata["num_ctx"],
+                "num_predict": num_predict,
+            },
+        )
+        raw = response["message"]["content"] or ""
+        try:
+            return raw, DNAResult.model_validate_json(raw)
+        except Exception as exc:
+            last_error = exc
+            LOG.warning(
+                "Step 7 invalid structured response attempt=%s/%s num_predict=%s "
+                "response_chars=%s done_reason=%s error=%s",
+                attempt + 1, max_attempts, num_predict, len(raw),
+                response.get("done_reason", "unknown"), exc,
+            )
+    raise Step7ParseError(
+        f"Step 7 structured JSON validation failed after {max_attempts} attempts: {last_error}",
+        raw_response=raw,
+    ) from last_error
 
 
 def _normalization_lookups(row: pd.Series) -> tuple[dict[str, str], dict[str, str]]:
@@ -660,8 +675,10 @@ def process_country(country: str | None = None) -> Path:
     ensure_columns(out, DNA_COLUMNS)
 
     enriched, context_handle = _prepare_context(out, normalized_country)
-    for column in (*EXTERNAL_CONTEXT_COLUMNS, "context_evidence_role"):
-        if column in enriched.columns:
+    for column in EXTERNAL_CONTEXT_COLUMNS:
+        if column in enriched.columns and column not in original.columns:
+            # Enrichment supplies missing context; never mutate an incoming
+            # column. Source/previous-stage values are immutable by contract.
             out[column] = enriched[column]
 
     from ep24_entities import resolution_lookup
