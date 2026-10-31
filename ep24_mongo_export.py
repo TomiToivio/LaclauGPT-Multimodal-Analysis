@@ -391,6 +391,27 @@ def _has_output(value: Any) -> bool:
     return True
 
 
+def _has_output(value: Any) -> bool:
+    """True when a cell carries actual output.
+
+    ``0``, ``"0"``, empty strings, empty collections and ``None`` are *no output*. A row counter that is
+    present but zero is the common case here: an export that shipped no DNA statements still has the
+    ``dna_statement_count`` column, and counting its mere existence as "the step is available" turns an
+    absent stage into a null result - the exact confusion this module's docstring warns about (#332).
+    """
+    if value is None or value is False:
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value != 0
+    if isinstance(value, str):
+        # "{}" and "[]" are legitimate produced output (an empty collection was written); a blank string
+        # and a literal "0" are not.
+        return value.strip() not in ("", "0")
+    if isinstance(value, (list, tuple, dict, set)):
+        return len(value) > 0
+    return True
+
+
 def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     """Per step: how many rows carry output, how many carry a failure, and whether it is measurable.
 
