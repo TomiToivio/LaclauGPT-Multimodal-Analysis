@@ -52,11 +52,26 @@ entries.
    codebook comparison the issue asks for is incomplete; this is a data-availability gap, not a
    finding about PT.
 
+## Merge proposals (read-only tool)
+
+`scripts/ep24/propose_codebook_merges.py` proposes groups that are plausibly the same entry without
+editing anything. It reports two deterministic cases: labels identical after case/whitespace/
+punctuation normalisation, and entries that share an alias. Word-order similarity is **not** guessed.
+
+| Country | Proposals | Exact-normalisation pairs | Shared-alias groups |
+|---|---:|---:|---:|
+| FI | 1 | 1 | 0 |
+| PL | 9 | 9 | 0 |
+
+These are the safe folds: each is the same label with different case, spacing or punctuation. The
+larger semantic fragmentation reported above needs aliases, not automatic merges.
+
 ## Recommended edits (for researcher review, not applied)
 
-- FI: alias pass on the 36 fragmented groups, highest-observation first; fold the two theme pairs.
-- PL: alias pass on the 98 groups; fold exact-normalisation theme pairs automatically and queue the
-  semantic near-duplicates (EU relations, government criticism) for a researcher decision.
+- FI: apply the one exact-normalisation pair; alias pass on the 36 fragmented groups, highest-
+  observation first; fold the two theme pairs.
+- PL: apply the nine exact-normalisation pairs; alias pass on the 98 groups; queue the semantic
+  near-duplicates (EU relations, government criticism) for a researcher decision.
 - Do not merge entities that are genuinely distinct actors or coalitions; the auditor reports
   ambiguity rather than resolving it.
 - Add PT codebook coverage once the file is available.
