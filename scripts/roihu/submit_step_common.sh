@@ -47,21 +47,24 @@ esac
 
 # The country is a step argument; the scheduler log name must reflect it or every country's job output
 # collides in one file.
-COUNTRY="all"
+COUNTRY="${LACLAUGPT_COUNTRY:-all}"
+COUNTRY_ARGUMENT=0
 prev=""
 for arg in "$@"; do
   case "${prev}" in
-    --country|-c) COUNTRY="${arg}" ;;
+    --country|-c) COUNTRY="${arg}"; COUNTRY_ARGUMENT=1 ;;
   esac
   case "${arg}" in
-    --country=*) COUNTRY="${arg#--country=}" ;;
+    --country=*) COUNTRY="${arg#--country=}"; COUNTRY_ARGUMENT=1 ;;
   esac
   prev="${arg}"
 done
 case "${COUNTRY}" in
   fi|fin) COUNTRY="finland" ;; pl|pol) COUNTRY="poland" ;; pt|port) COUNTRY="portugal" ;;
 esac
-export LACLAUGPT_COUNTRY="${COUNTRY}"
+if [[ "${COUNTRY_ARGUMENT}" == "1" ]]; then
+  export LACLAUGPT_COUNTRY="${COUNTRY}"
+fi
 
 SBATCH_ARGS=(--parsable --output="${LOG_DIR}/${STEP_NAME}-${COUNTRY}-%j.out" --error="${LOG_DIR}/${STEP_NAME}-${COUNTRY}-%j.err" --job-name="ep24-${STEP_NAME}-${COUNTRY}" --account="${CSC_PROJECT}" --partition="${PARTITION}" --cpus-per-task="${CPUS}" --time="${TIME}")
 [[ "${MEM}" != "0" && -n "${MEM}" ]] && SBATCH_ARGS+=(--mem="${MEM}")
