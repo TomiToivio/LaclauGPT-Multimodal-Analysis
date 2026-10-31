@@ -66,8 +66,8 @@ job_id="$(sbatch "${SBATCH_ARGS[@]}" --export=ALL "${SCRIPT_DIR}/step_runner.sba
 job_id="${job_id%%;*}"
 # Canonical link points to the newest submission; previous and concurrent job logs
 # stay separate and readable by their job IDs.
-ln -sfn "${LOG_STEM}-${job_id}.log" "${LOG_DIR}/.${LOG_STEM}.latest.$"
-mv -f "${LOG_DIR}/.${LOG_STEM}.latest.$" "${LOG_DIR}/${LOG_STEM}.log"
+ln -sfn "${LOG_STEM}-${job_id}.log" "${LOG_DIR}/.${LOG_STEM}.latest.$$"
+mv -f "${LOG_DIR}/.${LOG_STEM}.latest.$$" "${LOG_DIR}/${LOG_STEM}.log"
 echo "EP24 log: ${LOG_DIR}/${LOG_STEM}.log (job ${job_id})" >&2
 echo "Job archive: ${LOG_DIR}/${LOG_STEM}-${job_id}.log" >&2
 echo "Follow live: tail -f ${LOG_DIR}/${LOG_STEM}-${job_id}.log" >&2
