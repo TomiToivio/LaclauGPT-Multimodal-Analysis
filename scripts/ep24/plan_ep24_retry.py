@@ -26,8 +26,14 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+# Direct execution (python scripts/ep24/plan_ep24_retry.py) puts scripts/ep24,
+# not the repository root, on sys.path. Match audit_stage_coverage.py so the
+# exporter and scope contracts resolve without requiring PYTHONPATH.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import ep24_mongo_export as exporter
 import ep24_scope
