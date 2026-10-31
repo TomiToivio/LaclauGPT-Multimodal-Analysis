@@ -4,7 +4,14 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
+
+# Direct execution from scripts/ep24 must resolve repository-root modules.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 import pandas as pd
 
 COUNTRIES = ("finland", "poland", "portugal")
