@@ -54,18 +54,15 @@ def status_path(step: int) -> str:
 
 def eligible_query(step: int, *, retry_errors: bool, force: bool) -> dict:
     query: dict = {}
-    if step > 1:
-        query[f"{status_path(step - 1)}.status"] = "complete"
-    # Step 5 preserves every claimed row in Mongo. Only quality-OK rows
-    # proceed to Step 6 and beyond; REPROCESS/DELETE remain auditable.
+    # Upstream failures are evidence, not a global dependency lock.
+    # A downstream step may use surviving partial text/frame outputs.
+    # Preserve explicit deletion decisions; do not interpret REPROCESS as failure.
     if step >= 6:
-        query["processing_status"] = {"$in": ["OK", "ok"]}
+        query["processing_status"] = {"$nin": ["DELETE", "delete"]}
     if step == 2:
         query["preprocess_status"] = {"$in": ["ok", "cached"]}
         query["frame_file"] = {"$exists": True, "$nin": ["", None]}
         query["frame_timestamp_seconds"] = {"$exists": True, "$nin": ["", None]}
-    elif step == 3:
-        query["frame_analysis_status"] = {"$in": ["ok", "cached"]}
     if not force:
         allowed = ["pending", "retry"]
         if retry_errors:
@@ -86,6 +83,7 @@ def claim_batch(
     retry_errors: bool,
     force: bool,
     stale_hours: int = 6,
+    exclude_ids: set[str] | None = None,
 ) -> list[dict]:
     from pymongo import ReturnDocument
 
@@ -124,6 +122,8 @@ def claim_batch(
 
     claimed: list[dict] = []
     query = eligible_query(step, retry_errors=retry_errors, force=force)
+    if exclude_ids:
+        query = {"$and": [query, {"_storage_id": {"$nin": sorted(exclude_ids)}}]}
     while len(claimed) < batch_size:
         doc = collection.find_one_and_update(
             query,
@@ -280,7 +280,7 @@ def persist_batch(
             step, failures, len(output),
             bad[detail_columns].head(10).to_dict(orient="records"), step,
         )
-        raise RuntimeError(f"Step {step}: {failures}/{len(output)} rows failed; kept as retryable Mongo errors")
+        LOG.warning("Step %d: %d/%d rows failed; retryable errors persisted; continuing other records", step, failures, len(output))
 
 
 def mark_claimed_error(storage: MongoStorage, step: int, run_id: str, exc: Exception) -> None:
@@ -387,6 +387,7 @@ def run_country(
     started = time.monotonic()
     processed = 0
     excluded_this_run = 0
+    attempted_ids: set[str] = set()  # Do not reclaim failed rows in this run.
 
     try:
         collection = storage.db[storage.collection_name("dataframe")]
@@ -453,8 +454,8 @@ def run_country(
             # Reset this stage ONCE for the eligible upstream subset. Claims then
             # use normal pending semantics so completed rows cannot be reclaimed forever.
             base = {}
-            if step > 1:
-                base[f"{status_path(step - 1)}.status"] = "complete"
+            if step >= 6:
+                base["processing_status"] = {"$nin": ["DELETE", "delete"]}
             collection.update_many(base, {"$unset": {status_path(step): ""}})
             force = False
 
@@ -479,7 +480,9 @@ def run_country(
                 batch_size=wanted,
                 retry_errors=retry_errors,
                 force=force,
+                exclude_ids=attempted_ids,
             )
+            attempted_ids.update(str(d["_storage_id"]) for d in claimed)
             if not claimed:
                 # An empty claim can mean no import, a namespace mismatch,
                 # completed/error rows, or a pending upstream stage.
@@ -539,14 +542,6 @@ def run_country(
                         step, storage.config.mongo_database,
                         storage.collection_name("dataframe"),
                         storage.config.dataset, alternatives,
-                    )
-                if step == 9 and upstream == 0:
-                    raise RuntimeError(
-                        f"Step 9 cannot run for country={country}: zero Step 8 "
-                        "completed records. Inspect Step 8 statuses in this exact "
-                        "MongoDB database/collection, then complete Step 8 for "
-                        "this country before retrying Step 9. --force on Step 9 "
-                        "cannot generate missing Step 8 results."
                     )
                 if total_rows == 0 and step == 1 and excluded_this_run:
                     LOG.info(
