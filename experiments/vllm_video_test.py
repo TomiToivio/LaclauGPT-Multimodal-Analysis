@@ -1005,15 +1005,9 @@ def write_local_checkpoint(
     out_df = source_df.loc[done].reset_index(drop=True).copy()
     for column in OUTPUT_COLUMNS:
         values = [result[column] for result in results]
-        # Reprocessing must not overwrite earlier stages' columns. In particular,
-        # SCROLL / SCROLL_SECONDS can already be present in cumulative input.
-        if column in source_df.columns and column not in QUALITY_COLUMNS:
-            # Keep the new inference available without changing upstream data.
-            if column in {"SCROLL", "SCROLL_SECONDS", "needs_resplit", "video_initial_skip_seconds"}:
-                out_df["vllm_video_" + column.lower()] = values
-            elif column.startswith("vllm_"):
-                out_df["step3_" + column] = values
-            continue
+        # Step 3 owns its declared output fields. Reprocessing must refresh the
+        # canonical names, never hide new results under step3_vllm_* aliases.
+        # Source and upstream fields are protected by the declared stage contract.
         out_df[column] = values
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -1080,13 +1074,10 @@ def persist_mongo_patch(
     updated = 0
     try:
         for _, row in out_df.iterrows():
-            source_id = stable_source_id(row)
-            fields = {}
-            for key, value in row.to_dict().items():
-                try:
-                    fields[str(key)] = None if pd.isna(value) else value
-                except (TypeError, ValueError):
-                    fields[str(key)] = value
+            source_id = str(row.get("_storage_id", "")).strip()
+            if not source_id:
+                raise RuntimeError("Step 3 Mongo persistence requires canonical _storage_id")
+            fields = {key: row[key] for key in OUTPUT_COLUMNS if key in row.index}
             fields["_provenance.step3_video"] = {
                 "pipeline_stage": "step_3_video",
                 "source": source_hint,
@@ -1094,14 +1085,13 @@ def persist_mongo_patch(
                 "prompt_sha256": str(row.get("vllm_video_prompt_sha256", "")),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            collection.update_one(
-                {"_storage_id": source_id},
-                {"$set": {k: v for k, v in fields.items() if k != "_storage_id"},
-                 "$setOnInsert": {"_storage_id": source_id}},
-                upsert=True,
-            )
+            result = collection.update_one({"_storage_id": source_id},
+                                           {"$set": fields}, upsert=False)
+            if result.matched_count != 1:
+                raise RuntimeError(f"No canonical Mongo document for _storage_id={source_id}")
             updated += 1
-        logger.info("mongo persistence complete rows=%d collection=%s", updated, storage.collection_name("dataframe"))
+        logger.info("mongo persistence complete rows=%d collection=%s",
+                    updated, storage.collection_name("dataframe"))
         return f"mongo_ok:{updated}"
     finally:
         storage.close()
@@ -1458,16 +1448,19 @@ def main(argv: list[str] | None = None) -> int:
         # Refresh only this stage's declared outputs; protect all upstream fields.
         mutable_columns=OUTPUT_COLUMNS,
     )
-    try:
-        mongo_status = persist_mongo_patch(
-            out_df, source_hint=str(input_csv), model=args.model, logger=logger
-        )
-    except Exception as exc:
-        mongo_status = f"mongo_error:{type(exc).__name__}"
-        logger.exception(
-            "Mongo persistence failed after local checkpoint; completed model output is safe: %s",
-            redact_sensitive(str(exc)),
-        )
+    # The stage orchestrator is the exclusive Mongo writer for claimed batches.
+    # A second writer previously upserted synthetic identities and created duplicates.
+    if os.environ.get("LACLAUGPT_ORCHESTRATED_BATCH") == "1":
+        mongo_status = "orchestrator_pending"
+    else:
+        try:
+            mongo_status = persist_mongo_patch(
+                out_df, source_hint=str(input_csv), model=args.model, logger=logger
+            )
+        except Exception as exc:
+            mongo_status = f"mongo_error:{type(exc).__name__}"
+            logger.exception("Mongo persistence failed after local checkpoint: %s",
+                             redact_sensitive(str(exc)))
     for result in results:
         result["vllm_video_persistence_status"] = mongo_status
     out_df = write_local_checkpoint(df, selected, results, output_csv, sqlite_path, logger)
