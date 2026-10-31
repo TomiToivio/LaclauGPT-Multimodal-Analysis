@@ -78,6 +78,13 @@ COUNTRY_ALIASES: dict[str, str] = {
     "portugal": "portugal",
     # Country-agnostic steps (import, rdf) still need a filename; "all" is explicit rather than a guess.
     "all": "all",
+    "de": "germany", "germany": "germany",
+    "es": "spain", "spain": "spain",
+    "hu": "hungary", "hungary": "hungary",
+    "hr": "croatia", "croatia": "croatia",
+    "fr": "france", "france": "france",
+    "bg": "bulgaria", "bulgaria": "bulgaria",
+    "sv": "sweden", "sweden": "sweden",
 }
 
 MAX_BYTES = 5 * 1024 * 1024
