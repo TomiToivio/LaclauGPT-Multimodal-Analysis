@@ -378,7 +378,19 @@ def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any
     for step, (status_field, outputs) in COVERAGE_STEPS.items():
         measurable = any(any(_text(row.get(field)) for field in outputs) for row in rows) or any(
             field in row for row in rows for field in outputs)
-        present = sum(1 for row in rows if any(_text(row.get(field)) for field in outputs))
+        def substantive(row: Mapping[str, Any]) -> bool:
+            for field in outputs:
+                value = row.get(field)
+                if field == "dna_statement_count":
+                    try:
+                        if int(value or 0) > 0:
+                            return True
+                    except (TypeError, ValueError):
+                        pass
+                elif _text(value) and _text(value) not in ("[]", "{}", "null"):
+                    return True
+            return False
+        present = sum(1 for row in rows if substantive(row))
         failed = 0
         if status_field:
             failed = sum(1 for row in rows
