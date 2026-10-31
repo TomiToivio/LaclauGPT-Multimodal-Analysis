@@ -53,6 +53,12 @@ def status_path(step: int) -> str:
 
 
 def eligible_query(step: int, *, retry_errors: bool, force: bool) -> dict:
+    # Opt-in non-blocking gate (#342). Off by default so existing runs keep their exact behaviour;
+    # when enabled, a stage is prefiltered on the data it consumes rather than on a predecessor's
+    # "complete" status, and the row-level assessment in ep24_eligibility decides the rest.
+    if os.environ.get("LACLAUGPT_EP24_NONBLOCKING") == "1" and not force:
+        from ep24_eligibility import nonblocking_query
+        return nonblocking_query(step, retry_errors=retry_errors)
     query: dict = {}
     if step > 1:
         query[f"{status_path(step - 1)}.status"] = "complete"
