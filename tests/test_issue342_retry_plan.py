@@ -90,3 +90,21 @@ def test_country_scoped_retry_plan_does_not_hide_missing_output(tmp_path):
     assert result["countries"]["finland"]["steps"]["3_video"]["unverifiable"] == 0
     assert result["countries"]["poland"]["steps"]["3_video"]["missing"] == 0
     assert result["countries"]["poland"]["steps"]["3_video"]["unverifiable"] == 1
+
+
+def test_retry_planner_direct_cli_imports_from_any_working_directory(tmp_path):
+    """Regression for Roihu: direct script execution must find root-level modules."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "ep24" / "plan_ep24_retry.py"
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"], cwd=tmp_path, env=env,
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--export" in result.stdout
