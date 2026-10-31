@@ -2,6 +2,22 @@
 
 The active EP24 workflow is intentionally boring to operate: **one Python file, one sbatch file, one stage at a time**. This makes failures, logs, intermediate CSVs and model changes easy to inspect.
 
+## Active scope: Steps 1–7, pause on 8–9 (#346)
+
+A normal FI/PL/PT run **ends at Step 7**. Steps 8 (SNA) and 9 (RDF) are **paused**, not removed: their
+Python, sbatch files, tests and stored outputs stay in the repository and in MongoDB, and they are marked
+paused in the run manifest (`paused_stages: [8, 9]`) rather than reported as missing or failed.
+
+```bash
+bash scripts/roihu/run_country_pipeline.sh finland        # 1-7, the default
+bash scripts/roihu/run_country_pipeline.sh finland --to-step 9   # refused: needs the opt-in
+bash scripts/roihu/run_country_pipeline.sh finland --from-step 8 --to-step 9 --include-paused
+```
+
+Reactivation is deliberate and reversible: pass `--include-paused`, or set
+`LACLAUGPT_PAUSED_STAGES=""` for a whole environment. Nothing in Steps 1–7 depends on Steps 8–9, so
+processing cannot fail because they are paused.
+
 ## Stable numbering
 
 | Step | Python | Slurm | Purpose |

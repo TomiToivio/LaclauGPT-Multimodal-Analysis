@@ -124,12 +124,16 @@ def audit_coverage(frame: list[dict[str, str]], manifest: dict[str, Any],
             "manifest_records": int(entry.get("records") or 0),
             "available": entry.get("available"),
             "failed_or_other": int(entry.get("failed_or_other") or 0),
+            "paused": step in (manifest.get("paused_stages") or []),
             "recomputable_from_csv": reproducible,
             "output_columns_present": len(carried),
             "output_columns_elided": elided,
         })
         claimed = int(entry.get("records") or 0)
-        if claimed and not reproducible and not elided and entry.get("evidence_source") != "children":
+        if step in (manifest.get("paused_stages") or []):
+            # Paused on purpose (#346): no output is the intended state, not a defect.
+            continue
+        if claimed and not reproducible and not elided:
             anomalies.append({
                 "severity": ERROR, "code": "coverage-unreproducible", "country": country,
                 "step": step,
@@ -494,6 +498,7 @@ def main(argv: list[str] | None = None) -> int:
             elided = ",".join(row["output_columns_elided"]) or "-"
             print(f"  {row['country']:<9} {row['step']:<13} manifest={row['manifest_records']:>5} "
                   f"csv={row['recomputable_from_csv']:>5} available={str(row['available']):<5} "
+                  f"{'PAUSED ' if row.get('paused') else ''}"
                   f"elided={elided}")
         print("\nchildren:")
         for row in children:

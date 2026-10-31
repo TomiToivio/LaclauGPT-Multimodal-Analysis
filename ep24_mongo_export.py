@@ -705,6 +705,9 @@ def write_manifest(
                                   "entities": None, "themes": None, "sna": None},
         "text_bundle": dict((export_qa or {}).get("text_bundle") or {"suffix": "_text.jsonl.gz", "key": "record_id", "threshold": text_threshold if text_threshold is not None else DEFAULT_TEXT_THRESHOLD}),
         "heavy_fields": dict((export_qa or {}).get("heavy_fields", heavy_fields or {})),
+        # #346: stages this run deliberately did not cover. A paused stage is neither missing nor
+        # failed, and nothing here changes a coverage number — it records what the run intended.
+        "paused_stages": _paused_stages(),
         "children_detail": dict(child_detail or {}),
         "child_join_qa": dict((export_qa or {}).get("child_join_qa", {})),
         "collections_read": dict(collections_read),
@@ -724,6 +727,14 @@ def write_manifest(
         json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8"
     )
     return manifest
+
+
+def _paused_stages() -> list[int]:
+    """Paused stages from ``LACLAUGPT_PAUSED_STAGES`` (#346); empty when nothing is paused."""
+    raw = os.environ.get("LACLAUGPT_PAUSED_STAGES")
+    if raw is None:
+        return []
+    return [int(part) for part in raw.replace(" ", "").split(",") if part.strip()]
 
 
 def config_from_env(environ: Mapping[str, str] | None = None) -> tuple[str, str]:
