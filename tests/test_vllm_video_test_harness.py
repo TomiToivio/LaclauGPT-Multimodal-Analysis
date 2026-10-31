@@ -103,6 +103,60 @@ def _run(module, argv):
     return module.main(argv)
 
 
+@pytest.mark.parametrize("scroll", [False, True])
+@pytest.mark.parametrize("prior_video_outputs", [False, True])
+def test_reprocessing_refreshes_video_outputs_and_preserves_upstream(
+    harness, monkeypatch, scroll, prior_video_outputs,
+):
+    module, input_csv, mirror, tmp_path = harness
+    source = pd.read_csv(input_csv, dtype=str, keep_default_na=False)
+    # Cumulative inputs can already contain every Step 3 field from a prior run.
+    if prior_video_outputs:
+        for column in module.OUTPUT_COLUMNS:
+            source[column] = "old-output"
+    source["processing_status"] = "OK"
+    source["processing_status_reason"] = ""
+    source["SCROLL"] = "FALSE" if scroll else "TRUE"
+    source["SCROLL_SECONDS"] = "[]" if scroll else "[9.0]"
+    source["asr_transcript"] = "Original upstream transcript"
+    source["frame_analysis_1"] = "Original upstream frame analysis"
+    source.to_csv(input_csv, index=False)
+    checksum = hashlib.sha256(input_csv.read_bytes()).hexdigest()
+    response = module.json.dumps({"SCROLL": scroll, "SCROLL_SECONDS": [3.0] if scroll else []})
+    monkeypatch.setattr(module, "analyze_one_video", lambda *a, **kw: (response, "off", 0.0))
+    persisted = []
+    monkeypatch.setattr(module, "persist_mongo_patch", lambda frame, **kw: persisted.append(frame.copy()) or "test")
+    output = tmp_path / "reprocessed.csv"
+    assert module.main([
+        "--input-csv", str(input_csv), "--output-csv", str(output),
+        "--log-path", str(tmp_path / "reprocessed.log"),
+        "--download-dir", str(tmp_path / "dl"),
+        "--fetch-backend", "local", "--allas-local-root", str(mirror),
+        "--model-backend", "stub", "--sample-size", "2",
+    ]) == 0
+    out = pd.read_csv(output, dtype=str, keep_default_na=False)
+    assert len(persisted) == 1
+    assert set(out["SCROLL"]) == {"TRUE" if scroll else "FALSE"}
+    assert set(out["SCROLL_SECONDS"]) == {"[3.0]" if scroll else "[]"}
+    assert set(out["needs_resplit"]) == {"TRUE" if scroll else "FALSE"}
+    assert set(out["vllm_video_status"]) == {"ok"}
+    selected = out["vllm_video_source_row_index"].astype(int).tolist()
+    module.assert_source_metadata_preserved(
+        source.loc[selected].reset_index(drop=True), out,
+        mutable_columns=module.OUTPUT_COLUMNS,
+    )
+    assert hashlib.sha256(input_csv.read_bytes()).hexdigest() == checksum
+    # The same contract must still reject accidental upstream analysis changes.
+    for column in ("researcher_note", "allas_filename", "asr_transcript", "frame_analysis_1"):
+        corrupted = out.copy()
+        corrupted.loc[0, column] = "corrupted"
+        with pytest.raises(AssertionError, match=column):
+            module.assert_source_metadata_preserved(
+                source.loc[selected].reset_index(drop=True), corrupted,
+                mutable_columns=module.OUTPUT_COLUMNS,
+            )
+
+
 def test_selection_is_reproducible_for_a_seed(harness):
     module, input_csv, _, _ = harness
 
@@ -428,3 +482,4 @@ def test_guided_schema_matches_structured_output_contract():
     module = _load_module()
     assert module.guided_decoding_schema() == module.STRUCTURED_OUTPUT_SCHEMA
     assert "analysis_markdown" in module.guided_decoding_schema()["required"]
+

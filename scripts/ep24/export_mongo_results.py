@@ -20,7 +20,9 @@ What it guarantees:
 from __future__ import annotations
 
 import argparse
+import gc
 import sys
+import time
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,21 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import ep24_mongo_export as export  # noqa: E402
+
+
+def _merge_contracts(parts: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Fold per-country contract blocks into the single mapping ``write_manifest`` merges."""
+    counts: dict[str, Any] = {}
+    coverage: dict[str, Any] = {}
+    inputs: dict[str, Any] = {}
+    for country, block in parts.items():
+        counts.update(block["record_counts"])
+        coverage.update(block["stage_coverage"])
+        inputs.update(block["inputs"])
+    counts.pop("exported_total", None)
+    counts["exported_total"] = sum(int(entry.get("exported", 0)) for entry in counts.values()
+                                   if isinstance(entry, dict))
+    return {"record_counts": counts, "stage_coverage": coverage, "inputs": inputs}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -50,13 +67,47 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def iter_documents(collection: Any, *, batch_size: int, limit: int | None) -> Iterator[dict[str, Any]]:
-    """Page through a collection deterministically (``_id`` order), read-only."""
-    cursor = collection.find({}, batch_size=batch_size).sort("_id", 1)
-    for index, document in enumerate(cursor):
-        if limit is not None and index >= limit:
-            break
-        yield document
+#: Errors that mean "the server dropped this cursor", not "the data is wrong". A full-corpus export
+#: reads for many minutes; the server closes idle cursors and the client must resume rather than
+#: abandon a half-written country.
+_RESUMABLE = ("_OperationCancelled", "CursorNotFound", "AutoReconnect", "NetworkTimeout",
+              "ExecutionTimeout", "ServerSelectionTimeout", "ConnectionFailure",
+              "NotPrimaryError", "OperationFailure")
+
+
+def _is_resumable(error: BaseException) -> bool:
+    return any(name in type(error).__name__ for name in _RESUMABLE)
+
+
+def iter_documents(collection: Any, *, batch_size: int, limit: int | None,
+                   retries: int = 6) -> Iterator[dict[str, Any]]:
+    """Page through a collection deterministically (``_id`` order), read-only.
+
+    A dropped cursor resumes from the last ``_id`` handed out, so a long export survives the server
+    closing an idle cursor instead of dying after the first country has already been written.
+    """
+    last_id: Any = None
+    delivered = 0
+    attempt = 0
+    while True:
+        query: dict[str, Any] = {} if last_id is None else {"_id": {"$gt": last_id}}
+        try:
+            cursor = collection.find(query, batch_size=batch_size).sort("_id", 1)
+            cursor.no_cursor_timeout = True
+            for document in cursor:
+                if limit is not None and delivered >= limit:
+                    return
+                last_id = document.get("_id", last_id)
+                delivered += 1
+                yield document
+            return
+        except Exception as error:  # noqa: BLE001 - narrowed by _is_resumable below
+            if not _is_resumable(error) or attempt >= retries:
+                raise
+            attempt += 1
+            # Back off up to 30 s: a dropped cursor or a reset connection is a pause, not a failure,
+            # and the resumed query starts from the last id handed out.
+            time.sleep(min(2 * attempt, 30))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -76,6 +127,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     existing = set(db.list_collection_names())
 
     country_stats: dict[str, dict[str, Any]] = {}
+    contract_parts: dict[str, dict[str, Any]] = {}
     child_counts: dict[str, dict[str, int]] = {}
     collections_read: dict[str, dict[str, str]] = {}
     provenance: dict[str, dict[str, Any]] = {}
@@ -104,10 +156,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         written = export.write_rows(output / f"{country}.csv", rows)
         combined.extend(rows)
+        read_count = len(raw)
         country_stats[country] = {**stats, "rows_written": written,
-                                  "source_documents": len(raw)}
+                                  "source_documents": read_count}
         collections_read[country] = {"canonical": source}
         provenance[country] = export.discover_provenance(kept)
+        # Coverage is measured on the projected rows, before heavy text moves to the bundle: a step
+        # whose only output is a long field is still a step that ran. Only the resulting counts are
+        # kept, so peak memory stays one country rather than the whole corpus.
+        contract_parts[country] = export.dashboard_contract(
+            {country: {**stats, "source_documents": read_count}}, {country: projected})
+        # Release this country's frames before the next one is read: a full corpus otherwise sits at
+        # the memory ceiling by Portugal and dies while hashing the last bundle.
+        del projected, lean_rows, raw, kept
+        gc.collect()
 
         child_counts[country] = {}
         for role in args.children:
@@ -123,7 +185,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             child_counts[country][role] = len(documents)
             collections_read[country][role] = name
 
-        print(f"{country}: {len(raw)} read -> {stats['records']} records "
+        print(f"{country}: {read_count} read -> {stats['records']} records "
               f"({stats['duplicates_collapsed']} collapsed, {stats['quarantined']} quarantined)")
 
     combined.sort(key=lambda row: str(row.get("record_id", "")))
@@ -140,6 +202,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         collections_read=collections_read,
         provenance=provenance,
         outputs=outputs,
+        contract=_merge_contracts(contract_parts),
     )
     print(f"manifest: {manifest['records']} records, {manifest['distinct_media']} distinct media, "
           f"unit={manifest['record_unit']} -> {output}")

@@ -30,9 +30,47 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         default=list(export.COUNTRY_SLUGS))
     parser.add_argument("--output", required=True, type=Path, help="JSON report path")
     parser.add_argument("--markdown", type=Path, default=None, help="optional markdown report path")
+    parser.add_argument("--record-unit", choices=export.RECORD_UNITS,
+                        default=export.DEFAULT_RECORD_UNIT,
+                        help="video (one row per media, default) or ingest (one per pipeline run)")
     parser.add_argument("--batch-size", type=int, default=1000)
     parser.add_argument("--timeout-ms", type=int, default=15000)
     return parser.parse_args(argv)
+
+
+def dedupe(rows: list[dict[str, Any]], unit: str) -> list[dict[str, Any]]:
+    """Collapse to one row per unit, keeping the row with the most populated audited columns.
+
+    Percentages must be computed on the researcher's denominator. Auditing 3,700 ingest rows and
+    calling the result a video coverage figure is how "73%" and "60%" end up describing one corpus.
+    """
+    if unit == "ingest":
+        return rows
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        key = str(row.get("allas_filename") or "").strip() or str(row.get("_storage_id") or "").strip()
+        if not key:
+            key = f"row:{id(row)}"
+        groups.setdefault(key, []).append(row)
+    # Status, provenance and identity columns are not analysis outputs. A failed retry may
+    # populate more bookkeeping columns than the successful run it followed.
+    output_fields = {
+        field for stage in STAGE_CONTRACT for field in stage.appends
+        if not field.endswith(("_status", "_reason", "_error", "_model", "_version",
+                               "_runtime_ms", "_generated_at", "_prompt_version",
+                               "_context_sha256"))
+    }
+
+    def substantive_count(row: dict[str, Any]) -> int:
+        return sum(not audit.empty_value(row.get(field)) for field in output_fields)
+
+    kept = []
+    for key in sorted(groups):
+        candidates = groups[key]
+        kept.append(max(candidates, key=lambda r: (
+            substantive_count(r), str(r.get("_storage_id") or "")
+        )))
+    return kept
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -118,6 +156,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raw = db[source].aggregate([{"$project": projection}], batchSize=args.batch_size)
         # 0 means "no result"; hand the auditor None so it sees an empty value, not a zero result.
         rows = [{k: (None if v == 0 else v) for k, v in doc.items()} for doc in raw]
+        rows = dedupe(rows, args.record_unit)
         report["countries"][country] = audit.audit_rows(rows, STAGE_CONTRACT)
         print(f"{country}: {len(rows)} rows audited")
 

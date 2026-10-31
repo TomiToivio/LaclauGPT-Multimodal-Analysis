@@ -1004,7 +1004,17 @@ def write_local_checkpoint(
     done = selected[: len(results)]
     out_df = source_df.loc[done].reset_index(drop=True).copy()
     for column in OUTPUT_COLUMNS:
-        out_df[column] = [result[column] for result in results]
+        values = [result[column] for result in results]
+        # Reprocessing must not overwrite earlier stages' columns. In particular,
+        # SCROLL / SCROLL_SECONDS can already be present in cumulative input.
+        if column in source_df.columns and column not in QUALITY_COLUMNS:
+            # Keep the new inference available without changing upstream data.
+            if column in {"SCROLL", "SCROLL_SECONDS", "needs_resplit", "video_initial_skip_seconds"}:
+                out_df["vllm_video_" + column.lower()] = values
+            elif column.startswith("vllm_"):
+                out_df["step3_" + column] = values
+            continue
+        out_df[column] = values
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     tmp_csv = output_csv.with_suffix(output_csv.suffix + ".tmp")
@@ -1444,7 +1454,9 @@ def main(argv: list[str] | None = None) -> int:
     assert_source_metadata_preserved(
         before.loc[selected].reset_index(drop=True),
         out_df,
-        mutable_columns=QUALITY_COLUMNS,
+        # Cumulative inputs can contain scroll flags and prior Step 3 results.
+        # Refresh only this stage's declared outputs; protect all upstream fields.
+        mutable_columns=OUTPUT_COLUMNS,
     )
     try:
         mongo_status = persist_mongo_patch(
@@ -1474,3 +1486,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

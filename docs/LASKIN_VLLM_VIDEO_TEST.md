@@ -4,7 +4,7 @@
 
 Measured feasibility result for running the same native-video vLLM path on
 **Laskin** as issue #24 runs on **CSC Roihu**. Everything below was measured on
-`laskin01`; nothing is assumed.
+the private analysis workstation; nothing is assumed.
 
 ## Answer
 
@@ -15,7 +15,7 @@ cannot be loaded there at all.
 ## 1. Laskin environment (measured)
 
 ```text
-host            laskin01 (this machine)
+host            private analysis workstation
 GPU             3x Tesla V100-PCIE-32GB, compute capability 7.0 (Volta, sm_70)
 driver          570.211.01, CUDA 12.8
 python          3.10.12 (system), 3.11.14 (agent env)
