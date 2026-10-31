@@ -224,13 +224,19 @@ def split_heavy_fields(
     """
     lean: dict[str, Any] = {}
     heavy: dict[str, Any] = {}
+    moved: list[str] = []
     for key, value in row.items():
         if key not in {"record_id", "_storage_id", "country", "parent_country", "parent_record_id", "source_record_id", "video_id", "allas_filename"} and isinstance(value, str) and len(value) > threshold:
             heavy[key] = value
+            moved.append(key)
         else:
             lean[key] = value
     if heavy:
         lean["_text_bundle_fields"] = json.dumps(sorted(heavy))
+    if moved:
+        # #331: a consumer reading only the index CSV saw these cells simply vanish. Naming them makes the
+        # absence legible instead of indistinguishable from "the producer wrote nothing".
+        lean["heavy_fields_in_text_bundle"] = ",".join(sorted(moved))
     return lean, heavy
 
 
@@ -348,6 +354,45 @@ def write_text_bundle(path: Path, rows: Sequence[Mapping[str, Any]], *, threshol
     return written
 
 
+def parent_index(parents: Iterable[Mapping[str, Any]]) -> dict[str, str]:
+    """``{identifier value: parent record_id}`` for the rows this export actually carries.
+
+    The parent-side values are the collapsed export's own identities, so a child can be attached to
+    the *video* that survived, not to an ingest run that was dropped as a duplicate.
+    """
+    index: dict[str, str] = {}
+    for row in parents:
+        record_id = _text(row.get("record_id")) or record_identity(row)
+        if not record_id:
+            continue
+        for key in ("_storage_id", "record_id"):
+            value = _text(row.get(key))
+            if value:
+                index.setdefault(value, record_id)
+    return index
+
+
+def attach_parent_ids(
+    children: Iterable[Mapping[str, Any]], parents: Iterable[Mapping[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Give every child row an explicit ``parent_record_id``, and count what could not be attached.
+
+    Child collections are keyed at pipeline-run level and carry the parent only in
+    ``source_record_id`` (their own ``_storage_id`` is the statement's id), so the join is done here,
+    once, at export time — instead of being re-guessed by every consumer.
+    """
+    index = parent_index(parents)
+    counts = {"records": 0, "matched": 0, "orphan": 0}
+    out: list[dict[str, Any]] = []
+    for child in children:
+        parent = (index.get(_text(child.get("source_record_id")))
+                  or index.get(_text(child.get("_storage_id"))) or "")
+        out.append({**child, "parent_record_id": parent})
+        counts["records"] += 1
+        counts["matched" if parent else "orphan"] += 1
+    return out, counts
+
+
 def write_rows(path: Path, rows: Sequence[Mapping[str, Any]]) -> int:
     """Write a CSV with the union of keys, deterministically ordered."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -421,6 +466,26 @@ COVERAGE_STEPS: dict[str, tuple[str, tuple[str, ...]]] = {
 
 SUCCESS_STATUSES = frozenset({"done", "ok", "success", "complete", "completed", "available"})
 
+def _has_output(value: Any) -> bool:
+    """True when a cell carries actual output.
+
+    ``0``, ``"0"``, empty strings, empty collections and ``None`` are *no output*. A row counter that is
+    present but zero is the common case here: an export that shipped no DNA statements still has the
+    ``dna_statement_count`` column, and counting its mere existence as "the step is available" turns an
+    absent stage into a null result - the exact confusion this module's docstring warns about (#332).
+    """
+    if value is None or value is False:
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value != 0
+    if isinstance(value, str):
+        # "{}" and "[]" are legitimate produced output (an empty collection was written); a blank string
+        # and a literal "0" are not.
+        return value.strip() not in ("", "0")
+    if isinstance(value, (list, tuple, dict, set)):
+        return len(value) > 0
+    return True
+
 
 def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     """Per step: how many rows carry output, how many carry a failure, and whether it is measurable.
@@ -431,8 +496,7 @@ def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any
     """
     coverage: dict[str, dict[str, Any]] = {}
     for step, (status_field, outputs) in COVERAGE_STEPS.items():
-        measurable = any(any(_text(row.get(field)) for field in outputs) for row in rows) or any(
-            field in row for row in rows for field in outputs)
+        measurable = any(any(_has_output(row.get(field)) for field in outputs) for row in rows)
         def substantive(row: Mapping[str, Any]) -> bool:
             for field in outputs:
                 value = row.get(field)
@@ -538,6 +602,64 @@ def dashboard_contract(
             "stage_states": {country: stage_states(rows) for country, rows in rows_by_country.items()}}
 
 
+#: Steps whose output lives in a child collection, and the roles that prove it. A step cannot claim
+#: records while the corresponding child table has none attached to a parent in this export.
+CHILD_STEPS: dict[str, tuple[str, ...]] = {
+    "5_postprocess": ("entities", "themes"),
+    "7_dna": ("dna_statements",),
+    "8_sna": ("sna",),
+}
+
+
+def coverage_reconciliation(manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Disagreements between what coverage claims and what the artifacts can actually prove.
+
+    The invariant is narrow on purpose: for a step whose output lives in child tables, a positive
+    coverage count must be backed by at least one child row attached to a parent in this export, and
+    an ``available: false`` step must not have one. This catches the two failures that have actually
+    misled a consumer — an export run without ``--children``, and a parent identity that does not
+    reach the child rows — without inventing a verdict about the research content.
+    """
+    warnings: list[dict[str, Any]] = []
+    detail = manifest.get("children_detail") or {}
+    coverage = manifest.get("stage_coverage") or {}
+    for country, steps in sorted(coverage.items()):
+        for step, roles in CHILD_STEPS.items():
+            units = manifest.get("children_unit")
+            if isinstance(units, Mapping) and all(units.get(role) == "source_collection" for role in roles):
+                continue
+            entry = steps.get(step) or {}
+            claimed = int(entry.get("records") or 0)
+            counts = [((detail.get(country) or {}).get(role) or {}) for role in roles]
+            matched = sum(int(count.get("matched") or 0) for count in counts)
+            read = sum(int(count.get("records") or 0) for count in counts)
+            if claimed and not matched:
+                warnings.append({
+                    "kind": "coverage-without-children", "country": country, "step": step,
+                    "claimed_records": claimed, "children_read": read, "children_matched": 0,
+                    "detail": ("stage coverage counts records with this step's output, but no child "
+                               "row is attached to a parent in this export: either --children was "
+                               "not exported, or the child identity does not reach the parent"),
+                })
+            elif matched and entry.get("available") is False:
+                # The sharper diagnosis when both are true: the step is claimed absent while child
+                # rows prove it produced output.
+                warnings.append({
+                    "kind": "children-but-unavailable", "country": country, "step": step,
+                    "children_matched": matched,
+                    "detail": "coverage marks the step unavailable while child rows prove output",
+                })
+            elif matched and not claimed:
+                warnings.append({
+                    "kind": "children-without-coverage", "country": country, "step": step,
+                    "claimed_records": 0, "children_matched": matched,
+                    "detail": ("child rows are attached to exported parents while coverage reports "
+                               "no records for this step: the coverage fields do not describe the "
+                               "output that was actually produced"),
+                })
+    return warnings
+
+
 def write_manifest(
     output: Path,
     *,
@@ -549,8 +671,22 @@ def write_manifest(
     outputs: Sequence[Path],
     export_qa: Mapping[str, Any] | None = None,
     contract: Mapping[str, Any] | None = None,
+    child_detail: Mapping[str, Mapping[str, Mapping[str, int]]] | None = None,
+    heavy_fields: Mapping[str, Mapping[str, int]] | None = None,
+    text_threshold: int | None = None,
 ) -> dict[str, Any]:
-    """The manifest is the contract: unit, counts, provenance and what was missing."""
+    """The manifest is the contract: unit, counts, provenance and what was missing.
+
+    Three things the artifact set cannot state about itself are stated here, because a consumer that
+    cannot see them draws a wrong conclusion from a correct file:
+
+    * ``children_unit`` — children are counted at the export's own unit, with ``children_detail``
+      separating ``records`` read from ``matched`` (a parent is in this export) and ``orphan``;
+    * ``heavy_fields`` — which row cells left the CSV for ``<country>_text.jsonl.gz``, and how many
+      rows each affected, so an elided cell is not mistaken for an absent stage;
+    * ``contract_warnings`` — the coverage/manifest disagreements :func:`coverage_reconciliation`
+      found, recorded rather than resolved silently.
+    """
     total_records = sum(int(c.get("records", 0)) for c in countries.values())
     total_media = sum(int(c.get("distinct_media", 0)) for c in countries.values())
     manifest = {
@@ -562,13 +698,14 @@ def write_manifest(
         "distinct_media": total_media,
         "countries": dict(countries),
         "children": dict(child_counts),
-        "children_unit": {"dna_statements": record_unit, "entities": "source_collection",
+        "children_unit": record_unit if export_qa is None else {"dna_statements": record_unit, "entities": "source_collection",
                           "themes": "source_collection", "sna": "source_collection"},
         "child_schema_version": "ep24-dna-children-2",
         "child_parent_join_key": {"dna_statements": ["parent_country", "parent_record_id"],
                                   "entities": None, "themes": None, "sna": None},
-        "text_bundle": dict((export_qa or {}).get("text_bundle", {})),
-        "heavy_fields": dict((export_qa or {}).get("heavy_fields", {})),
+        "text_bundle": dict((export_qa or {}).get("text_bundle") or {"suffix": "_text.jsonl.gz", "key": "record_id", "threshold": text_threshold if text_threshold is not None else DEFAULT_TEXT_THRESHOLD}),
+        "heavy_fields": dict((export_qa or {}).get("heavy_fields", heavy_fields or {})),
+        "children_detail": dict(child_detail or {}),
         "child_join_qa": dict((export_qa or {}).get("child_join_qa", {})),
         "collections_read": dict(collections_read),
         "provenance": dict(provenance),
@@ -582,6 +719,7 @@ def write_manifest(
         ],
     }
     manifest.update(contract or {})
+    manifest["contract_warnings"] = coverage_reconciliation(manifest)
     (output / "MANIFEST.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -598,4 +736,5 @@ def config_from_env(environ: Mapping[str, str] | None = None) -> tuple[str, str]
             "set LACLAUGPT_MONGODB_URI and LACLAUGPT_MONGODB_DATABASE in the private environment"
         )
     return uri, database
+
 

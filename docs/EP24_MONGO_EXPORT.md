@@ -49,31 +49,15 @@ fake collection raises if `insert_one` is ever called. The URI is never written 
 only the **name of the environment variable** that supplied it, because the manifest is copied into
 issues and notes.
 
-## Artifacts (the #195 contract)
+## Historical normalized export contract
 
-```
-fi.csv  pl.csv  pt.csv  combined.csv        one row per video
-records.jsonl                               the same rows, JSON per line
-dna_statements.csv  sna_nodes.csv  entities.csv  themes.csv   normalized children
-MANIFEST.json  DATA_DICTIONARY.md
-```
-
-`MANIFEST.json` carries the fields the dashboard's `coverage_rows()` reads:
-
-```json
-{
-  "record_unit": "video",
-  "records": 0, "distinct_media": 0,
-  "record_counts": {"exported_total": 0, "fi": {"read": 0, "exported": 0,
-                                                "duplicates": 0, "invalid_ids": 0,
-                                                "distinct_media": 0}},
-  "stage_coverage": {"fi": {"6_discourse": {"records": 0, "available": true,
-                                            "failed_or_other": 0, "pct_of_exported": 0.0}}},
-  "inputs": {"fi": {"country": "finland", "profile": "mongo",
-                     "source": "laclaugpt_ep2024_reprocess_finland_dataframe",
-                     "stage_unavailable": ["9_rdf"]}}
-}
-```
+The v1 normalized exporter attached parent IDs opportunistically, retained orphan
+children, and exposed `children_detail` and `contract_warnings`. Those helper APIs
+remain available for existing consumers. The v2 CLI contract below supersedes that
+layout: DNA exports contain validated children only, with exclusions in
+`child_join_qa`, while registry and graph collections retain their own grain.
+Both row markers (`heavy_fields_in_text_bundle` and `_text_bundle_fields`) remain
+available. The offline audit supports both generations of exported artifacts.
 
 ## Missingness is not a negative finding
 
@@ -98,7 +82,7 @@ Subset exports (`--query` or `--limit`) deliberately omit child tables and mark 
 ## Normalized Mongo CLI contract v2 (#330–#333)
 
 The separate `scripts/ep24/export_mongo_results.py` CLI writes
-`ep24-mongo-export-2`. The earlier sections describe the dashboard exporter;
+`ep24-mongo-export-2`. The usage sections above describe the dashboard exporter;
 this section describes the normalized CLI actually used by the reported export.
 Do not mix the two layouts.
 
@@ -173,3 +157,4 @@ implements the earlier reader. Existing `source_record_id` remains intact;
 new readers should use the explicit compound parent key and check manifest QA.
 The synthetic CLI test in `tests/test_ep24_export_contract_330_333.py` is an
 executable three-country consumer fixture. No restricted records are included.
+

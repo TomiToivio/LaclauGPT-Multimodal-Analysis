@@ -92,7 +92,10 @@ class TestTextSplit:
     def test_long_strings_leave_the_row_and_short_ones_stay(self):
         lean, heavy = export.split_heavy_fields(
             {"record_id": "video:a", "short": "abc", "long": "x" * 20}, threshold=10)
-        assert lean == {"record_id": "video:a", "short": "abc", "_text_bundle_fields": '["long"]'}
+        # The marker is deliberate (#331): a cell that moved must not look like a cell that was never
+        # written. Everything else about the split is unchanged.
+        assert lean == {"record_id": "video:a", "short": "abc",
+                        'heavy_fields_in_text_bundle': 'long', '_text_bundle_fields': '["long"]'}
         assert heavy == {"long": "x" * 20}
 
     def test_the_bundle_is_gzipped_jsonl_keyed_by_record_id(self, tmp_path):
@@ -267,4 +270,5 @@ class TestIterDocumentsResumes:
         got = list(module.iter_documents(collection, batch_size=2, limit=None, retries=3))
         assert [d["_id"] for d in got] == [0, 1, 2, 3, 4]
         assert collection.calls[1] == {"_id": {"$gt": 1}}
+
 

@@ -135,10 +135,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     country_stats: dict[str, dict[str, Any]] = {}
     contract_parts: dict[str, dict[str, Any]] = {}
     child_counts: dict[str, dict[str, int]] = {}
+    child_detail: dict[str, dict[str, dict[str, int]]] = {}
+    heavy_fields: dict[str, dict[str, int]] = {}
     collections_read: dict[str, dict[str, str]] = {}
     provenance: dict[str, dict[str, Any]] = {}
     combined: list[dict[str, Any]] = []
-    heavy_fields: dict[str, dict[str, int]] = {}
     child_join_qa: dict[str, dict[str, dict[str, int]]] = {}
 
     child_outputs: list[Path] = []
@@ -150,7 +151,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         raw = list(iter_documents(db[source], batch_size=args.batch_size, limit=args.limit))
         kept, stats = export.select_canonical(raw, args.record_unit)
         projected = [export.project_row(row) for row in kept]
-        heavy_fields[country] = export.heavy_field_counts(projected, args.text_threshold)
         selected_parents = [{key: row.get(key) for key in
                              ("_storage_id", "record_id", "dna_statement_count")} for row in kept]
         for row in projected:
@@ -160,10 +160,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         # The lean frame answers "which records, with what coverage"; the bundle carries the prose.
         lean_rows: list[dict[str, Any]] = []
         heavy_records = 0
+        heavy_fields[country] = {}
         for row in projected:
             lean, heavy = export.split_heavy_fields(row, threshold=args.text_threshold)
             lean_rows.append(lean)
             heavy_records += 1 if heavy else 0
+            # Which cells left the CSV, and how many rows each: elision is data, not a silent hole.
+            for name in heavy:
+                heavy_fields[country][name] = heavy_fields[country].get(name, 0) + 1
         bundle = export.write_text_bundle(output / f"{country}_text.jsonl.gz", projected,
                                           threshold=args.text_threshold)
         stats["text_bundle_records"] = bundle
@@ -183,6 +187,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             {country: {**stats, "source_documents": read_count}}, {country: projected})
         # Release this country's frames before the next one is read: a full corpus otherwise sits at
         # the memory ceiling by Portugal and dies while hashing the last bundle.
+        # The parent identities survive the frame release: children are attached to the *video*
+        # that this export keeps, not to an ingest run the collapse dropped.
         del projected, lean_rows, raw, kept
         gc.collect()
 
@@ -205,6 +211,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     documents, selected_parents, country=country)
                 export.reconcile_dna_coverage(contract_parts[country]["stage_coverage"][country],
                                               documents, selected_parents, available=True)
+                child_detail.setdefault(country, {})[role] = {
+                    "records": len(documents), "matched": len(documents), "orphan": 0,
+                }
             path = output / "children" / f"{country}_{role}.csv"
             export.write_rows(path, documents)
             child_outputs.append(path)
@@ -235,12 +244,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                    "text_bundle": {"filename": "<country>_text.jsonl.gz", "key": ["country", "record_id"],
                                    "threshold": args.text_threshold, "row_marker": "_text_bundle_fields"}},
         contract=_merge_contracts(contract_parts),
+        child_detail=child_detail,
+        heavy_fields=heavy_fields,
+        text_threshold=args.text_threshold,
     )
     print(f"manifest: {manifest['records']} records, {manifest['distinct_media']} distinct media, "
           f"unit={manifest['record_unit']} -> {output}")
+    for warning in manifest.get("contract_warnings") or []:
+        print(f"WARNING {warning['kind']} {warning.get('country')} {warning.get('step')}: "
+              f"{warning['detail']}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 

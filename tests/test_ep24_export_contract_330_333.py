@@ -131,6 +131,11 @@ def test_cli_normalized_layout_roundtrip(tmp_path, monkeypatch):
         assert bundle[0]["record_id"] == parents[0]["record_id"]
         assert "summary" in json.loads(parents[0]["_text_bundle_fields"])
     assert len(manifest["outputs"]) == 10
+    audit_spec = importlib.util.spec_from_file_location(
+        "audit_contract_cli", Path(__file__).resolve().parents[1] / "scripts/ep24/audit_export.py")
+    audit = importlib.util.module_from_spec(audit_spec)
+    audit_spec.loader.exec_module(audit)
+    assert audit.main(["--export", str(tmp_path), "--quiet"]) == 0
 
 
 def test_child_coverage_distinguishes_absent_empty_and_counter_mismatch():
