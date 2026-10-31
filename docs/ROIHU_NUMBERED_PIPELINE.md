@@ -20,7 +20,7 @@ Step 3 is reserved now so Steps 4-9 never need renaming. Until the vLLM experime
 
 ## One command per country (recommended)
 
-Run this **on the Roihu login node** to submit all nine numbered stages
+Run this **on the Roihu login node** to submit the active Steps 1–7
 as an ordered SLURM dependency chain:
 
 ```bash
@@ -34,17 +34,16 @@ Replace `portugal` with `finland`, `poland`, or another available country.
 `--retry-errors` includes previously failed rows but does not invalidate
 already-completed checkpoints. **Do not run separate jobs manually.**
 
-This submits nine jobs with `afterok` dependencies. Step N+1 starts only
-after Step N's SLURM job exits successfully. If a stage fails, downstream
-jobs remain blocked (and may be marked dependency-never-satisfied by SLURM).
-Fix the cause and submit the command again; previously completed MongoDB
+This submits seven jobs by default with `afterany` dependencies. Step N+1 starts
+after Step N's SLURM job terminates, even when upstream records fail. Stage failures
+remain auditable; retry unsuccessful rows selectively. Previously completed MongoDB
 records are preserved. Each stage has its own environment and resource profile
 (GPU where needed, CPU for Step 9).
 
 To continue only later stages after earlier ones are complete:
 
 ```bash
-bash scripts/roihu/run_country_pipeline.sh portugal --from-step 8 --to-step 9 --limit 0 --retry-errors
+EP24_INCLUDE_PAUSED_STEPS=1 bash scripts/roihu/run_country_pipeline.sh portugal --from-step 8 --to-step 9 --limit 0 --retry-errors
 ```
 
 Submission records a TSV manifest in the private

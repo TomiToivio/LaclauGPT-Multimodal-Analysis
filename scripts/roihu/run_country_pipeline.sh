@@ -6,7 +6,7 @@ usage() {
   cat <<'EOF'
 Usage: bash scripts/roihu/run_country_pipeline.sh COUNTRY [--limit N] [--retry-errors] [--from-step N] [--to-step N]
 Example: bash scripts/roihu/run_country_pipeline.sh portugal --limit 0 --retry-errors
-Each stage starts only after the previous stage's SLURM job exits successfully.
+Each stage starts after the previous stage terminates; failures remain recorded for selective retry.
 Completed MongoDB records are preserved; this chain never forces a reset.
 EOF
 }
@@ -67,7 +67,7 @@ for (( STEP=FROM_STEP; STEP<=TO_STEP; STEP++ )); do
   # Submit through the maintained wrapper, with SLURM flags applied before
   # the batch script rather than accidentally forwarded to the Python CLI.
   DEPENDENCY=""
-  [[ -n "${PREVIOUS}" ]] && DEPENDENCY="afterok:${PREVIOUS}"
+  [[ -n "${PREVIOUS}" ]] && DEPENDENCY="afterany:${PREVIOUS}"
   OUTPUT="$(LACLAUGPT_SBATCH_DEPENDENCY="${DEPENDENCY}" \
     LACLAUGPT_SBATCH_PARSABLE=1 \
     bash "${SCRIPT_DIR}/run_step.sh" "${STEP}" \
@@ -80,7 +80,7 @@ for (( STEP=FROM_STEP; STEP<=TO_STEP; STEP++ )); do
     exit 1
   }
   printf '%s\t%s\t%s\t%s\n' "${COUNTRY}" "${STEP}" "${JOB_ID}" "${PREVIOUS:-none}" >> "${MANIFEST}"
-  echo "Step ${STEP}: job ${JOB_ID}${PREVIOUS:+ (afterok:${PREVIOUS})}"
+  echo "Step ${STEP}: job ${JOB_ID}${PREVIOUS:+ (afterany:${PREVIOUS})}"
   PREVIOUS="${JOB_ID}"
 done
 
@@ -88,4 +88,4 @@ echo "All requested stages submitted for ${COUNTRY}."
 echo "Manifest: ${MANIFEST}"
 echo "Logs: ${LOG_ROOT}/ep24_s<step>_<jobid>.{out,err}"
 echo "SLURM: squeue -u \"${USER}\""
-echo "Failed stages block their dependents; rerun this command after fixing the failure."
+echo "Failed rows remain auditable and retryable; inspect the stage logs before selective reruns."
