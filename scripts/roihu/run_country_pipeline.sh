@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Submit an ordered, restartable Step 1-9 SLURM dependency chain for one country.
+# Submit an ordered, restartable Step 1-7 SLURM dependency chain for one country.
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 Usage: bash scripts/roihu/run_country_pipeline.sh COUNTRY [--limit N] [--retry-errors] [--from-step N] [--to-step N]
 Example: bash scripts/roihu/run_country_pipeline.sh portugal --limit 0 --retry-errors
+Only Steps 1-7 run by default; --enable-paused-stages permits explicit Steps 8-9.
 Each stage starts after the previous stage finishes, even if some rows fail.
 Completed MongoDB records are preserved; this chain never forces a reset.
 EOF
@@ -19,8 +20,9 @@ shift
 }
 LIMIT=0
 FROM_STEP=1
-TO_STEP=9
+TO_STEP=7
 RETRY=0
+ALLOW_PAUSED=0
 while (($#)); do
   case "${1}" in
     --limit)
@@ -33,10 +35,15 @@ while (($#)); do
       [[ $# -ge 2 && "${2}" =~ ^[1-9]$ ]] || { echo "--to-step must be 1..9" >&2; exit 2; }
       TO_STEP="${2}"; shift 2 ;;
     --retry-errors) RETRY=1; shift ;;
+    --enable-paused-stages) ALLOW_PAUSED=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: ${1}" >&2; usage >&2; exit 2 ;;
   esac
 done
+if (( (FROM_STEP > 7 || TO_STEP > 7) && ! ALLOW_PAUSED )); then
+  echo "Steps 8 (SNA) and 9 (RDF) are paused (#346); explicit --enable-paused-stages required" >&2
+  exit 2
+fi
 (( FROM_STEP <= TO_STEP )) || { echo "--from-step must be <= --to-step" >&2; exit 2; }
 command -v sbatch >/dev/null 2>&1 || { echo "sbatch unavailable; run from Roihu login node" >&2; exit 2; }
 
