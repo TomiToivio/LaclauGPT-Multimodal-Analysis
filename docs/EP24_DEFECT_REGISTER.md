@@ -78,6 +78,55 @@ Step 9 ran, and the audit must report "columns absent" rather than a percentage.
 **Owner:** Step 4. **Needs:** logs; a model-side refusal and a missing-input condition look identical in
 the artifact.
 
+### D6 — Step 7 DNA: the child table and the index describe different populations
+
+Finland has 1,583 DNA statement rows in `children/finland_dna_statements.csv` against 1,490 in-frame
+parents: the child table is at ingest grain, the index at video grain. Poland has no DNA collection at
+all (the manifest records `absent`, which is honest) and Portugal has 4 statements for 960 records.
+
+**Verified from artifacts:** the grain mismatch is real and the exporter now states both numbers
+(`children` vs `children_detail`, `child_parent_join_key`). Step 7's own behaviour — why 27.1 % of Finnish
+records have statements rather than 100 % — is **not** answerable from the export: a record whose
+discourse step failed and a record whose DNA step was skipped look the same in the index, and the
+per-record status fields do not distinguish them.
+**Owner:** Step 7 gating on partial discourse. **Blocker:** Roihu run logs for the Finnish Step 7 batch.
+
+### D7 — Step 8 SNA: absent for Poland and Portugal, thin for Finland, and the export cannot say why
+
+`sna_nodes_json` / `sna_edges_json` are non-empty on 261 of 2,125 Finnish records (12.3 %), 0 of 1,781
+Polish and 0 of 960 Portuguese. The Polish and Portuguese SNA collections do not exist (manifest:
+`absent`); Finland's 12.3 % is consistent with SNA running only where DNA statements exist (1,583 → 261),
+which is a dependency, not a defect — but the export cannot prove that ordering because Step 8 has no
+status field.
+
+**Owner:** Step 8 dependency selection. **Blocker:** live collection listing on Roihu to separate "not
+scheduled" from "scheduled and produced nothing".
+**Cheap fix (done in the planner):** Step 8 is paused by default (#346) so a retry plan does not queue
+work whose output the export cannot verify.
+
+### D8 — Step 3 is invisible to the export *and* paused, which is why the planner cannot triage it
+
+Step 3 (video) has columns but no output anywhere, and is paused by default. Two consequences worth
+stating plainly: the audit must report "columns present, output absent" rather than 0 %, and a dry-run
+plan will not schedule Step 3 until the pause is lifted deliberately. Neither is a repair; both are
+honesty about what the artifacts can support.
+
+## Steps 3 and 6–9: cause or blocker, one line each (#342 acceptance)
+
+The acceptance line asks for a *verified cause or an explicit unresolved live-access blocker* per step.
+This is that table; the detail is in the defects above.
+
+| Step | State | Verified from | Cause or blocker | Next action |
+| --- | --- | --- | --- | --- |
+| 3 Video | columns present, zero output in every country | export (D1, D8) | producer never wrote; vLLM/GPU environment not available this session | run Step 3 on Roihu with the vLLM env, then re-export |
+| 6 Discourse | FI 3.8 %, PL 0.06 %, PT 8.8 % | export + D2, D3 | exporter elision was masking the truth (fixed, #331/#332); the residual near-total Polish failure is a run-level failure indistinguishable from refusal in the artifact | Polish Step 6 batch logs on Roihu |
+| 7 DNA | FI 27.1 % of in-frame records; PL collection absent; PT 4 rows | children table + manifest `children_detail` | grain mismatch verified and now stated in the manifest; the per-record skip reason is not in the export | Finnish Step 7 logs; keep PL "absent" as a finding, not a zero |
+| 8 SNA | FI 12.3 %, PL/PT collection absent | export + manifest | consistent with a DNA dependency; no status field exists to confirm ordering | list the collections live; Step 8 stays paused by default (#346) |
+| 9 RDF | no columns, file-based | export schema | design gap in the contract, not a failed stage | emit `rdf_exported` per record or manifest coverage from the output directory |
+
+Nothing in this table is a claim that a live failure was repaired. Four of the five need Roihu data that
+this session cannot reach; the fifth (Step 9) is a contract change this repository can make without it.
+
 ## What is *not* a defect
 
 - **Polish DNA statements: 0.** The collection does not exist for Poland. That is a finding, and the
