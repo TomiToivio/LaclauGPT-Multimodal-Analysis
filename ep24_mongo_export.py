@@ -442,7 +442,7 @@ def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any
                             return True
                     except (TypeError, ValueError):
                         pass
-                elif _text(value) and _text(value) not in ("[]", "{}", "null"):
+                elif _text(value) and (step != "7_dna" or _text(value) not in ("[]", "{}", "null")):
                     return True
             return False
         present = sum(1 for row in rows if substantive(row))
@@ -470,7 +470,13 @@ def stage_states(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                                 "status_unknown"), 0)
         for row in rows:
             status = _text(row.get(status_field)).lower() if status_field else ""
-            present = stage_coverage([row])[step]["records"] > 0
+            present = any(_text(row.get(field)) not in ("", "[]", "{}", "null")
+                          for field in outputs if field != "dna_statement_count")
+            if "dna_statement_count" in outputs:
+                try:
+                    present = present or int(row.get("dna_statement_count") or 0) > 0
+                except (TypeError, ValueError):
+                    pass
             carried = any(field in row for field in outputs)
             if status in {"failed", "error", "failure"}:
                 state = "failed"
@@ -559,7 +565,8 @@ def write_manifest(
         "children_unit": {"dna_statements": record_unit, "entities": "source_collection",
                           "themes": "source_collection", "sna": "source_collection"},
         "child_schema_version": "ep24-dna-children-2",
-        "child_parent_join_key": ["parent_country", "parent_record_id"],
+        "child_parent_join_key": {"dna_statements": ["parent_country", "parent_record_id"],
+                                  "entities": None, "themes": None, "sna": None},
         "text_bundle": dict((export_qa or {}).get("text_bundle", {})),
         "heavy_fields": dict((export_qa or {}).get("heavy_fields", {})),
         "child_join_qa": dict((export_qa or {}).get("child_join_qa", {})),

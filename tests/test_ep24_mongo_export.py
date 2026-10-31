@@ -199,7 +199,7 @@ class TestDashboardContract:
         assert contract["record_counts"]["exported_total"] == 2
         assert contract["inputs"]["finland"]["profile"] == "mongo"
         assert "8_sna" in contract["inputs"]["finland"]["stage_unavailable"]
-        assert contract["stage_coverage"]["finland"]["6_discourse"]["records"] == 0
+        assert contract["stage_coverage"]["finland"]["6_discourse"]["records"] == 1
         assert contract["stage_states"]["finland"]["6_discourse"]["counts"]["complete_but_empty"] == 1
 
     def test_the_manifest_carries_the_contract_without_losing_its_own_provenance(self, tmp_path):
