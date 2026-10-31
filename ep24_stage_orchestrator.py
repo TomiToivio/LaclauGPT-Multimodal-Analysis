@@ -52,47 +52,16 @@ def status_path(step: int) -> str:
     return f"_pipeline.step_{step:02d}"
 
 
-#: Per stage, the fields whose presence proves the previous stage produced *usable input* — as opposed
-#: to writing a green status. A crash between persisting output and persisting status leaves a row that
-#: is processable but not "complete", and blocking on the label throws that work away (#342).
-UPSTREAM_USABLE_OUTPUT: dict[int, tuple[str, ...]] = {
-    1: ("asr_transcript", "asr_translated", "ocr_1", "frame_file", "preprocess_completed_at"),
-    2: ("frame_analysis_1",),
-    3: ("vllm_video_analysis", "vllm_video_markdown_analysis", "vllm_video_structured_json"),
-    4: ("summary_analysis", "summary_summary_md"),
-    5: ("postprocess_entities", "postprocess_themes", "postprocess_summary_md"),
-    6: ("laclau_structured_json", "laclau_summary_md"),
-    7: ("dna_statements_json", "dna_statement_count"),
-    8: ("sna_nodes_json", "sna_edges_json"),
-}
-
-
-def predecessor_clause(step: int, *, allow_partial: bool) -> dict:
-    """The gate a stage applies to its own predecessor.
-
-    Default: the predecessor must report ``complete`` — unchanged behaviour. With ``allow_partial``, the
-    stage accepts a predecessor whose **output exists** even when its status does not say ``complete``;
-    that is what stops a partial upstream stage from cancelling every downstream stage for a record whose
-    inputs are right there. Research-quality gates elsewhere (schema, grounding, ``processing_status`` for
-    steps 6+) are deliberately not relaxed by this.
-    """
-    if not allow_partial or (step - 1) not in UPSTREAM_USABLE_OUTPUT:
-        return {f"{status_path(step - 1)}.status": "complete"}
-    alternatives: list[dict] = [{f"{status_path(step - 1)}.status": "complete"}]
-    alternatives += [{field: {"$exists": True, "$nin": ["", None, "0", "[]", "{}"]}}
-                     for field in UPSTREAM_USABLE_OUTPUT[step - 1]]
-    return {"$or": alternatives}
-
-
-def eligible_query(step: int, *, retry_errors: bool, force: bool,
-                   allow_partial: bool = False) -> dict:
+def eligible_query(step: int, *, retry_errors: bool, force: bool) -> dict:
+    # Opt-in non-blocking gate (#342). Off by default so existing runs keep their exact behaviour;
+    # when enabled, a stage is prefiltered on the data it consumes rather than on a predecessor's
+    # "complete" status, and the row-level assessment in ep24_eligibility decides the rest.
+    if os.environ.get("LACLAUGPT_EP24_NONBLOCKING") == "1" and not force:
+        from ep24_eligibility import nonblocking_query
+        return nonblocking_query(step, retry_errors=retry_errors)
     query: dict = {}
     if step > 1:
-        clause = predecessor_clause(step, allow_partial=allow_partial)
-        if "$or" in clause:
-            query.setdefault("$and", []).append(clause)
-        else:
-            query.update(clause)
+        query[f"{status_path(step - 1)}.status"] = "complete"
     # Step 5 preserves every claimed row in Mongo. Only quality-OK rows
     # proceed to Step 6 and beyond; REPROCESS/DELETE remain auditable.
     if step >= 6:

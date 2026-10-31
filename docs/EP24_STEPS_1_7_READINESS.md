@@ -11,16 +11,17 @@ live repair. Where a number is missing because the export cannot express it, the
 ## Scope: what a normal run submits
 
 ```bash
-bash scripts/roihu/run_country_pipeline.sh finland          # steps 1-7, the default
+bash scripts/roihu/run_country_pipeline.sh finland           # steps 1-7, the default
 bash scripts/roihu/run_country_pipeline.sh poland --limit 50 # bounded smoke test
-bash scripts/roihu/run_country_pipeline.sh portugal --to-step 9 --include-paused  # explicit opt-in
+EP24_INCLUDE_PAUSED_STEPS=1 bash scripts/roihu/run_country_pipeline.sh portugal --to-step 9  # opt-in
 ```
 
-* Default `TO_STEP=7`. Steps 8–9 need `--include-paused` **and** an explicit `--to-step`; without it the
-  launcher exits 2 and prints why.
-* `LACLAUGPT_PAUSED_STAGES=8,9` is exported for the run and written beside the manifest
-  (`<run>.scope`) and into `MANIFEST.json` as `paused_stages`. Coverage numbers are **not** rewritten:
-  a paused stage stays visible as paused, and historical exports keep their historical values.
+* Default `TO_STEP=7` (`scripts/roihu/run_country_pipeline.sh`, scope rules in `ep24_scope.py`). Steps 8–9
+  need `EP24_INCLUDE_PAUSED_STEPS=1` **and** an explicit `--to-step`; without it the launcher exits 2 and
+  prints why.
+* The scope is written into `MANIFEST.json` as `paused_stages` and the audit prints those steps as
+ `PAUSED` instead of reporting them as anomalous. Coverage numbers are **not** rewritten: a paused stage
+ stays visible as paused, and historical exports keep their historical values.
 * Step 8/9 code, tests, outputs and provenance are untouched. Reactivation is `LACLAUGPT_PAUSED_STAGES=""`.
 
 ## Steps 1–7 by country (measured on the pinned export)
@@ -96,6 +97,7 @@ this is pre-guard output: **re-run, do not patch**. Portugal's 4 statements are 
 ```bash
 python scripts/ep24/plan_ep24_retry.py --export /private/ep24/<export> --out retry_plan.json
 # steps 8-9 are excluded by default; counts marked 'unverifiable' are NOT work
+# per-record eligibility (status vs output vs retry) lives in ep24_eligibility.assess()
 ```
 
 A plan that schedules 4,016 Step 3 records is reading the CSV as if the bundles did not exist — check the

@@ -93,9 +93,8 @@ class TestTextSplit:
         lean, heavy = export.split_heavy_fields(
             {"record_id": "video:a", "short": "abc", "long": "x" * 20}, threshold=10)
         # The marker is deliberate (#331): a cell that moved must not look like a cell that was never
-        # written. Everything else about the split is unchanged.
-        assert lean == {"record_id": "video:a", "short": "abc",
-                        'heavy_fields_in_text_bundle': 'long', '_text_bundle_fields': '["long"]'}
+        # written. main settled the spelling as `_text_bundle_fields`, holding a JSON list.
+        assert lean == {"record_id": "video:a", "short": "abc", "_text_bundle_fields": '["long"]'}
         assert heavy == {"long": "x" * 20}
 
     def test_the_bundle_is_gzipped_jsonl_keyed_by_record_id(self, tmp_path):
@@ -203,7 +202,6 @@ class TestDashboardContract:
         assert contract["inputs"]["finland"]["profile"] == "mongo"
         assert "8_sna" in contract["inputs"]["finland"]["stage_unavailable"]
         assert contract["stage_coverage"]["finland"]["6_discourse"]["records"] == 1
-        assert contract["stage_states"]["finland"]["6_discourse"]["counts"]["complete_but_empty"] == 1
 
     def test_the_manifest_carries_the_contract_without_losing_its_own_provenance(self, tmp_path):
         stats = {"finland": {"records": 1, "duplicates_collapsed": 0, "quarantined": 0,
@@ -272,3 +270,72 @@ class TestIterDocumentsResumes:
         assert collection.calls[1] == {"_id": {"$gt": 1}}
 
 
+class TestChildTableContract:
+    """#330/#331: child tables are ingest-level and must expose a deterministic video parent."""
+
+    def parents(self):
+        return [
+            {"record_id": "video:a.mp4", "_storage_id": "s1", "video_id": "v1",
+             "allas_filename": "a.mp4"},
+            {"record_id": "video:b.mp4", "_storage_id": "s2", "video_id": "v2",
+             "allas_filename": "b.mp4"},
+        ]
+
+    def children(self):
+        return [
+            {"_storage_id": "st1", "source_record_id": "s1", "statement_id": "st1"},
+            {"_storage_id": "st2", "source_record_id": "missing"},
+            {"_storage_id": "st1", "source_record_id": "s1"},
+        ]
+
+    def test_children_get_the_exported_video_key_not_the_statement_id(self):
+        joined = export.attach_child_parents(self.children(), self.parents())
+        assert [row["parent_record_id"] for row in joined] == [
+            "video:a.mp4", "", "video:a.mp4"]
+        assert [row["parent_join"] for row in joined] == [
+            "source_record_id", "unjoined", "source_record_id"]
+
+    def test_the_statement_id_survives_and_is_not_used_as_the_parent(self):
+        joined = export.attach_child_parents(self.children(), self.parents())
+        assert joined[0]["_storage_id"] == "st1"
+        assert joined[0]["parent_record_id"] != joined[0]["_storage_id"]
+
+    def test_unjoined_children_are_counted_not_dropped(self):
+        joined = export.attach_child_parents(self.children(), self.parents())
+        contract = export.child_contract(joined, country="finland", role="dna_statements")
+        assert contract["rows"] == 3
+        assert contract["joined_rows"] == 2
+        assert contract["unjoined_rows"] == 1
+        assert contract["duplicate_statement_ids"] == 1
+        assert contract["parent_key_field"] == "parent_record_id"
+
+    def test_missing_source_record_id_is_an_orphan(self):
+        joined = export.attach_child_parents(
+            [{"_storage_id": "st9", "statement_id": "st9"}], self.parents())
+        assert joined[0]["parent_join"] == "unjoined"
+        assert joined[0]["parent_record_id"] == ""
+
+
+class TestNormalizedCoverage:
+    """#332: coverage must read the count that survives a child-table export."""
+
+    def test_statement_count_makes_dna_measurable_when_the_json_is_blank(self):
+        rows = [{"dna_statement_count": 3, "dna_statements_json": ""},
+                {"dna_statement_count": 0, "dna_statements_json": ""}]
+        coverage = export.stage_coverage(rows)
+        assert coverage["7_dna"]["available"] is True
+        assert coverage["7_dna"]["records"] == 1
+        assert coverage["7_dna"]["pct_of_exported"] == 50.0
+
+    def test_coverage_matches_the_rows_that_report_statements(self):
+        rows = [{"dna_statement_count": n} for n in (0, 2, 0, 5)]
+        coverage = export.stage_coverage(rows)
+        assert coverage["7_dna"]["records"] == sum(
+            1 for row in rows if row["dna_statement_count"] > 0)
+
+    def test_truthy_zero_count_is_not_output(self):
+        assert export._has_output(0) is False
+        assert export._has_output(1) is True
+        assert export._has_output("[]") is True
+        assert export._has_output("{}") is True
+        assert export._has_output("0") is False

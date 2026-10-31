@@ -30,8 +30,14 @@ from collections import defaultdict
 from pathlib import Path
 
 import ep24_mongo_export as exporter
+import ep24_scope
 
-STEPS = tuple(exporter.COVERAGE_STEPS)
+ACTIVE_STEP_KEYS = tuple(
+    key for key in exporter.COVERAGE_STEPS
+    if not ep24_scope.is_paused(int(key.split("_")[0]))
+)
+
+STEPS = ACTIVE_STEP_KEYS
 
 
 def _status_failed(row: dict, status_field: str) -> bool:
@@ -51,14 +57,12 @@ def select(rows: list[dict], steps: tuple[str, ...],
            elided: set[str] | None = None) -> dict[str, dict[str, list[str]]]:
     """Record ids needing work, split by *why* they need it.
 
-    ``missing`` — the step produced no output for the record and the export can *prove* that absence.
-    Retry these by default.
+    ``missing`` — the step produced no output and the export can *prove* that absence. Retry these.
 
-    ``unverifiable`` — the step's output fields are known to live outside the index CSV (the >1,000
-    character cells moved to ``<country>_text.jsonl.gz``, #331/#333). A blank column here is not
-    evidence of missing work: Step 3's whole output is elided on the pinned export, so treating the
-    blank as absence would schedule all 4,866 records for a rerun that changes nothing. These are
-    reported so the operator can decide from live status instead.
+    ``unverifiable`` — the step's output fields are known to live outside the index CSV, because every
+    cell over 1,000 characters moved to ``<country>_text.jsonl.gz`` (#331/#333). A blank column there
+    is not evidence of missing work: on the pinned export Step 3's whole output is elided, and treating
+    the blank as absence schedules all 4,016 records that already have video output.
 
     ``failed_with_output`` — a status reports failure but output exists. **Reported, not retried by
     default**: output is evidence, and a blind rerun can overwrite a usable result with a worse one.
@@ -67,20 +71,17 @@ def select(rows: list[dict], steps: tuple[str, ...],
     plan: dict[str, dict[str, list[str]]] = {}
     for step in steps:
         status_field, outputs = exporter.COVERAGE_STEPS[step]
+        carries_remotely = bool(set(outputs) & elided)
         missing: list[str] = []
         partial: list[str] = []
         unverifiable: list[str] = []
-        carries_remotely = bool(set(outputs) & elided)
         for row in rows:
             record_id = row.get("record_id") or row.get("video_id") or ""
             if not record_id:
                 continue
             has_output = _has_any_output(row, outputs)
             if not has_output:
-                if carries_remotely:
-                    unverifiable.append(record_id)
-                else:
-                    missing.append(record_id)
+                (unverifiable if carries_remotely else missing).append(record_id)
             elif _status_failed(row, status_field):
                 partial.append(record_id)
         plan[step] = {
@@ -92,10 +93,10 @@ def select(rows: list[dict], steps: tuple[str, ...],
 
 
 def elided_fields(export_dir: Path) -> set[str]:
-    """Fields the export moved out of the row CSV, from the manifest or from the bundle's schema.
+    """Fields the export moved out of the row CSV: from the manifest, or from a bundle's schema.
 
-    Reading one line of each bundle is a schema probe, not a corpus read: the field names are what
-    matters, and they are the same on every line.
+    Reading one line per bundle is a schema probe, not a corpus read — the field names are identical on
+    every line, and ``heavy_fields`` is absent from exports that predate #330.
     """
     fields: set[str] = set()
     manifest_path = export_dir / "MANIFEST.json"
@@ -163,9 +164,8 @@ def summarise(plan: dict) -> str:
         "",
         "Counts are records needing work. A record is selected when its step status reports failure or",
         "when the step produced no output for it; records that already hold output are never selected.",
-        "",
-        "`unverifiable` is not work: those steps' cells live in the text bundle (#331/#333), so the",
-        "index cannot prove absence. Decide them from live status, not from a blank CSV column.",
+        "`unverifiable` is not work: those cells live in the text bundle (#331/#333), so the index",
+        "cannot prove absence. Decide them from live status, not from a blank CSV column.",
         "",
     ]
     return "\n".join(lines)
@@ -177,15 +177,9 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--steps", default=None, help="comma-separated step keys, e.g. 1_preprocess,6_discourse")
     parser.add_argument("--country", default=None, help="comma-separated countries to include")
-    parser.add_argument("--include-paused", action="store_true",
-                        help="also plan the paused Steps 8-9 (#346); they are excluded by default")
     args = parser.parse_args()
 
-    # #346: a normal run ends at Step 7. Steps 8-9 are paused, so a plan must not schedule them by
-    # default; asking for them explicitly is how reactivation starts.
-    normal = tuple(step for step in STEPS
-                   if not step.startswith(("8_", "9_")) or args.include_paused)
-    steps = tuple(s.strip() for s in args.steps.split(",")) if args.steps else normal
+    steps = tuple(s.strip() for s in args.steps.split(",")) if args.steps else STEPS
     unknown = [s for s in steps if s not in exporter.COVERAGE_STEPS]
     if unknown:
         raise SystemExit(f"unknown steps: {unknown}; known: {list(exporter.COVERAGE_STEPS)}")
