@@ -30,8 +30,14 @@ from collections import defaultdict
 from pathlib import Path
 
 import ep24_mongo_export as exporter
+import ep24_scope
 
-STEPS = tuple(exporter.COVERAGE_STEPS)
+ACTIVE_STEP_KEYS = tuple(
+    key for key in exporter.COVERAGE_STEPS
+    if not ep24_scope.is_paused(int(key.split("_")[0]))
+)
+
+STEPS = ACTIVE_STEP_KEYS
 
 
 def _status_failed(row: dict, status_field: str) -> bool:
