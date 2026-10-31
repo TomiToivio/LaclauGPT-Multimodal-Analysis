@@ -19,7 +19,7 @@ shift
 }
 LIMIT=0
 FROM_STEP=1
-TO_STEP=9
+TO_STEP=7   # #346: Steps 8-9 are paused; opt in with EP24_INCLUDE_PAUSED_STEPS=1
 RETRY=0
 while (($#)); do
   case "${1}" in
@@ -38,6 +38,17 @@ while (($#)); do
   esac
 done
 (( FROM_STEP <= TO_STEP )) || { echo "--from-step must be <= --to-step" >&2; exit 2; }
+
+# #346: Steps 8-9 are paused. Submitting them requires an explicit, visible opt-in - never a slip of
+# --to-step.
+if (( TO_STEP >= 8 )); then
+  case "${EP24_INCLUDE_PAUSED_STEPS:-0}" in
+    1|true|yes|on) echo "NOTE: paused steps 8-9 explicitly enabled for this run" >&2 ;;
+    *) echo "Step range ends at ${TO_STEP}, but Steps 8-9 are paused (#346)." >&2
+       echo "Use --to-step 7 for a normal run, or set EP24_INCLUDE_PAUSED_STEPS=1 deliberately." >&2
+       exit 2 ;;
+  esac
+fi
 command -v sbatch >/dev/null 2>&1 || { echo "sbatch unavailable; run from Roihu login node" >&2; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

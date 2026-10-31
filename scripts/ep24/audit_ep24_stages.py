@@ -25,6 +25,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import ep24_mongo_export as exporter
+import ep24_scope
 
 STAGE_LABELS = {
     "0_ingest": "Ingest",
@@ -122,18 +123,23 @@ def build_report(export_dir: Path) -> str:
                   "|---|---|---|---|---|---|"]
         for step, label in STAGE_LABELS.items():
             entry = coverage.get(step, {})
+            number = int(step.split("_")[0])
+            paused = ep24_scope.is_paused(number)
+            available = "**paused (#346)**" if paused else ("yes" if entry.get("available") else "**no**")
             lines.append(
-                f"| {step.split('_')[0]} | {label} | {entry.get('records', 0)} | "
+                f"| {number} | {label} | {entry.get('records', 0)} | "
                 f"{entry.get('pct_of_exported', 0.0)}% | {entry.get('failed_or_other', 0)} | "
-                f"{'yes' if entry.get('available') else '**no**'} |"
+                f"{available} |"
             )
         lines += ["", f"**DNA grain:** {grain_check(rows, manifest, country)}", ""]
 
     lines += [
         "## How to read this",
         "",
-        "* **Available = no** means no row carries any output field for that step: the export cannot express",
-        "  it. That is different from `0` with output, which means the step ran and produced nothing.",
+        "* **paused (#346)** means the step is deliberately outside the current run. That is not a failure",
+        "  and not an absence of capability: the code, tests and outputs still exist.",
+        "* **no** means no row carries any output field for that step: the export cannot express it. That is",
+        "  different from `0` with output, which means the step ran and produced nothing.",
         "* Child-table counts are file rows, not collapsed records. They are shown separately on purpose.",
         "* The grain line exists because a manifest number and a frame number can both be true and still",
         "  describe different populations (#331).",
