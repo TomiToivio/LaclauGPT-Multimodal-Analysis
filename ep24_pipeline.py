@@ -6,10 +6,12 @@ carried forward unchanged, and only new stage columns are appended/updated.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -73,6 +75,21 @@ def assert_source_metadata_preserved(
             raise AssertionError(f"stage mutated incoming column: {column}")
 
 
+def json_safe_cell(value: Any) -> Any:
+    """Serialize containers as JSON, not as Python ``repr``.
+
+    ``DataFrame.to_csv`` renders a dict/list cell with ``str()``, so a provenance dict becomes
+    ``{'key': 'value'}`` — text that looks structured and is not JSON. Every consumer that parses it
+    with ``json.loads`` then fails, and the exporter ships that repr into the delivered CSV (#333 D3).
+    Containers are the only values that need this: scalars already round-trip.
+    """
+    if isinstance(value, (set, frozenset)):  # JSON has no set: a sorted list keeps it deterministic
+        return json.dumps(sorted(value, key=str), ensure_ascii=False, default=str)
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    return value
+
+
 def write_cumulative_csv(
     before: pd.DataFrame,
     after: pd.DataFrame,
@@ -83,7 +100,12 @@ def write_cumulative_csv(
     """Write an additive stage output after verifying the source contract."""
     assert_source_metadata_preserved(before, after, mutable_columns=mutable_columns)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    after.to_csv(path, index=False, encoding="utf-8")
+    frame = after.copy()
+    for column in frame.columns:
+        if frame[column].dtype == object and frame[column].map(
+                lambda value: isinstance(value, (dict, list, tuple, set))).any():
+            frame[column] = frame[column].map(json_safe_cell)
+    frame.to_csv(path, index=False, encoding="utf-8")
 
 
 def stage_input(default: str | Path) -> Path:

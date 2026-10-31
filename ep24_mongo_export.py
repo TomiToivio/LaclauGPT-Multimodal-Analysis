@@ -387,7 +387,8 @@ def attach_parent_ids(
     for child in children:
         parent = (index.get(_text(child.get("source_record_id")))
                   or index.get(_text(child.get("_storage_id"))) or "")
-        out.append({**child, "parent_record_id": parent})
+        out.append({**child, "parent_record_id": parent,
+                    "parent_join": "source_record_id" if parent else "unjoined"})
         counts["records"] += 1
         counts["matched" if parent else "orphan"] += 1
     return out, counts
@@ -660,6 +661,58 @@ def coverage_reconciliation(manifest: Mapping[str, Any]) -> list[dict[str, Any]]
     return warnings
 
 
+def attach_child_parents(
+    documents: Sequence[Mapping[str, Any]], parent_rows: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Add a deterministic video-level parent key to each child statement (#330, #331).
+
+    Child collections are keyed at ingest level and their ``_storage_id`` is the statement id, so
+    the only usable link is ``source_record_id`` -> the parent's Mongo ``_storage_id``. Each child
+    gets ``parent_record_id`` (the exported video record's ``record_id``) and ``parent_join`` so a
+    consumer never has to guess, and an orphan stays visibly unjoined instead of being dropped.
+    """
+    index: dict[str, str] = {}
+    for parent in parent_rows:
+        record_id = str(parent.get("record_id") or "")
+        if not record_id:
+            continue
+        for field in ("_storage_id", "record_id", "video_id", "allas_filename"):
+            key = str(parent.get(field) or "")
+            if key and key not in index:
+                index[key] = record_id
+    rows: list[dict[str, Any]] = []
+    for document in documents:
+        child = dict(document)
+        candidate = str(child.get("source_record_id") or child.get("parent_record_id") or "")
+        parent_id = index.get(candidate, "")
+        child["parent_record_id"] = parent_id
+        child["parent_join"] = "source_record_id" if parent_id else "unjoined"
+        rows.append(child)
+    return rows
+
+
+def child_contract(
+    rows: Sequence[Mapping[str, Any]], *, country: str, role: str
+) -> dict[str, Any]:
+    """Counts a consumer can rely on for one child table (#330, #331)."""
+    statement_ids = [str(row.get("_storage_id") or "") for row in rows]
+    present = [sid for sid in statement_ids if sid]
+    duplicates = len(present) - len(set(present))
+    joined = sum(1 for row in rows if str(row.get("parent_record_id") or ""))
+    return {
+        "country": country,
+        "role": role,
+        "rows": len(rows),
+        "joined_rows": joined,
+        "unjoined_rows": len(rows) - joined,
+        "duplicate_statement_ids": duplicates,
+        "parent_key_field": "parent_record_id",
+        "join_field": "source_record_id",
+        "source_unit": "ingest",
+        "export_unit": "video",
+    }
+
+
 def write_manifest(
     output: Path,
     *,
@@ -674,6 +727,8 @@ def write_manifest(
     child_detail: Mapping[str, Mapping[str, Mapping[str, int]]] | None = None,
     heavy_fields: Mapping[str, Mapping[str, int]] | None = None,
     text_threshold: int | None = None,
+    children_contract: Mapping[str, Any] | None = None,
+    heavy_splits: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The manifest is the contract: unit, counts, provenance and what was missing.
 
@@ -707,6 +762,9 @@ def write_manifest(
         "heavy_fields": dict((export_qa or {}).get("heavy_fields", heavy_fields or {})),
         "children_detail": dict(child_detail or {}),
         "child_join_qa": dict((export_qa or {}).get("child_join_qa", {})),
+        # #346: stages this run deliberately did not cover. A paused stage is neither missing nor
+        # failed; coverage numbers are untouched, so history keeps its own values.
+        "paused_stages": _paused_stages(),
         "collections_read": dict(collections_read),
         "provenance": dict(provenance),
         "outputs": [
@@ -719,11 +777,24 @@ def write_manifest(
         ],
     }
     manifest.update(contract or {})
+    if children_contract is not None:
+        manifest["children_contract"] = dict(children_contract)
+    if heavy_splits is not None:
+        manifest["heavy_field_splits"] = dict(heavy_splits)
     manifest["contract_warnings"] = coverage_reconciliation(manifest)
     (output / "MANIFEST.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8"
     )
     return manifest
+
+
+def _paused_stages() -> list[int]:
+    """Paused stages from the run scope (#346); empty when Steps 8-9 are explicitly enabled."""
+    try:
+        from ep24_scope import PAUSED_STEPS, paused_included
+    except ImportError:  # pragma: no cover - standalone use of this module
+        return []
+    return [] if paused_included() else list(PAUSED_STEPS)
 
 
 def config_from_env(environ: Mapping[str, str] | None = None) -> tuple[str, str]:

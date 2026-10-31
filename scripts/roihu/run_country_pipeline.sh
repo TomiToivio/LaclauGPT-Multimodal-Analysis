@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Submit an ordered, restartable Step 1-7 SLURM dependency chain for one country.
+# Submit an ordered, restartable Step 1-9 SLURM dependency chain for one country.
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 Usage: bash scripts/roihu/run_country_pipeline.sh COUNTRY [--limit N] [--retry-errors] [--from-step N] [--to-step N]
 Example: bash scripts/roihu/run_country_pipeline.sh portugal --limit 0 --retry-errors
-Only Steps 1-7 run by default; --enable-paused-stages permits explicit Steps 8-9.
-Each stage starts after the previous stage finishes, even if some rows fail.
+Each stage starts after the previous stage terminates; failures remain recorded for selective retry.
 Completed MongoDB records are preserved; this chain never forces a reset.
 EOF
 }
@@ -20,9 +19,8 @@ shift
 }
 LIMIT=0
 FROM_STEP=1
-TO_STEP=7
+TO_STEP=7   # #346: Steps 8-9 are paused; opt in with EP24_INCLUDE_PAUSED_STEPS=1
 RETRY=0
-ALLOW_PAUSED=0
 while (($#)); do
   case "${1}" in
     --limit)
@@ -35,16 +33,22 @@ while (($#)); do
       [[ $# -ge 2 && "${2}" =~ ^[1-9]$ ]] || { echo "--to-step must be 1..9" >&2; exit 2; }
       TO_STEP="${2}"; shift 2 ;;
     --retry-errors) RETRY=1; shift ;;
-    --enable-paused-stages) ALLOW_PAUSED=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: ${1}" >&2; usage >&2; exit 2 ;;
   esac
 done
-if (( (FROM_STEP > 7 || TO_STEP > 7) && ! ALLOW_PAUSED )); then
-  echo "Steps 8 (SNA) and 9 (RDF) are paused (#346); explicit --enable-paused-stages required" >&2
-  exit 2
-fi
 (( FROM_STEP <= TO_STEP )) || { echo "--from-step must be <= --to-step" >&2; exit 2; }
+
+# #346: Steps 8-9 are paused. Submitting them requires an explicit, visible opt-in - never a slip of
+# --to-step.
+if (( TO_STEP >= 8 )); then
+  case "${EP24_INCLUDE_PAUSED_STEPS:-0}" in
+    1|true|yes|on) echo "NOTE: paused steps 8-9 explicitly enabled for this run" >&2 ;;
+    *) echo "Step range ends at ${TO_STEP}, but Steps 8-9 are paused (#346)." >&2
+       echo "Use --to-step 7 for a normal run, or set EP24_INCLUDE_PAUSED_STEPS=1 deliberately." >&2
+       exit 2 ;;
+  esac
+fi
 command -v sbatch >/dev/null 2>&1 || { echo "sbatch unavailable; run from Roihu login node" >&2; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -84,4 +88,4 @@ echo "All requested stages submitted for ${COUNTRY}."
 echo "Manifest: ${MANIFEST}"
 echo "Logs: ${LOG_ROOT}/ep24_s<step>_<jobid>.{out,err}"
 echo "SLURM: squeue -u \"${USER}\""
-echo "Later stages run after predecessor termination; inspect errors and retry selectively."
+echo "Failed rows remain auditable and retryable; inspect the stage logs before selective reruns."

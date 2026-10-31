@@ -41,6 +41,19 @@ except ImportError:  # pragma: no cover - only when run outside the repository
         return bool(str(value or "").strip() and str(value).strip() not in {"0", "[]", "{}"})
 
 COUNTRIES = ("finland", "poland", "portugal")
+
+#: Status field per stage, the language each country's corpus is expected in, and the fields whose
+#: newest value tells you how old a stage's output is.
+STATUS_FIELDS = {
+    "0_ingest": "processing_status", "1_preprocess": "preprocess_status",
+    "2_frame": "frame_analysis_status", "3_video": "vllm_video_status",
+    "4_summary": "summary_quality_status", "6_discourse": "laclau_status",
+    "7_dna": "dna_status", "8_sna": "sna_status",
+}
+SUCCESS = {"done", "ok", "success", "complete", "completed", "available", "true"}
+EXPECTED_LANGUAGE = {"finland": "fi", "poland": "pl", "portugal": "pt"}
+FRESHNESS_FIELDS = ("laclau_generated_at", "dna_generated_at", "sna_generated_at",
+                    "preprocess_completed_at")
 CHILD_TABLES = ("entities", "themes", "dna_statements", "sna")
 MISSING = {"", "none", "nan", "null", "<na>", "[]", "{}"}
 ERROR, WARN, INFO = "error", "warn", "info"
@@ -106,8 +119,9 @@ def audit_coverage(frame: list[dict[str, str]], manifest: dict[str, Any],
         elided = [field for field in outputs if field in heavy or any(
             field in str(row.get("heavy_fields_in_text_bundle") or "").split(",")
             for row in frame[:50])]
+        paused = int(str(step).split("_", 1)[0]) in (manifest.get("paused_stages") or [])
         rows.append({
-            "country": country, "step": step,
+            "country": country, "step": step, "paused": paused,
             "manifest_records": int(entry.get("records") or 0),
             "available": entry.get("available"),
             "failed_or_other": int(entry.get("failed_or_other") or 0),
@@ -116,6 +130,9 @@ def audit_coverage(frame: list[dict[str, str]], manifest: dict[str, Any],
             "output_columns_elided": elided,
         })
         claimed = int(entry.get("records") or 0)
+        if paused:
+            # Paused on purpose (#346): no output is the intended state, not a defect.
+            continue
         if claimed and not reproducible and not elided and entry.get("evidence_source") != "children":
             anomalies.append({
                 "severity": ERROR, "code": "coverage-unreproducible", "country": country,
@@ -232,6 +249,119 @@ def audit_children(export: Path, frame: list[dict[str, str]], manifest: dict[str
     return report
 
 
+def audit_records(export: Path, frame: list[dict[str, str]], country: str,
+                  manifest: dict[str, Any], anomalies: list[dict[str, Any]],
+                  bundle_fields: set[str] | None = None) -> dict[str, Any]:
+    """Analysis-quality signals, aggregated: statuses, empties, language, freshness, evidence.
+
+    Only counts and value frequencies are reported — never a transcript, a quote or an actor name — so a
+    research-quality finding can be discussed publicly without exposing the corpus. The point is to keep
+    *status* and *output* apart: a stage can report ``ok`` on every row and still deliver nothing, and a
+    stage can deliver output that the index CSV cannot show because the split moved it.
+    """
+    elided = set((manifest.get("heavy_fields") or {}).get(country) or {})
+    elided.update(bundle_fields or ())
+    for row in frame[:50]:
+        elided.update(text for text in str(row.get("heavy_fields_in_text_bundle") or "").split(",")
+                      if text)
+    report: dict[str, Any] = {"country": country, "records": len(frame), "statuses": {},
+                              "success_without_output": {}, "output_in_text_bundle": {},
+                              "language": {}, "freshness": {}, "evidence": {}}
+    for step, field in STATUS_FIELDS.items():
+        if not frame or field not in frame[0]:
+            continue
+        report["statuses"][step] = dict(
+            Counter(str(row.get(field) or "").strip().lower() or "(empty)"
+                    for row in frame).most_common(6))
+        outputs = (COVERAGE_STEPS.get(step) or ("", ()))[1]
+        ok_rows = [row for row in frame if str(row.get(field) or "").strip().lower() in SUCCESS]
+        silent = [row for row in ok_rows if not any(_has_output(row.get(item)) for item in outputs)]
+        if not silent:
+            continue
+        if set(outputs) & elided:
+            report["output_in_text_bundle"][step] = len(silent)
+        else:
+            report["success_without_output"][step] = len(silent)
+            anomalies.append({
+                "severity": WARN, "code": "success-without-output", "country": country, "step": step,
+                "detail": (f"{len(silent)} rows report a success status, carry no visible output and "
+                           f"no carrier is declared for this step: the stage claims a result it does "
+                           f"not deliver"),
+            })
+
+    expected = EXPECTED_LANGUAGE[country]
+    language_field = "asr_language" if frame and "asr_language" in frame[0] else "source_language"
+    if frame and language_field in frame[0]:
+        tags = Counter(str(row.get(language_field) or "").strip().lower() or "(empty)"
+                       for row in frame)
+        report["language"] = {"field": language_field, "top": dict(tags.most_common(6))}
+        mismatched = sum(count for tag, count in tags.items()
+                         if tag != "(empty)" and not tag.startswith(expected))
+        if mismatched:
+            anomalies.append({
+                "severity": INFO, "code": "language-mismatch", "country": country,
+                "detail": (f"{mismatched} of {len(frame)} records carry a {language_field} tag that "
+                           f"is not {expected!r}: expected for multilingual sources, worth a sample "
+                           f"review before claiming language fidelity"),
+            })
+
+    stamps: dict[str, tuple[str, str, int]] = {}
+    for field in FRESHNESS_FIELDS:
+        if not frame or field not in frame[0]:
+            continue
+        values = sorted(str(row.get(field) or "").strip() for row in frame)
+        seen = [value for value in values if value and value.lower() not in MISSING]
+        if seen:
+            stamps[field] = (seen[0][:19], seen[-1][:19], len(seen))
+            report["freshness"][field] = {"first": seen[0][:19], "last": seen[-1][:19],
+                                          "present": len(seen)}
+    upstream = stamps.get("preprocess_completed_at", (None, None, 0))[1]
+    downstream = sorted((span[1], field) for field, span in stamps.items()
+                        if field != "preprocess_completed_at")
+    if upstream and downstream and downstream[0][0][:10] < upstream[:10]:
+        oldest, field = downstream[0]
+        anomalies.append({
+            "severity": WARN, "code": "downstream-older-than-upstream", "country": country,
+            "detail": (f"{field} ends {oldest[:10]} while the newest preprocess is {upstream[:10]}: "
+                       f"steps 6-9 describe an older corpus slice than the records in this export"),
+        })
+
+    for table, quote_field, id_fields in (("dna_statements", "evidence_quote",
+                                           ("actor_name_raw", "concept_label_raw")),
+                                          ("sna", "evidence_quote",
+                                           ("source_actor", "target_actor"))):
+        path = export / "children" / f"{country}_{table}.csv"
+        if not path.is_file():
+            continue
+        rows = read_rows(path)
+        entries: dict[str, Any] = {"rows": len(rows)}
+        if table == "sna" and rows and "edge_id" in rows[0]:
+            # Nodes and edges share one table; an edge needs an actor pair and a quote, a node does
+            # not, so averaging them produces a false "missing evidence" rate.
+            edges = [row for row in rows if present(row.get("edge_id"))]
+            entries.update({"edges": len(edges), "nodes": len(rows) - len(edges)})
+            for field in (quote_field, "source_actor", "target_actor"):
+                entries[f"edge_empty_{field}"] = sum(1 for row in edges if not present(row.get(field)))
+        else:
+            for field in (quote_field, *id_fields):
+                if rows and field in rows[0]:
+                    entries[f"empty_{field}"] = sum(1 for row in rows if not present(row.get(field)))
+        missing = entries.get("edge_empty_evidence_quote", entries.get("empty_evidence_quote"))
+        total = entries.get("edges", entries["rows"])
+        entries["quoted"] = total - (missing or 0)
+        if missing:
+            anomalies.append({
+                "severity": WARN, "code": "evidence-quote-missing", "country": country,
+                "table": table,
+                "detail": (f"{missing} of {total} rows carry no {quote_field} and cannot be verified "
+                           f"from the export. Step 7 refuses to persist an ungrounded statement since "
+                           f"#289, so check the output's generation date before treating this as a "
+                           f"live defect"),
+            })
+        report["evidence"][table] = entries
+    return report
+
+
 def audit_frame(export: Path, anomalies: list[dict[str, Any]]) -> tuple[dict[str, list], list[tuple[str, str]]]:
     """Per-country rows, plus identity/contamination/JSON checks that need the whole frame."""
     by_country: dict[str, list[dict[str, str]]] = defaultdict(list)
@@ -287,7 +417,7 @@ def audit_bundle(export: Path, manifest: dict[str, Any], keys: list[tuple[str, s
                     unknown += 1
                 fields.update(name for name in payload if name != "record_id")
         report.append({"bundle": path.name, "records": seen, "ids_not_in_index": unknown,
-                       "fields": len(fields)})
+                       "fields": len(fields), "field_names": sorted(fields)})
         if unknown:
             anomalies.append({"severity": ERROR, "code": "bundle-key-not-in-index",
                               "detail": f"{path.name}: {unknown} entries keyed by an unknown record_id"})
@@ -306,6 +436,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="directory holding MANIFEST.json, combined.csv, children/, bundles")
     parser.add_argument("--json", type=Path, help="write the full report here")
     parser.add_argument("--quiet", action="store_true", help="only the anomaly list and summary")
+    parser.add_argument("--records", action="store_true",
+                        help="add per-country status/emptiness/language/evidence aggregates")
     args = parser.parse_args(argv)
 
     export = args.export.expanduser().resolve()
@@ -318,7 +450,12 @@ def main(argv: list[str] | None = None) -> int:
     artifacts = audit_artifacts(export, manifest, anomalies)
     by_country, keys = audit_frame(export, anomalies)
     frame = by_country.get("combined") or []
-    coverage, children = [], []
+    # Bundles first: a step whose output the split moved there is not a step without output, and the
+    # record pass needs those field names to say which is which.
+    bundles = audit_bundle(export, manifest, keys, anomalies)
+    bundle_fields = {str(entry["bundle"]).removesuffix("_text.jsonl.gz").casefold():
+                     set(entry.get("field_names") or ()) for entry in bundles}
+    coverage, children, records = [], [], []
     for country in COUNTRIES:
         country_frame = ([row for row in frame
                           if str(row.get("country") or "").lower() == country]
@@ -327,7 +464,9 @@ def main(argv: list[str] | None = None) -> int:
             continue
         coverage.extend(audit_coverage(country_frame, manifest, country, anomalies))
         children.extend(audit_children(export, country_frame, manifest, country, anomalies))
-    bundles = audit_bundle(export, manifest, keys, anomalies)
+        if args.records:
+            records.append(audit_records(export, country_frame, country, manifest, anomalies,
+                                         bundle_fields.get(country, set())))
     warnings = coverage_reconciliation(manifest, suppressed_countries(export, manifest, anomalies),
                                       anomalies)
 
@@ -340,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
             "children_unit": manifest.get("children_unit"),
             "text_bundle": manifest.get("text_bundle"),
         },
-        "artifacts": artifacts, "coverage": coverage, "children": children,
+        "artifacts": artifacts, "coverage": coverage, "children": children, "records": records,
         "bundles": bundles, "manifest_warnings": warnings, "anomalies": anomalies,
         "summary": {
             "errors": sum(1 for a in anomalies if a["severity"] == ERROR),
@@ -359,11 +498,28 @@ def main(argv: list[str] | None = None) -> int:
             elided = ",".join(row["output_columns_elided"]) or "-"
             print(f"  {row['country']:<9} {row['step']:<13} manifest={row['manifest_records']:>5} "
                   f"csv={row['recomputable_from_csv']:>5} available={str(row['available']):<5} "
+                  f"{'PAUSED ' if row.get('paused') else ''}"
                   f"elided={elided}")
         print("\nchildren:")
         for row in children:
             print(f"  {row['country']:<9} {row['table']:<15} " + " ".join(
                 f"{k}={row[k]}" for k in row if k not in ("country", "table")))
+        if records:
+            print("\nrecords:")
+            for entry in records:
+                print(f"  {entry['country']:<9} n={entry['records']}")
+                for step, counts in entry["statuses"].items():
+                    print(f"    status {step:<13} {counts}")
+                if entry["output_in_text_bundle"]:
+                    print(f"    output-in-text-bundle {entry['output_in_text_bundle']}")
+                if entry["success_without_output"]:
+                    print(f"    success-without-output {entry['success_without_output']}")
+                if entry["language"]:
+                    print(f"    {entry['language']['field']} {entry['language']['top']}")
+                for field, span in entry["freshness"].items():
+                    print(f"    {field:<26} {span['first']} .. {span['last']} ({span['present']})")
+                for table, counts in entry["evidence"].items():
+                    print(f"    {table:<15} {counts}")
         print("\nbundles:")
         for row in bundles:
             print(f"  {row['bundle']:<28} records={row['records']:>5} "

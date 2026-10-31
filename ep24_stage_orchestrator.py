@@ -53,16 +53,25 @@ def status_path(step: int) -> str:
 
 
 def eligible_query(step: int, *, retry_errors: bool, force: bool) -> dict:
+    # Opt-in non-blocking gate (#342). Off by default so existing runs keep their exact behaviour;
+    # when enabled, a stage is prefiltered on the data it consumes rather than on a predecessor's
+    # "complete" status, and the row-level assessment in ep24_eligibility decides the rest.
+    if os.environ.get("LACLAUGPT_EP24_NONBLOCKING") == "1" and not force:
+        from ep24_eligibility import nonblocking_query
+        return nonblocking_query(step, retry_errors=retry_errors)
     query: dict = {}
-    # Upstream failures are evidence, not a global dependency lock.
-    # A downstream step may use surviving partial text/frame outputs.
-    # Preserve explicit deletion decisions; do not interpret REPROCESS as failure.
+    if step > 1:
+        query[f"{status_path(step - 1)}.status"] = "complete"
+    # Step 5 preserves every claimed row in Mongo. Only quality-OK rows
+    # proceed to Step 6 and beyond; REPROCESS/DELETE remain auditable.
     if step >= 6:
-        query["processing_status"] = {"$nin": ["DELETE", "delete"]}
+        query["processing_status"] = {"$in": ["OK", "ok"]}
     if step == 2:
         query["preprocess_status"] = {"$in": ["ok", "cached"]}
         query["frame_file"] = {"$exists": True, "$nin": ["", None]}
         query["frame_timestamp_seconds"] = {"$exists": True, "$nin": ["", None]}
+    elif step == 3:
+        query["frame_analysis_status"] = {"$in": ["ok", "cached"]}
     if not force:
         allowed = ["pending", "retry"]
         if retry_errors:
@@ -83,7 +92,6 @@ def claim_batch(
     retry_errors: bool,
     force: bool,
     stale_hours: int = 6,
-    exclude_ids: set[str] | None = None,
 ) -> list[dict]:
     from pymongo import ReturnDocument
 
@@ -122,8 +130,6 @@ def claim_batch(
 
     claimed: list[dict] = []
     query = eligible_query(step, retry_errors=retry_errors, force=force)
-    if exclude_ids:
-        query = {"$and": [query, {"_storage_id": {"$nin": sorted(exclude_ids)}}]}
     while len(claimed) < batch_size:
         doc = collection.find_one_and_update(
             query,
@@ -226,7 +232,7 @@ def persist_batch(
     output: pd.DataFrame,
     *,
     source_ids: set[str],
-) -> set[str]:
+) -> None:
     if "_storage_id" not in output.columns:
         raise RuntimeError(f"step {step} output dropped _storage_id")
     output_ids = set(output["_storage_id"].astype(str))
@@ -242,7 +248,6 @@ def persist_batch(
                      3: "vllm_video_status", 6: "laclau_status", 7: "dna_status", 8: "sna_status"}
     result_field = status_fields.get(step)
     failures = 0
-    succeeded_ids: set[str] = set()
     for _, row in output.iterrows():
         rid = str(row["_storage_id"])
         fields = {str(k): v for k, v in row.to_dict().items()}
@@ -250,8 +255,6 @@ def persist_batch(
         accepted = {"ok", "cached", "no_evidence"} if step == 8 else {"ok", "cached"}
         failed = bool(result_field and result not in accepted)
         pipeline_status = "error" if failed else "complete"
-        if not failed:
-            succeeded_ids.add(rid)
         fields.update(
             {
                 f"{status_path(step)}.status": pipeline_status,
@@ -283,8 +286,7 @@ def persist_batch(
             step, failures, len(output),
             bad[detail_columns].head(10).to_dict(orient="records"), step,
         )
-        LOG.warning("Step %d: %d/%d rows failed; retryable errors persisted; continuing other records", step, failures, len(output))
-    return succeeded_ids
+        raise RuntimeError(f"Step {step}: {failures}/{len(output)} rows failed; kept as retryable Mongo errors")
 
 
 def mark_claimed_error(storage: MongoStorage, step: int, run_id: str, exc: Exception) -> None:
@@ -391,7 +393,6 @@ def run_country(
     started = time.monotonic()
     processed = 0
     excluded_this_run = 0
-    attempted_ids: set[str] = set()  # Do not reclaim failed rows in this run.
 
     try:
         collection = storage.db[storage.collection_name("dataframe")]
@@ -458,8 +459,8 @@ def run_country(
             # Reset this stage ONCE for the eligible upstream subset. Claims then
             # use normal pending semantics so completed rows cannot be reclaimed forever.
             base = {}
-            if step >= 6:
-                base["processing_status"] = {"$nin": ["DELETE", "delete"]}
+            if step > 1:
+                base[f"{status_path(step - 1)}.status"] = "complete"
             collection.update_many(base, {"$unset": {status_path(step): ""}})
             force = False
 
@@ -484,9 +485,7 @@ def run_country(
                 batch_size=wanted,
                 retry_errors=retry_errors,
                 force=force,
-                exclude_ids=attempted_ids,
             )
-            attempted_ids.update(str(d["_storage_id"]) for d in claimed)
             if not claimed:
                 # An empty claim can mean no import, a namespace mismatch,
                 # completed/error rows, or a pending upstream stage.
@@ -547,6 +546,14 @@ def run_country(
                         storage.collection_name("dataframe"),
                         storage.config.dataset, alternatives,
                     )
+                if step == 9 and upstream == 0:
+                    raise RuntimeError(
+                        f"Step 9 cannot run for country={country}: zero Step 8 "
+                        "completed records. Inspect Step 8 statuses in this exact "
+                        "MongoDB database/collection, then complete Step 8 for "
+                        "this country before retrying Step 9. --force on Step 9 "
+                        "cannot generate missing Step 8 results."
+                    )
                 if total_rows == 0 and step == 1 and excluded_this_run:
                     LOG.info(
                         "country=%s step=1 excluded=%d invalid media rows; "
@@ -597,7 +604,7 @@ def run_country(
                     output_root=output_root,
                     run_id=run_id,
                 )
-                succeeded_ids = persist_batch(
+                persist_batch(
                     storage,
                     step,
                     run_id,
@@ -619,7 +626,7 @@ def run_country(
                 raise
 
             processed += len(after)
-            for rid in succeeded_ids:
+            for rid in source_ids:
                 redis.mark(rid, "complete")
 
             # Backup the COMPLETE cumulative subset after every durable batch.

@@ -2,8 +2,6 @@
 
 The active EP24 workflow is intentionally boring to operate: **one Python file, one sbatch file, one stage at a time**. This makes failures, logs, intermediate CSVs and model changes easy to inspect.
 
-**Current EP24 production scope (#346, until further review): Steps 1–7 only.** Step 8 SNA and Step 9 RDF are paused, not failed or removed. Historical outputs remain intact. Run the country launcher without overrides for Steps 1–7; resume paused stages only as an explicitly approved experiment using `--enable-paused-stages --to-step 9`. The audit of an older export remains historical and does not imply new Step 8/9 failures.
-
 ## Stable numbering
 
 | Step | Python | Slurm | Purpose |
@@ -22,7 +20,7 @@ Step 3 is reserved now so Steps 4-9 never need renaming. Until the vLLM experime
 
 ## One command per country (recommended)
 
-Run this **on the Roihu login node** to submit the seven active numbered stages
+Run this **on the Roihu login node** to submit the active Steps 1–7
 as an ordered SLURM dependency chain:
 
 ```bash
@@ -36,17 +34,16 @@ Replace `portugal` with `finland`, `poland`, or another available country.
 `--retry-errors` includes previously failed rows but does not invalidate
 already-completed checkpoints. **Do not run separate jobs manually.**
 
-This submits seven jobs (Steps 1–7) by default with `afterany` dependencies. Step N+1 starts after
-Step N terminates, including after a non-zero exit. Per-record failures remain
-retryable and are not rewritten to success. A fatal producer error may still
-leave a downstream stage without usable inputs; inspect failure reports and retry
-selectively. Previously completed MongoDB records are preserved. Each stage has its own environment and resource profile
+This submits seven jobs by default with `afterany` dependencies. Step N+1 starts
+after Step N's SLURM job terminates, even when upstream records fail. Stage failures
+remain auditable; retry unsuccessful rows selectively. Previously completed MongoDB
+records are preserved. Each stage has its own environment and resource profile
 (GPU where needed, CPU for Step 9).
 
 To continue only later stages after earlier ones are complete:
 
 ```bash
-bash scripts/roihu/run_country_pipeline.sh portugal --from-step 8 --to-step 9 --limit 0 --retry-errors
+EP24_INCLUDE_PAUSED_STEPS=1 bash scripts/roihu/run_country_pipeline.sh portugal --from-step 8 --to-step 9 --limit 0 --retry-errors
 ```
 
 Submission records a TSV manifest in the private
