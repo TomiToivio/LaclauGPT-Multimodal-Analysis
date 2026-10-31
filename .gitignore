@@ -208,3 +208,4 @@ ep24_*.csv
 # Logs
 *.err
 *.out
+outputs/

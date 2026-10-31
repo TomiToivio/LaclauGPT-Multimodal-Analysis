@@ -21,7 +21,7 @@ def test_reporter_prints_generated_fields_only(tmp_path, monkeypatch, capsys):
     }])
     report_stage_rows(2, "finland", df, tmp_path / "stage.csv")
     visible = capsys.readouterr().out
-    log_file = tmp_path / "step_02_finland.log"
+    log_file = tmp_path / "frame_analysis-finland.log"
     assert "Generated analysis" in visible
     assert "Generated analysis" in log_file.read_text()
     assert "PRIVATE INPUT" not in visible

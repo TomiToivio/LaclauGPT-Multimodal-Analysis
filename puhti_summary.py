@@ -13,7 +13,11 @@ from logging.handlers import RotatingFileHandler
 logger = logging.getLogger(__name__)
 os.makedirs('./logs', exist_ok=True)
 os.makedirs('./database', exist_ok=True)
-logging.basicConfig(handlers=[RotatingFileHandler('./logs/summary.log', encoding='utf-8', maxBytes=1000000, backupCount=5)], level=logging.DEBUG)
+from ep24_logging import configure_from_env
+try:
+    configure_from_env(default_step=4)
+except Exception:  # never let log setup break a pipeline step
+    pass
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Sqlite3 database connection

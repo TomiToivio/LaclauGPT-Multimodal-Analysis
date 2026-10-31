@@ -53,21 +53,14 @@ OUTPUT_COLUMNS = (
 )
 LOG_PREVIEW_CHARS = int(os.getenv("LACLAUGPT_LOG_PREVIEW_CHARS", "1200"))
 
-Path("./logs").mkdir(exist_ok=True)
 Path("./database").mkdir(exist_ok=True)
 
 logger = logging.getLogger("roihu_frame")
-if not logger.handlers:
-    handler = RotatingFileHandler(
-        "./logs/frame.log",
-        encoding="utf-8",
-        maxBytes=5_000_000,
-        backupCount=10,
-    )
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-    )
-    logger.addHandler(handler)
+from ep24_logging import configure_from_env
+try:  # one log directory and one filename convention (#324)
+    configure_from_env(default_step=2)
+except Exception:  # never let log setup break a pipeline step
+    pass
     import sys
     stream = logging.StreamHandler(sys.stdout)
     stream.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s'))
