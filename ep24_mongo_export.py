@@ -707,6 +707,9 @@ def write_manifest(
         "heavy_fields": dict((export_qa or {}).get("heavy_fields", heavy_fields or {})),
         "children_detail": dict(child_detail or {}),
         "child_join_qa": dict((export_qa or {}).get("child_join_qa", {})),
+        # #346: stages this run deliberately did not cover. A paused stage is neither missing nor
+        # failed; coverage numbers are untouched, so history keeps its own values.
+        "paused_stages": _paused_stages(),
         "collections_read": dict(collections_read),
         "provenance": dict(provenance),
         "outputs": [
@@ -724,6 +727,15 @@ def write_manifest(
         json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8"
     )
     return manifest
+
+
+def _paused_stages() -> list[int]:
+    """Paused stages from the run scope (#346); empty when Steps 8-9 are explicitly enabled."""
+    try:
+        from ep24_scope import PAUSED_STEPS, paused_included
+    except ImportError:  # pragma: no cover - standalone use of this module
+        return []
+    return [] if paused_included() else list(PAUSED_STEPS)
 
 
 def config_from_env(environ: Mapping[str, str] | None = None) -> tuple[str, str]:
