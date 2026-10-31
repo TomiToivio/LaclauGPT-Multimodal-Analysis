@@ -122,7 +122,9 @@ def test_cli_normalized_layout_roundtrip(tmp_path, monkeypatch):
             children = list(csv.DictReader(f))
         with gzip.open(tmp_path / f"{country}_text.jsonl.gz", "rt") as f:
             bundle = [json.loads(line) for line in f]
-        parent_keys = {(r["country"], r["record_id"]) for r in parents}
+        # The parent CSV is per-country and carries no `country` column: the country is the
+        # file's, not the row's. Reading it from the row raised KeyError and blocked this test.
+        parent_keys = {(country, r["record_id"]) for r in parents}
         assert all((r["parent_country"], r["parent_record_id"]) in parent_keys for r in children)
         assert len(children) == manifest["children"][country]["dna_statements"] == 1
         assert manifest["stage_coverage"][country]["7_dna"]["records"] == 1

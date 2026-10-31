@@ -198,7 +198,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
             documents = [export.project_row(doc) for doc in
                          iter_documents(db[name], batch_size=args.batch_size, limit=args.limit)]
-            documents, detail = export.attach_parent_ids(documents, parents)
+            documents, detail = export.attach_parent_ids(documents, parents, country=country)
             export.write_rows(output / "children" / f"{country}_{role}.csv", documents)
             child_counts[country][role] = detail["records"]
             child_detail.setdefault(country, {})[role] = detail

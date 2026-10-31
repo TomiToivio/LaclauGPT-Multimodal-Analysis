@@ -59,6 +59,26 @@ MISSING = {"", "none", "nan", "null", "<na>", "[]", "{}"}
 ERROR, WARN, INFO = "error", "warn", "info"
 
 
+def _bundle_fields(row: Mapping[str, Any]) -> list[str]:
+    """Fields the exporter moved out of the index row into the text bundle.
+
+    `main` writes ``_text_bundle_fields`` as a JSON list. Exports produced before that rename carry
+    ``heavy_fields_in_text_bundle`` as a comma-separated string. Reading only one of the two makes the
+    audit report "nothing was shipped" for a stage that did ship its prose - the precise defect
+    #331/#332 closed - so both names are read here on purpose.
+    """
+    raw_json = row.get("_text_bundle_fields")
+    if raw_json:
+        try:
+            parsed = json.loads(str(raw_json))
+        except (TypeError, ValueError):
+            parsed = None
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed if str(item)]
+    raw_legacy = row.get("heavy_fields_in_text_bundle")
+    return [text for text in str(raw_legacy or "").split(",") if text]
+
+
 def read_json(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -117,8 +137,7 @@ def audit_coverage(frame: list[dict[str, str]], manifest: dict[str, Any],
                            if any(_has_output(row.get(field)) for field in outputs))
         carried = [field for field in outputs if field in (frame[0] if frame else {})]
         elided = [field for field in outputs if field in heavy or any(
-            field in str(row.get("heavy_fields_in_text_bundle") or "").split(",")
-            for row in frame[:50])]
+            field in _bundle_fields(row) for row in frame[:50])]
         paused = int(str(step).split("_", 1)[0]) in (manifest.get("paused_stages") or [])
         rows.append({
             "country": country, "step": step, "paused": paused,
@@ -262,8 +281,7 @@ def audit_records(export: Path, frame: list[dict[str, str]], country: str,
     elided = set((manifest.get("heavy_fields") or {}).get(country) or {})
     elided.update(bundle_fields or ())
     for row in frame[:50]:
-        elided.update(text for text in str(row.get("heavy_fields_in_text_bundle") or "").split(",")
-                      if text)
+        elided.update(_bundle_fields(row))
     report: dict[str, Any] = {"country": country, "records": len(frame), "statuses": {},
                               "success_without_output": {}, "output_in_text_bundle": {},
                               "language": {}, "freshness": {}, "evidence": {}}
