@@ -233,10 +233,6 @@ def split_heavy_fields(
             lean[key] = value
     if heavy:
         lean["_text_bundle_fields"] = json.dumps(sorted(heavy))
-    if moved:
-        # #331: a consumer reading only the index CSV saw these cells simply vanish. Naming them makes the
-        # absence legible instead of indistinguishable from "the producer wrote nothing".
-        lean["heavy_fields_in_text_bundle"] = ",".join(sorted(moved))
     return lean, heavy
 
 
