@@ -116,7 +116,7 @@ def audit_coverage(frame: list[dict[str, str]], manifest: dict[str, Any],
             "output_columns_elided": elided,
         })
         claimed = int(entry.get("records") or 0)
-        if claimed and not reproducible and not elided:
+        if claimed and not reproducible and not elided and entry.get("evidence_source") != "children":
             anomalies.append({
                 "severity": ERROR, "code": "coverage-unreproducible", "country": country,
                 "step": step,
@@ -128,7 +128,7 @@ def audit_coverage(frame: list[dict[str, str]], manifest: dict[str, Any],
                 "severity": INFO, "code": "coverage-carried-twice", "country": country, "step": step,
                 "detail": "some rows keep the cell and some moved it to the text bundle",
             })
-        if claimed and not carried and not elided:
+        if claimed and not carried and not elided and entry.get("evidence_source") != "children":
             anomalies.append({
                 "severity": WARN, "code": "output-column-absent", "country": country, "step": step,
                 "detail": "none of the step's output columns exist in the delivered CSV",
@@ -151,6 +151,16 @@ def audit_children(export: Path, frame: list[dict[str, str]], manifest: dict[str
                 })
             continue
         rows = read_rows(path)
+        units = manifest.get("children_unit")
+        if isinstance(units, dict) and units.get(table) == "source_collection":
+            count = ((manifest.get("children") or {}).get(country) or {}).get(table)
+            report.append({"country": country, "table": table, "rows": len(rows),
+                           "declared_records": count, "unit": "source_collection"})
+            if count not in (None, len(rows)):
+                anomalies.append({"severity": ERROR, "code": "children-count-drift",
+                                  "country": country, "table": table,
+                                  "detail": "source collection row count differs from manifest"})
+            continue
         has_parent_key = bool(rows) and "parent_record_id" in rows[0]
         if rows and not has_parent_key:
             anomalies.append({
@@ -165,6 +175,16 @@ def audit_children(export: Path, frame: list[dict[str, str]], manifest: dict[str
         orphan = (sum(1 for row in rows if not str(row.get("parent_record_id") or "").strip())
                   if has_parent_key else None)
         stray = len(ids - parents)
+        stray += sum(1 for row in rows if row.get("parent_country")
+                     and row["parent_country"].lower() != country)
+        if table == "dna_statements":
+            entry = ((manifest.get("stage_coverage") or {}).get(country) or {}).get("7_dna") or {}
+            if entry.get("evidence_source") == "children" and (
+                int(entry.get("records") or 0) != len(ids & parents)
+                or int(entry.get("statement_rows") or 0) != len(rows)
+            ):
+                anomalies.append({"severity": ERROR, "code": "dna-coverage-drift",
+                                  "country": country, "detail": "DNA coverage disagrees with child file"})
         declared = detail.get(table) or {}
         report.append({
             "country": country, "table": table, "rows": len(rows),
@@ -212,7 +232,7 @@ def audit_children(export: Path, frame: list[dict[str, str]], manifest: dict[str
     return report
 
 
-def audit_frame(export: Path, anomalies: list[dict[str, Any]]) -> tuple[dict[str, list], list[str]]:
+def audit_frame(export: Path, anomalies: list[dict[str, Any]]) -> tuple[dict[str, list], list[tuple[str, str]]]:
     """Per-country rows, plus identity/contamination/JSON checks that need the whole frame."""
     by_country: dict[str, list[dict[str, str]]] = defaultdict(list)
     for name in ("combined.csv", *(f"{country}.csv" for country in COUNTRIES)):
@@ -222,8 +242,8 @@ def audit_frame(export: Path, anomalies: list[dict[str, Any]]) -> tuple[dict[str
         key = "combined" if name == "combined.csv" else name[: -len(".csv")]
         by_country[key] = read_rows(path)
     frame = by_country.get("combined") or []
-    keys = [str(row.get("record_id") or "") for row in frame]
-    duplicates = [key for key, count in Counter(keys).items() if count > 1 and key]
+    keys = [(str(row.get("country") or "").lower(), str(row.get("record_id") or "")) for row in frame]
+    duplicates = [key for key, count in Counter(keys).items() if count > 1 and key[1]]
     if duplicates:
         anomalies.append({"severity": ERROR, "code": "duplicate-record-id",
                           "detail": f"{len(duplicates)} record_id values repeat in combined.csv"})
@@ -250,7 +270,7 @@ def audit_frame(export: Path, anomalies: list[dict[str, Any]]) -> tuple[dict[str
     return by_country, keys
 
 
-def audit_bundle(export: Path, manifest: dict[str, Any], keys: list[str],
+def audit_bundle(export: Path, manifest: dict[str, Any], keys: list[tuple[str, str]],
                  anomalies: list[dict[str, Any]]) -> list[dict[str, Any]]:
     report = []
     known = set(keys)
@@ -258,11 +278,12 @@ def audit_bundle(export: Path, manifest: dict[str, Any], keys: list[str],
         seen = 0
         unknown = 0
         fields: Counter[str] = Counter()
+        country = path.name.removesuffix("_text.jsonl.gz")
         with gzip.open(path, "rt", encoding="utf-8") as handle:
             for line in handle:
                 seen += 1
                 payload = json.loads(line)
-                if str(payload.get("record_id") or "") not in known:
+                if (country, str(payload.get("record_id") or "")) not in known:
                     unknown += 1
                 fields.update(name for name in payload if name != "record_id")
         report.append({"bundle": path.name, "records": seen, "ids_not_in_index": unknown,
@@ -270,9 +291,8 @@ def audit_bundle(export: Path, manifest: dict[str, Any], keys: list[str],
         if unknown:
             anomalies.append({"severity": ERROR, "code": "bundle-key-not-in-index",
                               "detail": f"{path.name}: {unknown} entries keyed by an unknown record_id"})
-        declared = sum(int(count) for per_country in
-                       (manifest.get("heavy_fields") or {}).values()
-                       for count in (per_country or {}).values())
+        declared = sum(int(count) for count in
+                       ((manifest.get("heavy_fields") or {}).get(country) or {}).values())
         if declared and not seen:
             anomalies.append({"severity": ERROR, "code": "bundle-empty-but-declared",
                               "detail": f"{path.name} is empty while heavy_fields declares rows"})
@@ -403,3 +423,4 @@ def coverage_reconciliation(manifest: dict[str, Any], suppressed: set[str] | Non
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

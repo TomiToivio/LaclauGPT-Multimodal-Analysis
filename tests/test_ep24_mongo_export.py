@@ -95,7 +95,7 @@ class TestTextSplit:
         # The marker is deliberate (#331): a cell that moved must not look like a cell that was never
         # written. Everything else about the split is unchanged.
         assert lean == {"record_id": "video:a", "short": "abc",
-                        "heavy_fields_in_text_bundle": "long"}
+                        'heavy_fields_in_text_bundle': 'long', '_text_bundle_fields': '["long"]'}
         assert heavy == {"long": "x" * 20}
 
     def test_the_bundle_is_gzipped_jsonl_keyed_by_record_id(self, tmp_path):
@@ -203,6 +203,7 @@ class TestDashboardContract:
         assert contract["inputs"]["finland"]["profile"] == "mongo"
         assert "8_sna" in contract["inputs"]["finland"]["stage_unavailable"]
         assert contract["stage_coverage"]["finland"]["6_discourse"]["records"] == 1
+        assert contract["stage_states"]["finland"]["6_discourse"]["counts"]["complete_but_empty"] == 1
 
     def test_the_manifest_carries_the_contract_without_losing_its_own_provenance(self, tmp_path):
         stats = {"finland": {"records": 1, "duplicates_collapsed": 0, "quarantined": 0,
@@ -269,3 +270,5 @@ class TestIterDocumentsResumes:
         got = list(module.iter_documents(collection, batch_size=2, limit=None, retries=3))
         assert [d["_id"] for d in got] == [0, 1, 2, 3, 4]
         assert collection.calls[1] == {"_id": {"$gt": 1}}
+
+

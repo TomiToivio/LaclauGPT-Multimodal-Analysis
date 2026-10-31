@@ -49,85 +49,15 @@ fake collection raises if `insert_one` is ever called. The URI is never written 
 only the **name of the environment variable** that supplied it, because the manifest is copied into
 issues and notes.
 
-## Artifacts and the stable export contract (#330, #331, #332)
+## Historical normalized export contract
 
-This section is the contract a consumer may build on. It describes what `ep24_mongo_export.py` writes
-through `scripts/ep24/export_mongo_results.py`; `ep24_mongo_dashboard_export.py` is a separate
-producer with its own manifest (see *Compatibility*).
-
-```
-<country>.csv  combined.csv      one row per record at record_unit; the lean index
-<country>_text.jsonl.gz          cells longer than text_bundle.threshold, keyed by record_id
-children/<country>_<role>.csv    normalized one-to-many rows: entities, themes, dna_statements, sna
-MANIFEST.json  DATA_DICTIONARY.md
-```
-
-### The lean index is lossy on purpose, and the manifest says how
-
-Any cell longer than `text_bundle.threshold` (default **1,000** characters) is removed from the row
-CSV and written to `<country>_text.jsonl.gz` under the row's own `record_id`. The bundle is JSON per
-line: `{"record_id": ..., "<field>": "<original cell>", ...}`.
-
-```json
-"text_bundle": {"suffix": "_text.jsonl.gz", "key": "record_id", "threshold": 1000},
-"heavy_fields": {"finland": {"dna_statements_json": 517, "asr_transcript": 2125}}
-```
-
-`heavy_fields[country][field]` is the number of rows whose cell moved to the bundle. Read it before
-concluding that a stage produced nothing: on a real FI/PL/PT export **every** record with DNA
-statements had its `dna_statements_json` elided (mean 4,176 characters), so the index CSV alone cannot
-show them. Cells are elided, never truncated or replaced by a sentinel, so the bundle is the only
-source of truth for their content.
-
-### Child tables carry an explicit parent key
-
-| column | meaning |
-|---|---|
-| `parent_record_id` | **the join key.** The parent's `record_id` at this export's `record_unit` (`video:allas_filename` for the default unit), or `""` when no parent survives in this export |
-| `source_record_id` | the parent's `_storage_id` as recorded by the producing step — ingest-level, kept for traceability |
-| `_storage_id` | the **child's own** id (for statements, the statement id) — *not* a parent key |
-| `statement_id`, `evidence_quote`, `actor_name_raw`, `concept_label_raw`, `agreement`, `stance`, `confidence`, `provenance`, `extraction_prompt_version`, `context_sha256`, `uncertainty_notes` | the evidence a reader must show next to the row; absent values are empty strings, never invented |
-
-Children are produced by Mongo collections keyed at pipeline-run level, so a child table can hold runs
-that the export's unit-of-analysis collapse dropped. Those rows are **kept** (`parent_record_id: ""`)
-and counted, not silently deleted:
-
-```json
-"children": {"finland": {"dna_statements": 1583}},
-"children_unit": "video",
-"children_detail": {"finland": {"dna_statements": {"records": 1583, "matched": 1490, "orphan": 93}}}
-```
-
-`children.<country>.<role>` is the row count in the file (backward compatible). `children_detail`
-separates `records` read from `matched` (parent present at `children_unit`) and `orphan`. On the real
-export the manifest's 1,583 statements reconcile to the **1,490** the per-record `dna_statement_count`
-counters report only after the 93 orphans are excluded — reconcile against `matched`, never against the
-file row count.
-
-A consumer that joins children must therefore: read `children_detail` for the denominator, join on
-`parent_record_id`, drop `""`, and deduplicate on `statement_id` within a parent.
-
-### Coverage, and the invariant that is checked
-
-```json
-"record_counts": {"exported_total": 0, "finland": {"read": 0, "exported": 0,
-                                                   "duplicates": 0, "invalid_ids": 0,
-                                                   "distinct_media": 0}},
-"stage_coverage": {"finland": {"6_discourse": {"records": 0, "available": true,
-                                               "failed_or_other": 0, "pct_of_exported": 0.0}}},
-"inputs": {"finland": {"profile": "mongo", "stage_unavailable": ["9_rdf"]}}
-```
-
-Step 7 coverage counts rows carrying `dna_statements_json`, `dna_analysis_markdown` **or a positive
-`dna_statement_count`**. The counter is short, so it survives both moves and coverage stays reproducible
-from the delivered CSV; a `0` counter is an answer, not output.
-
-`contract_warnings` is written by `coverage_reconciliation()` and lists every place where coverage and
-the child tables disagree — a step claiming records with no attached child row (`--children` omitted,
-or a broken identity), a step marked `available: false` while children prove output, or children
-attached while coverage claims nothing. An empty list is the healthy answer, and a test asserts it for
-a synthetic export. Disagreements are **recorded, not resolved**: the exporter does not rewrite one
-number to match the other.
+The v1 normalized exporter attached parent IDs opportunistically, retained orphan
+children, and exposed `children_detail` and `contract_warnings`. Those helper APIs
+remain available for existing consumers. The v2 CLI contract below supersedes that
+layout: DNA exports contain validated children only, with exclusions in
+`child_join_qa`, while registry and graph collections retain their own grain.
+Both row markers (`heavy_fields_in_text_bundle` and `_text_bundle_fields`) remain
+available. The offline audit supports both generations of exported artifacts.
 
 ## Missingness is not a negative finding
 
@@ -147,3 +77,84 @@ simulated.
 The existing `ep24_mongo_export.py` API and `scripts/ep24/export_mongo_results.py` CLI remain unchanged. Use `ep24_mongo_dashboard_export.py` explicitly for the dashboard artifact contract described here. Their identity rules and manifests differ; do not combine their record counts or substitute one export directory for the other without validating the consuming application.
 
 Subset exports (`--query` or `--limit`) deliberately omit child tables and mark them unavailable because child-to-parent run alignment is unverified. Cursor failures after emitting records abort rather than replaying documents.
+
+
+## Normalized Mongo CLI contract v2 (#330–#333)
+
+The separate `scripts/ep24/export_mongo_results.py` CLI writes
+`ep24-mongo-export-2`. The usage sections above describe the dashboard exporter;
+this section describes the normalized CLI actually used by the reported export.
+Do not mix the two layouts.
+
+Run with `--country finland poland portugal --output <new-private-directory>`.
+The destination must be empty so a missing collection cannot leave a stale child
+file from an older export. Default record unit is `video`. The CLI selects the
+most complete available row, **not necessarily the latest complete run**. Record
+and verify run provenance independently before calling this a latest-run audit.
+
+| Artifact | Contract |
+| --- | --- |
+| `<country>.csv`, `combined.csv` | Canonical parent rows; join key `(country, record_id)` |
+| `<country>_text.jsonl.gz` | JSON lines keyed by `record_id` within that country's file |
+| `children/<country>_dna_statements.csv` | Selected-ingest DNA statements; join `(parent_country, parent_record_id)` to parent key |
+| `children/<country>_{entities,themes,sna}.csv` | Original source collection records; **not** guaranteed video children |
+| `MANIFEST.json` | Counts, hashes, coverage, status matrix, provenance, elision and join QA |
+
+Country names are `finland`, `poland`, `portugal`. Record IDs retain the historical
+`video:` / `ingest:` prefix and must always be scoped by country. Equal IDs in two
+countries are not a license to join across countries. A video child points to the
+selected parent ingest; children from discarded ingests are excluded and counted.
+Do not union them into a newer run.
+
+DNA identity fields are `statement_id`, `source_record_id` (source ingest),
+`parent_record_id`, `parent_country`; statement identity is unique within the
+country/parent. Original `_storage_id` is the child storage identifier, **not**
+the parent. Its Mongo meaning is preserved: changing it to the parent ID would
+make default upserts overwrite multiple statements from one video. No database
+migration is needed or performed.
+
+Preserved analytical/provenance columns include `actor_name_raw`,
+`concept_label_raw`, `agreement`, `stance`, `evidence_quote`, `confidence`,
+`provenance` and prompt/model version fields when carried by the source. Missing
+values stay missing; CSV null is an empty cell, JSON containers are encoded JSON,
+and an empty child file represents zero rows. Missing IDs are never generated.
+Missing evidence/provenance is counted in QA but not silently repaired or discarded.
+Ambiguous parents, missing IDs, foreign-country statements and duplicate statement
+identities are excluded with separate counters; all occurrences of a duplicate
+identity are excluded rather than choosing an arbitrary research result.
+
+Strings longer than `--text-threshold` (default 1000 characters) move to the
+country text bundle. Identity fields never move. `_text_bundle_fields` is a JSON
+array on each affected CSV row identifying the elided cells; restore exactly those
+fields from the bundle before interpreting empty cells. Manifest `heavy_fields`
+counts elisions by country and field; `text_bundle` records threshold and keys.
+No sentinel text is inserted into analytical JSON columns.
+
+`child_schema_version` is `ep24-dna-children-2`. `children_unit` is per role:
+DNA uses the export record unit; other roles use `source_collection`, since entity
+registries, codebooks and graph records have different identities.
+`children.<country>.<role>` counts actual emitted rows. `child_join_qa` records
+source counts and exclusions. All emitted child files are hashed in `outputs`.
+
+When the DNA collection is requested, Step 7 `stage_coverage.records` counts
+**distinct parents with exported DNA children**, and `statement_rows` equals
+`children.<country>.dna_statements`. A missing collection has `available: false`;
+an existing empty collection has `available: true`. `source_output_records`
+retains pre-split row evidence coverage; `parent_count_mismatches` exposes disagreement
+with source counters. An omitted DNA role retains inline coverage; it is not a
+statement-table audit. `--limit` limits parents only: children are read fully so
+the subset is not randomly truncated.
+
+`stage_states` adds a per-country Steps 0–9 matrix with explicit denominators,
+counts and percentages. It distinguishes known success with output/empty,
+not-run, partial, retry, skipped, failed, unavailable and unknown statuses.
+Output without a completion status is `output_status_unknown`, not success.
+These are source-field observations: RDF paths do not prove files exist, absence
+of fields does not prove not-run, and legacy `failed_or_other` is not a failure count.
+
+Consumer coordination: [Visualization PR #222](https://github.com/TomiToivio/LaclauGPT-Data-Visualization/pull/222)
+implements the earlier reader. Existing `source_record_id` remains intact;
+new readers should use the explicit compound parent key and check manifest QA.
+The synthetic CLI test in `tests/test_ep24_export_contract_330_333.py` is an
+executable three-country consumer fixture. No restricted records are included.
+
