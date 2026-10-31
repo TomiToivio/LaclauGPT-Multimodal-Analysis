@@ -232,11 +232,11 @@ def split_heavy_fields(
         else:
             lean[key] = value
     if heavy:
+        # #331: a consumer reading only the index CSV saw these cells simply vanish. One marker names
+        # them, as a JSON list, so the absence is legible instead of indistinguishable from "the
+        # producer wrote nothing". The merge of #344 left a second, pre-#331 spelling in place; two
+        # markers for one fact is how a consumer learns to trust neither.
         lean["_text_bundle_fields"] = json.dumps(sorted(heavy))
-    if moved:
-        # #331: a consumer reading only the index CSV saw these cells simply vanish. Naming them makes the
-        # absence legible instead of indistinguishable from "the producer wrote nothing".
-        lean["heavy_fields_in_text_bundle"] = ",".join(sorted(moved))
     return lean, heavy
 
 
