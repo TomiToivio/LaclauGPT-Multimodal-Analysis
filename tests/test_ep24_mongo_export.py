@@ -92,7 +92,7 @@ class TestTextSplit:
     def test_long_strings_leave_the_row_and_short_ones_stay(self):
         lean, heavy = export.split_heavy_fields(
             {"record_id": "video:a", "short": "abc", "long": "x" * 20}, threshold=10)
-        assert lean == {"record_id": "video:a", "short": "abc"}
+        assert lean == {"record_id": "video:a", "short": "abc", "_text_bundle_fields": '["long"]'}
         assert heavy == {"long": "x" * 20}
 
     def test_the_bundle_is_gzipped_jsonl_keyed_by_record_id(self, tmp_path):
@@ -199,7 +199,8 @@ class TestDashboardContract:
         assert contract["record_counts"]["exported_total"] == 2
         assert contract["inputs"]["finland"]["profile"] == "mongo"
         assert "8_sna" in contract["inputs"]["finland"]["stage_unavailable"]
-        assert contract["stage_coverage"]["finland"]["6_discourse"]["records"] == 1
+        assert contract["stage_coverage"]["finland"]["6_discourse"]["records"] == 0
+        assert contract["stage_states"]["finland"]["6_discourse"]["counts"]["complete_but_empty"] == 1
 
     def test_the_manifest_carries_the_contract_without_losing_its_own_provenance(self, tmp_path):
         stats = {"finland": {"records": 1, "duplicates_collapsed": 0, "quarantined": 0,
@@ -266,3 +267,4 @@ class TestIterDocumentsResumes:
         got = list(module.iter_documents(collection, batch_size=2, limit=None, retries=3))
         assert [d["_id"] for d in got] == [0, 1, 2, 3, 4]
         assert collection.calls[1] == {"_id": {"$gt": 1}}
+

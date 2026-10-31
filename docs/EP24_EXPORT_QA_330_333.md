@@ -50,3 +50,45 @@ Issue #333 additionally requires a genuine stratified quality audit of
 language-specific codebooks, prompts, grounding and missing stages across
 Steps 0–9. No responsible prompt or codebook change can be claimed
 without authorized corpus samples and a before/after researcher evaluation.
+
+
+## v2 follow-up and defect register
+
+The authoritative v2 contract is now in `EP24_MONGO_EXPORT.md`. It supersedes the
+initial PR notes above: `children_unit` is now per role, and requested DNA coverage
+is reconciled against emitted children, not only a positive source counter.
+
+| Defect | Verified source cause | Repair / remaining gate |
+| --- | --- | --- |
+| Unreachable DNA | Child storage ID differs from source ingest; video projection drops ingests | Explicit compound parent key; selected-ingest filtering; exclusion QA |
+| Duplicate/ambiguous joins | Initial PR used last-write-wins parent map and retained duplicate statements | Quarantine ambiguity and duplicate identities; synthetic tests |
+| Silent text loss in index | Long cells omitted without row-level marker | `_text_bundle_fields`, field counts, threshold metadata, protected identity fields |
+| False global child grain | Entities/themes can contain registries/codebooks; SNA stores graph IDs | Per-role units; preserve source collections without inventing video joins |
+| Coverage disagreement | Row counters can describe children that are absent/unjoinable | Child-derived DNA evidence coverage; preserve source coverage and flag counter mismatches |
+| Stale child files | Reusing destination can retain files when a collection disappears | Require empty export destination |
+| Unknown stage states | Missing output and unknown status do not establish failed/not-run | Conservative status matrix, including explicit unknown buckets |
+
+### Live acceptance gates still open (#333)
+
+No authorized Mongo/Redis/Roihu configuration or corpus export was present in the
+implementation workspace. No real record, private codebook, log or RDF file was
+inspected; no model call or reprocessing job was run. The reported historical
+counts in the issues are context, not a newly verified measurement. #333 remains open.
+
+1. In private storage, identify the latest complete intended run using job/run
+   records and pipeline commit, not newest row timestamp or canonical stage score.
+   Record collection/checkpoint and prompt/model/schema versions. Reject mixed-run
+   claims until the operator has verified the selection.
+2. Export to a new private directory and inspect manifest `stage_states`,
+   `stage_coverage`, `child_join_qa`, `heavy_fields`, provenance and hashes. Reconcile
+   distinct parent counts separately from statement counts and inspect every exclusion.
+3. Stratify FI/PL/PT samples by language/platform/stage state. Link private failure
+   logs to source input and checkpoints; verify RDF files and provenance separately.
+4. Diagnose confirmed producer failures before choosing records/steps to rerun.
+   Preserve the original export and historical outputs; record new run IDs and
+   compare failures, usable output, cost and unintended changes before deployment.
+5. Evaluate proposed prompt/codebook edits on a fixed researcher-reviewed sample:
+   quote fidelity, attribution, evidence-linked statements, abstention and disagreement.
+   Keep restricted aliases and codebooks private. No prompt change is justified yet.
+6. Verify the new export with Visualization #222's successor reader before closing
+   the live acceptance gates. Frequency/centrality alone is not hegemony or a real tie.

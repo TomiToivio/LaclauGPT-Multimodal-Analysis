@@ -51,7 +51,7 @@ __all__ = [
     "write_rows",
 ]
 
-EXPORTER_VERSION = "ep24-mongo-export-1"
+EXPORTER_VERSION = "ep24-mongo-export-2"
 
 COUNTRY_SLUGS: tuple[str, ...] = ("finland", "poland", "portugal")
 
@@ -225,10 +225,12 @@ def split_heavy_fields(
     lean: dict[str, Any] = {}
     heavy: dict[str, Any] = {}
     for key, value in row.items():
-        if isinstance(value, str) and len(value) > threshold:
+        if key not in {"record_id", "_storage_id", "country", "parent_country", "parent_record_id", "source_record_id", "video_id", "allas_filename"} and isinstance(value, str) and len(value) > threshold:
             heavy[key] = value
         else:
             lean[key] = value
+    if heavy:
+        lean["_text_bundle_fields"] = json.dumps(sorted(heavy))
     return lean, heavy
 
 
@@ -244,25 +246,78 @@ def select_parent_children(
     source_record_id is the supported ingest join, scoped to one country.
     Unjoinable rows are quarantined rather than incorrectly attributed.
     """
-    by_storage: dict[str, str] = {}
+    by_storage: dict[str, set[str]] = {}
     for parent in selected_parents:
         source = _text(parent.get("_storage_id"))
         record = _text(parent.get("record_id"))
         if source and record:
-            by_storage[source] = record
-    result: list[dict[str, Any]] = []
-    excluded = 0
+            by_storage.setdefault(source, set()).add(record)
+    qa = dict.fromkeys(("source_rows", "matched", "excluded_unmatched", "missing_parent_key",
+                        "ambiguous_parent", "cross_country", "missing_statement_id",
+                        "duplicate_statement_id", "missing_evidence", "missing_provenance"), 0)
+    candidates: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for document in documents:
-        source = _text(document.get("source_record_id"))
-        parent_id = by_storage.get(source)
-        if not parent_id:
-            excluded += 1
+        qa["source_rows"] += 1
+        countries = {_text(document.get(k)).lower() for k in ("country", "parent_country")
+                     if _text(document.get(k))}
+        aliases = {"fi": "finland", "pl": "poland", "pt": "portugal"}
+        if any(aliases.get(c, c) != country for c in countries):
+            qa["cross_country"] += 1
             continue
-        child = dict(document)
-        child["parent_record_id"] = parent_id
-        child["parent_country"] = country
+        source = _text(document.get("source_record_id"))
+        if not source:
+            qa["missing_parent_key"] += 1
+            continue
+        parents = by_storage.get(source, set())
+        if not parents:
+            qa["excluded_unmatched"] += 1
+            continue
+        if len(parents) != 1:
+            qa["ambiguous_parent"] += 1
+            continue
+        statement = _text(document.get("statement_id"))
+        if not statement:
+            qa["missing_statement_id"] += 1
+            continue
+        parent_id = next(iter(parents))
+        child = dict(document, parent_record_id=parent_id, parent_country=country)
+        candidates.setdefault((parent_id, statement), []).append(child)
+    result: list[dict[str, Any]] = []
+    for key in sorted(candidates):
+        group = candidates[key]
+        # Quarantine all conflicting identities; choosing one could erase research evidence.
+        if len(group) > 1:
+            qa["duplicate_statement_id"] += len(group)
+            continue
+        child = group[0]
+        qa["missing_evidence"] += not bool(_text(child.get("evidence_quote")))
+        qa["missing_provenance"] += not bool(child.get("provenance"))
         result.append(child)
-    return result, {"matched": len(result), "excluded_unmatched": excluded}
+    qa["matched"] = len(result)
+    return result, qa
+
+
+def reconcile_dna_coverage(coverage, children, parents, *, available):
+    """Coverage of exported statements, separate from upstream stage completion."""
+    counts: dict[str, int] = {}
+    for child in children:
+        key = child["parent_record_id"]
+        counts[key] = counts.get(key, 0) + 1
+    entry = coverage["7_dna"]
+    entry["source_output_records"] = entry["records"]
+    entry.update(records=len(counts), available=available, evidence_source="children",
+                 statement_rows=len(children),
+                 pct_of_exported=round(100 * len(counts) / len(parents), 1) if parents else 0.0)
+    mismatches = 0
+    for parent in parents:
+        value = parent.get("dna_statement_count")
+        if value is None or value == "":
+            continue
+        try:
+            mismatches += int(value) != counts.get(parent["record_id"], 0)
+        except (ValueError, TypeError):
+            mismatches += 1
+    entry["parent_count_mismatches"] = mismatches
 
 
 def heavy_field_counts(rows: Sequence[Mapping[str, Any]], threshold: int = DEFAULT_TEXT_THRESHOLD
@@ -359,7 +414,7 @@ COVERAGE_STEPS: dict[str, tuple[str, tuple[str, ...]]] = {
     "5_postprocess": ("", ("postprocess_entities", "postprocess_themes",
                            "postprocess_summary_md")),
     "6_discourse": ("laclau_status", ("laclau_structured_json", "laclau_summary_md")),
-    "7_dna": ("", ("dna_statements_json", "dna_analysis_markdown", "dna_statement_count")),
+    "7_dna": ("dna_status", ("dna_statements_json", "dna_analysis_markdown", "dna_statement_count")),
     "8_sna": ("", ("sna_nodes_json", "sna_edges_json")),
     "9_rdf": ("", ("rdf_ttl_path",)),
 }
@@ -406,6 +461,42 @@ def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any
     return coverage
 
 
+def stage_states(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Conservative status matrix; output alone never proves stage completion."""
+    result = {}
+    for step, (status_field, outputs) in COVERAGE_STEPS.items():
+        counts = dict.fromkeys(("not_run", "partial", "complete_with_output", "complete_but_empty",
+                                "failed", "skipped", "retry", "unavailable", "output_status_unknown",
+                                "status_unknown"), 0)
+        for row in rows:
+            status = _text(row.get(status_field)).lower() if status_field else ""
+            present = stage_coverage([row])[step]["records"] > 0
+            carried = any(field in row for field in outputs)
+            if status in {"failed", "error", "failure"}:
+                state = "failed"
+            elif status in {"retry", "retrying", "retry_pending"}:
+                state = "retry"
+            elif status in {"skipped", "skip", "disabled"}:
+                state = "skipped"
+            elif status in SUCCESS_STATUSES:
+                state = "complete_with_output" if present else "complete_but_empty" if carried else "unavailable"
+            elif status in {"partial", "running", "in_progress"}:
+                state = "partial"
+            elif status in {"pending", "not_run", "queued"}:
+                state = "not_run"
+            elif present:
+                state = "output_status_unknown"
+            elif status or carried:
+                state = "status_unknown"
+            else:
+                state = "unavailable"
+            counts[state] += 1
+        result[step] = {"denominator": len(rows), "counts": counts,
+                        "percentages": {k: round(100 * v / len(rows), 1) if rows else 0.0
+                                        for k, v in counts.items()}}
+    return result
+
+
 def dashboard_contract(
     country_stats: Mapping[str, Mapping[str, Any]],
     rows_by_country: Mapping[str, Sequence[Mapping[str, Any]]],
@@ -437,7 +528,8 @@ def dashboard_contract(
         }
     counts["exported_total"] = sum(entry["exported"] for entry in counts.values()
                                    if isinstance(entry, Mapping))
-    return {"record_counts": counts, "stage_coverage": coverage, "inputs": inputs}
+    return {"record_counts": counts, "stage_coverage": coverage, "inputs": inputs,
+            "stage_states": {country: stage_states(rows) for country, rows in rows_by_country.items()}}
 
 
 def write_manifest(
@@ -464,15 +556,18 @@ def write_manifest(
         "distinct_media": total_media,
         "countries": dict(countries),
         "children": dict(child_counts),
-        "children_unit": record_unit,
-        "child_parent_join_key": "parent_record_id",
+        "children_unit": {"dna_statements": record_unit, "entities": "source_collection",
+                          "themes": "source_collection", "sna": "source_collection"},
+        "child_schema_version": "ep24-dna-children-2",
+        "child_parent_join_key": ["parent_country", "parent_record_id"],
+        "text_bundle": dict((export_qa or {}).get("text_bundle", {})),
         "heavy_fields": dict((export_qa or {}).get("heavy_fields", {})),
         "child_join_qa": dict((export_qa or {}).get("child_join_qa", {})),
         "collections_read": dict(collections_read),
         "provenance": dict(provenance),
         "outputs": [
             {
-                "name": p.name,
+                "name": p.relative_to(output).as_posix(),
                 "bytes": p.stat().st_size if p.exists() else 0,
                 "sha256": sha256_file(p) if p.exists() else None,
             }
@@ -496,3 +591,4 @@ def config_from_env(environ: Mapping[str, str] | None = None) -> tuple[str, str]
             "set LACLAUGPT_MONGODB_URI and LACLAUGPT_MONGODB_DATABASE in the private environment"
         )
     return uri, database
+
