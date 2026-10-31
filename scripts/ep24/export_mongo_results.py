@@ -128,6 +128,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     country_stats: dict[str, dict[str, Any]] = {}
     contract_parts: dict[str, dict[str, Any]] = {}
+    child_outputs: list[Path] = []
     child_counts: dict[str, dict[str, int]] = {}
     child_detail: dict[str, dict[str, dict[str, int]]] = {}
     children_contract: dict[str, dict[str, Any]] = {}
@@ -138,7 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     provenance: dict[str, dict[str, Any]] = {}
     combined: list[dict[str, Any]] = []
 
-    for country in args.country:
+    for country in dict.fromkeys(args.country):
         source = export.collection_name(country, export.CANONICAL_SUFFIX)
         if source not in existing:
             raise SystemExit(f"collection missing for {country}: {source}")
@@ -146,6 +147,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         raw = list(iter_documents(db[source], batch_size=args.batch_size, limit=args.limit))
         kept, stats = export.select_canonical(raw, args.record_unit)
         projected = [export.project_row(row) for row in kept]
+        # Every row carries its own country. Without this the per-country CSV has no country column and the
+        # child join (parent_country -> parent_record_id) has nothing to join on.
+        for row in projected:
+            row["country"] = country
 
         # The lean frame answers "which records, with what coverage"; the bundle carries the prose.
         lean_rows: list[dict[str, Any]] = []
@@ -195,22 +200,45 @@ def main(argv: Sequence[str] | None = None) -> int:
                 # Absence is a finding: Poland has no DNA statements collection, PL/PT have no SNA.
                 child_counts[country][role] = 0
                 collections_read[country][role] = "absent"
+                if role == "dna_statements":
+                    # Coverage is a claim about the export; "the collection is absent" is itself a
+                    # coverage result and must be recorded, not omitted.
+                    export.reconcile_dna_coverage(contract_parts[country]["stage_coverage"][country],
+                                                  [], parents, available=False)
                 continue
             documents = [export.project_row(doc) for doc in
                          iter_documents(db[name], batch_size=args.batch_size, limit=args.limit)]
-            documents, detail = export.attach_parent_ids(documents, parents)
-            export.write_rows(output / "children" / f"{country}_{role}.csv", documents)
-            child_counts[country][role] = detail["records"]
-            child_detail.setdefault(country, {})[role] = detail
+            attached, detail = export.attach_parent_ids(documents, parents, country=country)
+            # A child table exists to be joined. Rows whose parent did not survive the collapse are
+            # counted in `detail["orphan"]` and left out of the CSV rather than written unjoinable.
+            documents = [row for row in attached if row.get("parent_record_id")]
+            child_path = output / "children" / f"{country}_{role}.csv"
+            export.write_rows(child_path, documents)
+            child_outputs.append(child_path)
+            # The manifest counts rows in the table, so it counts joined rows: the orphan count
+            # lives in `child_detail`, where it explains the difference instead of inflating it.
+            child_counts[country][role] = detail["matched"]
+            # `records` must describe the table, or the auditor compares it to the file and reports drift.
+            # Orphans are reported beside it, not folded into it.
+            child_detail.setdefault(country, {})[role] = {
+                "records": detail["matched"],
+                "matched": detail["matched"],
+                "orphan": detail["orphan"],
+                "source_records": detail["records"],
+            }
             children_contract[country][role] = export.child_contract(
                 documents, country=country, role=role)
+            if role == "dna_statements":
+                export.reconcile_dna_coverage(contract_parts[country]["stage_coverage"][country],
+                                              documents, parents, available=True)
             for document in documents:
                 statement_id = str(document.get("_storage_id") or "")
                 if statement_id:
                     child_statement_countries.setdefault(statement_id, set()).add(country)
             if detail["orphan"]:
                 print(f"{country}: {role} {detail['records']} rows, {detail['orphan']} with no "
-                      f"parent in this {args.record_unit}-unit export (kept, parent_record_id='')")
+                      f"parent in this {args.record_unit}-unit export (excluded: a child that cannot "
+                      f"join is not part of a joinable table)")
             collections_read[country][role] = name
 
         print(f"{country}: {read_count} read -> {stats['records']} records "
@@ -221,7 +249,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     outputs = ([output / "combined.csv"]
                + [output / f"{c}.csv" for c in args.country]
-               + [output / f"{c}_text.jsonl.gz" for c in args.country])
+               + [output / f"{c}_text.jsonl.gz" for c in args.country]
+               # Child tables are outputs too: a file the manifest does not list is a file nobody
+               # notices going missing.
+               + child_outputs)
     collisions = sum(1 for countries in child_statement_countries.values() if len(countries) > 1)
     manifest = export.write_manifest(
         output,

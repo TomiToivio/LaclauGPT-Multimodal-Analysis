@@ -233,6 +233,10 @@ def split_heavy_fields(
             lean[key] = value
     if heavy:
         lean["_text_bundle_fields"] = json.dumps(sorted(heavy))
+        # A comma-joined list beside the JSON one: `scripts/ep24/audit_export.py` reads this to tell an
+        # elided cell (the field left the row on purpose) from a missing one (the step never wrote it).
+        # Without it, every elided cell audits as absent work.
+        lean["heavy_fields_in_text_bundle"] = ",".join(sorted(moved))
     return lean, heavy
 
 
@@ -369,22 +373,32 @@ def parent_index(parents: Iterable[Mapping[str, Any]]) -> dict[str, str]:
 
 
 def attach_parent_ids(
-    children: Iterable[Mapping[str, Any]], parents: Iterable[Mapping[str, Any]]
+    children: Iterable[Mapping[str, Any]], parents: Iterable[Mapping[str, Any]],
+    *, country: str = "",
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Give every child row an explicit ``parent_record_id``, and count what could not be attached.
 
     Child collections are keyed at pipeline-run level and carry the parent only in
-    ``source_record_id`` (their own ``_storage_id`` is the statement's id), so the join is done here,
-    once, at export time — instead of being re-guessed by every consumer.
+    ``source_record_id``. A child's own ``_storage_id`` is the *statement's* id, so matching it against a
+    parent id would be a coincidence dressed up as a link — the join uses ``source_record_id`` and
+    nothing else.
+
+    Orphans are kept here with ``parent_record_id == ""`` and ``parent_join == "unjoined"``: this
+    function reports the truth about the data. Whether an unjoinable row belongs in a joinable *table*
+    is the exporter's decision, and it excludes it there.
     """
     index = parent_index(parents)
     counts = {"records": 0, "matched": 0, "orphan": 0}
     out: list[dict[str, Any]] = []
     for child in children:
-        parent = (index.get(_text(child.get("source_record_id")))
-                  or index.get(_text(child.get("_storage_id"))) or "")
-        out.append({**child, "parent_record_id": parent,
-                    "parent_join": "source_record_id" if parent else "unjoined"})
+        parent = index.get(_text(child.get("source_record_id")), "")
+        row = {**child, "parent_record_id": parent,
+               "parent_join": "source_record_id" if parent else "unjoined"}
+        if parent and country:
+            # The documented join key is (parent_country, parent_record_id). A half-present key is not
+            # a join, and an orphan has no parent country to claim.
+            row["parent_country"] = country
+        out.append(row)
         counts["records"] += 1
         counts["matched" if parent else "orphan"] += 1
     return out, counts

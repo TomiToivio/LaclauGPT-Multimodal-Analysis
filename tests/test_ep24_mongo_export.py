@@ -94,7 +94,10 @@ class TestTextSplit:
             {"record_id": "video:a", "short": "abc", "long": "x" * 20}, threshold=10)
         # The marker is deliberate (#331): a cell that moved must not look like a cell that was never
         # written. main settled the spelling as `_text_bundle_fields`, holding a JSON list.
-        assert lean == {"record_id": "video:a", "short": "abc", "_text_bundle_fields": '["long"]'}
+        # The lean row records *which* fields left it, so a reader can tell an elided cell from a
+        # missing one without opening the bundle (see tests/test_issue330_332_export_signals.py).
+        assert lean == {"record_id": "video:a", "short": "abc", "_text_bundle_fields": '["long"]',
+                        "heavy_fields_in_text_bundle": "long"}
         assert heavy == {"long": "x" * 20}
 
     def test_the_bundle_is_gzipped_jsonl_keyed_by_record_id(self, tmp_path):

@@ -123,7 +123,10 @@ def test_cli_normalized_layout_roundtrip(tmp_path, monkeypatch):
         with gzip.open(tmp_path / f"{country}_text.jsonl.gz", "rt") as f:
             bundle = [json.loads(line) for line in f]
         parent_keys = {(r["country"], r["record_id"]) for r in parents}
+        # Every row in a joinable table joins: a child whose parent did not survive the collapse is
+        # excluded and counted, not written with an empty parent.
         assert all((r["parent_country"], r["parent_record_id"]) in parent_keys for r in children)
+        assert all(r["parent_record_id"] for r in children)
         assert len(children) == manifest["children"][country]["dna_statements"] == 1
         assert manifest["stage_coverage"][country]["7_dna"]["records"] == 1
         assert manifest["stage_coverage"][country]["7_dna"]["parent_count_mismatches"] == 0
