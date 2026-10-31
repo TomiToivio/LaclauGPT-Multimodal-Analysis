@@ -224,11 +224,17 @@ def split_heavy_fields(
     """
     lean: dict[str, Any] = {}
     heavy: dict[str, Any] = {}
+    moved: list[str] = []
     for key, value in row.items():
         if isinstance(value, str) and len(value) > threshold:
             heavy[key] = value
+            moved.append(key)
         else:
             lean[key] = value
+    if moved:
+        # #331: a consumer reading only the index CSV saw these cells simply vanish. Naming them makes the
+        # absence legible instead of indistinguishable from "the producer wrote nothing".
+        lean["heavy_fields_in_text_bundle"] = ",".join(sorted(moved))
     return lean, heavy
 
 
@@ -315,12 +321,36 @@ COVERAGE_STEPS: dict[str, tuple[str, tuple[str, ...]]] = {
     "5_postprocess": ("", ("postprocess_entities", "postprocess_themes",
                            "postprocess_summary_md")),
     "6_discourse": ("laclau_status", ("laclau_structured_json", "laclau_summary_md")),
-    "7_dna": ("", ("dna_statements_json", "dna_analysis_markdown")),
+    # #332: `dna_statements_json` is blanked in child-table exports, so coverage reading it would
+    # report DNA as unavailable while the statements sit in children/. The row-level counter is the
+    # video-grain signal that survives both export shapes.
+    "7_dna": ("", ("dna_statement_count", "dna_statements_json", "dna_analysis_markdown")),
     "8_sna": ("", ("sna_nodes_json", "sna_edges_json")),
     "9_rdf": ("", ("rdf_ttl_path",)),
 }
 
 SUCCESS_STATUSES = frozenset({"done", "ok", "success", "complete", "completed", "available"})
+
+
+def _has_output(value: Any) -> bool:
+    """True when a cell carries actual output.
+
+    ``0``, ``"0"``, empty strings, empty collections and ``None`` are *no output*. A row counter that is
+    present but zero is the common case here: an export that shipped no DNA statements still has the
+    ``dna_statement_count`` column, and counting its mere existence as "the step is available" turns an
+    absent stage into a null result - the exact confusion this module's docstring warns about (#332).
+    """
+    if value is None or value is False:
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value != 0
+    if isinstance(value, str):
+        # "{}" and "[]" are legitimate produced output (an empty collection was written); a blank string
+        # and a literal "0" are not.
+        return value.strip() not in ("", "0")
+    if isinstance(value, (list, tuple, dict, set)):
+        return len(value) > 0
+    return True
 
 
 def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -332,9 +362,9 @@ def stage_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any
     """
     coverage: dict[str, dict[str, Any]] = {}
     for step, (status_field, outputs) in COVERAGE_STEPS.items():
-        measurable = any(any(_text(row.get(field)) for field in outputs) for row in rows) or any(
-            field in row for row in rows for field in outputs)
-        present = sum(1 for row in rows if any(_text(row.get(field)) for field in outputs))
+        # A column merely existing is not output: an all-zero counter must not make a stage look present.
+        measurable = any(any(_has_output(row.get(field)) for field in outputs) for row in rows)
+        present = sum(1 for row in rows if any(_has_output(row.get(field)) for field in outputs))
         failed = 0
         if status_field:
             failed = sum(1 for row in rows
