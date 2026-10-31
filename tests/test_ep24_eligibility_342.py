@@ -148,3 +148,23 @@ def test_nonblocking_query_does_not_require_a_complete_predecessor() -> None:
 def test_video_prefilter_requires_frames() -> None:
     query = el.nonblocking_query(3)
     assert "frame_file" in query and "frame_timestamp_seconds" in query
+
+
+def test_dry_run_schedules_zero_already_successful_pairs() -> None:
+    """Acceptance criterion: a dry run must never schedule work whose output already exists."""
+    rows = [
+        {"record_id": "done1", "country": "finland", "asr_transcript": "t",
+         "frame_file": "f", "frame_timestamp_seconds": "1", "vllm_structured_output": "x"},
+        {"record_id": "done2", "country": "poland", "postprocess_themes": "themes",
+         "laclau_summary_md": "discourse", "dna_statements_json": "[...]"},
+        {"record_id": "todo1", "country": "poland", "frame_file": "f", "frame_timestamp_seconds": "1"},
+    ]
+    by_id = {row["record_id"]: row for row in rows}
+    manifest = el.select_reprocess(rows, list(range(1, 8)))
+    for entry in manifest["selected"]:
+        assert not el.output_present(by_id[entry["record_id"]], entry["stage"]), entry
+
+
+def test_repeating_a_dry_run_produces_the_same_selection() -> None:
+    rows = [{"record_id": f"r{i}", "country": "portugal", "asr_transcript": "t"} for i in range(3)]
+    assert el.select_reprocess(rows, [6, 7]) == el.select_reprocess(rows, [6, 7])
