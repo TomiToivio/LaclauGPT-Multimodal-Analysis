@@ -129,6 +129,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     country_stats: dict[str, dict[str, Any]] = {}
     contract_parts: dict[str, dict[str, Any]] = {}
     child_counts: dict[str, dict[str, int]] = {}
+    children_contract: dict[str, dict[str, Any]] = {}
+    heavy_splits: dict[str, dict[str, Any]] = {}
+    child_statement_countries: dict[str, set[str]] = {}
     collections_read: dict[str, dict[str, str]] = {}
     provenance: dict[str, dict[str, Any]] = {}
     combined: list[dict[str, Any]] = []
@@ -145,10 +148,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         # The lean frame answers "which records, with what coverage"; the bundle carries the prose.
         lean_rows: list[dict[str, Any]] = []
         heavy_records = 0
+        heavy_fields: dict[str, int] = {}
         for row in projected:
             lean, heavy = export.split_heavy_fields(row, threshold=args.text_threshold)
             lean_rows.append(lean)
             heavy_records += 1 if heavy else 0
+            for field in heavy:
+                heavy_fields[field] = heavy_fields.get(field, 0) + 1
+        heavy_splits[country] = {
+            "threshold": args.text_threshold,
+            "records_with_heavy_fields": heavy_records,
+            "fields": dict(sorted(heavy_fields.items())),
+        }
         bundle = export.write_text_bundle(output / f"{country}_text.jsonl.gz", projected,
                                           threshold=args.text_threshold)
         stats["text_bundle_records"] = bundle
@@ -166,12 +177,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         # kept, so peak memory stays one country rather than the whole corpus.
         contract_parts[country] = export.dashboard_contract(
             {country: {**stats, "source_documents": read_count}}, {country: projected})
+        # Keep only the join keys for the child tables: children are ingest-level and must be joined
+        # to the exported video rows, not written unreconciled (#330, #331).
+        parent_rows = [
+            {field: row.get(field) for field in ("record_id", "_storage_id", "video_id", "allas_filename")}
+            for row in projected
+        ]
         # Release this country's frames before the next one is read: a full corpus otherwise sits at
         # the memory ceiling by Portugal and dies while hashing the last bundle.
         del projected, lean_rows, raw, kept
         gc.collect()
 
         child_counts[country] = {}
+        children_contract[country] = {}
         for role in args.children:
             name = export.child_collection(country, role)
             if name not in existing:
@@ -181,8 +199,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
             documents = [export.project_row(doc) for doc in
                          iter_documents(db[name], batch_size=args.batch_size, limit=args.limit)]
-            export.write_rows(output / "children" / f"{country}_{role}.csv", documents)
-            child_counts[country][role] = len(documents)
+            joined = export.attach_child_parents(documents, parent_rows)
+            export.write_rows(output / "children" / f"{country}_{role}.csv", joined)
+            child_counts[country][role] = len(joined)
+            children_contract[country][role] = export.child_contract(
+                joined, country=country, role=role)
+            for document in joined:
+                statement_id = str(document.get("_storage_id") or "")
+                if statement_id:
+                    child_statement_countries.setdefault(statement_id, set()).add(country)
             collections_read[country][role] = name
 
         print(f"{country}: {read_count} read -> {stats['records']} records "
@@ -194,6 +219,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     outputs = ([output / "combined.csv"]
                + [output / f"{c}.csv" for c in args.country]
                + [output / f"{c}_text.jsonl.gz" for c in args.country])
+    collisions = sum(1 for countries in child_statement_countries.values() if len(countries) > 1)
     manifest = export.write_manifest(
         output,
         record_unit=args.record_unit,
@@ -203,6 +229,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         provenance=provenance,
         outputs=outputs,
         contract=_merge_contracts(contract_parts),
+        children_contract={
+            "unit": args.record_unit,
+            "join": "source_record_id -> parent_record_id",
+            "source_unit": "ingest",
+            "countries": children_contract,
+            "cross_country_duplicate_statement_ids": collisions,
+        },
+        heavy_splits=heavy_splits,
     )
     print(f"manifest: {manifest['records']} records, {manifest['distinct_media']} distinct media, "
           f"unit={manifest['record_unit']} -> {output}")

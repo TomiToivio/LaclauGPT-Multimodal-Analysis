@@ -414,6 +414,58 @@ def dashboard_contract(
     return {"record_counts": counts, "stage_coverage": coverage, "inputs": inputs}
 
 
+def attach_child_parents(
+    documents: Sequence[Mapping[str, Any]], parent_rows: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Add a deterministic video-level parent key to each child statement (#330, #331).
+
+    Child collections are keyed at ingest level and their ``_storage_id`` is the statement id, so
+    the only usable link is ``source_record_id`` -> the parent's Mongo ``_storage_id``. Each child
+    gets ``parent_record_id`` (the exported video record's ``record_id``) and ``parent_join`` so a
+    consumer never has to guess, and an orphan stays visibly unjoined instead of being dropped.
+    """
+    index: dict[str, str] = {}
+    for parent in parent_rows:
+        record_id = str(parent.get("record_id") or "")
+        if not record_id:
+            continue
+        for field in ("_storage_id", "record_id", "video_id", "allas_filename"):
+            key = str(parent.get(field) or "")
+            if key and key not in index:
+                index[key] = record_id
+    rows: list[dict[str, Any]] = []
+    for document in documents:
+        child = dict(document)
+        candidate = str(child.get("source_record_id") or child.get("parent_record_id") or "")
+        parent_id = index.get(candidate, "")
+        child["parent_record_id"] = parent_id
+        child["parent_join"] = "source_record_id" if parent_id else "unjoined"
+        rows.append(child)
+    return rows
+
+
+def child_contract(
+    rows: Sequence[Mapping[str, Any]], *, country: str, role: str
+) -> dict[str, Any]:
+    """Counts a consumer can rely on for one child table (#330, #331)."""
+    statement_ids = [str(row.get("_storage_id") or "") for row in rows]
+    present = [sid for sid in statement_ids if sid]
+    duplicates = len(present) - len(set(present))
+    joined = sum(1 for row in rows if str(row.get("parent_record_id") or ""))
+    return {
+        "country": country,
+        "role": role,
+        "rows": len(rows),
+        "joined_rows": joined,
+        "unjoined_rows": len(rows) - joined,
+        "duplicate_statement_ids": duplicates,
+        "parent_key_field": "parent_record_id",
+        "join_field": "source_record_id",
+        "source_unit": "ingest",
+        "export_unit": "video",
+    }
+
+
 def write_manifest(
     output: Path,
     *,
@@ -424,6 +476,8 @@ def write_manifest(
     provenance: Mapping[str, Mapping[str, Any]],
     outputs: Sequence[Path],
     contract: Mapping[str, Any] | None = None,
+    children_contract: Mapping[str, Any] | None = None,
+    heavy_splits: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The manifest is the contract: unit, counts, provenance and what was missing."""
     total_records = sum(int(c.get("records", 0)) for c in countries.values())
@@ -448,6 +502,10 @@ def write_manifest(
             for p in outputs
         ],
     }
+    if children_contract is not None:
+        manifest["children_contract"] = dict(children_contract)
+    if heavy_splits is not None:
+        manifest["heavy_field_splits"] = dict(heavy_splits)
     manifest.update(contract or {})
     (output / "MANIFEST.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8"
