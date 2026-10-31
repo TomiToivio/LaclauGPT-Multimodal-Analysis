@@ -93,9 +93,8 @@ class TestTextSplit:
         lean, heavy = export.split_heavy_fields(
             {"record_id": "video:a", "short": "abc", "long": "x" * 20}, threshold=10)
         # The marker is deliberate (#331): a cell that moved must not look like a cell that was never
-        # written. Everything else about the split is unchanged.
-        assert lean == {"record_id": "video:a", "short": "abc",
-                        "heavy_fields_in_text_bundle": "long"}
+        # written. main settled the spelling as `_text_bundle_fields`, holding a JSON list.
+        assert lean == {"record_id": "video:a", "short": "abc", "_text_bundle_fields": '["long"]'}
         assert heavy == {"long": "x" * 20}
 
     def test_the_bundle_is_gzipped_jsonl_keyed_by_record_id(self, tmp_path):
