@@ -129,6 +129,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     country_stats: dict[str, dict[str, Any]] = {}
     contract_parts: dict[str, dict[str, Any]] = {}
     child_counts: dict[str, dict[str, int]] = {}
+    child_detail: dict[str, dict[str, dict[str, int]]] = {}
+    heavy_fields: dict[str, dict[str, int]] = {}
     collections_read: dict[str, dict[str, str]] = {}
     provenance: dict[str, dict[str, Any]] = {}
     combined: list[dict[str, Any]] = []
@@ -145,10 +147,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         # The lean frame answers "which records, with what coverage"; the bundle carries the prose.
         lean_rows: list[dict[str, Any]] = []
         heavy_records = 0
+        heavy_fields[country] = {}
         for row in projected:
             lean, heavy = export.split_heavy_fields(row, threshold=args.text_threshold)
             lean_rows.append(lean)
             heavy_records += 1 if heavy else 0
+            # Which cells left the CSV, and how many rows each: elision is data, not a silent hole.
+            for name in heavy:
+                heavy_fields[country][name] = heavy_fields[country].get(name, 0) + 1
         bundle = export.write_text_bundle(output / f"{country}_text.jsonl.gz", projected,
                                           threshold=args.text_threshold)
         stats["text_bundle_records"] = bundle
@@ -168,6 +174,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             {country: {**stats, "source_documents": read_count}}, {country: projected})
         # Release this country's frames before the next one is read: a full corpus otherwise sits at
         # the memory ceiling by Portugal and dies while hashing the last bundle.
+        # The parent identities survive the frame release: children are attached to the *video*
+        # that this export keeps, not to an ingest run the collapse dropped.
+        parents = [{"record_id": row.get("record_id"), "_storage_id": row.get("_storage_id")}
+                   for row in kept]
         del projected, lean_rows, raw, kept
         gc.collect()
 
@@ -181,8 +191,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
             documents = [export.project_row(doc) for doc in
                          iter_documents(db[name], batch_size=args.batch_size, limit=args.limit)]
+            documents, detail = export.attach_parent_ids(documents, parents)
             export.write_rows(output / "children" / f"{country}_{role}.csv", documents)
-            child_counts[country][role] = len(documents)
+            child_counts[country][role] = detail["records"]
+            child_detail.setdefault(country, {})[role] = detail
+            if detail["orphan"]:
+                print(f"{country}: {role} {detail['records']} rows, {detail['orphan']} with no "
+                      f"parent in this {args.record_unit}-unit export (kept, parent_record_id='')")
             collections_read[country][role] = name
 
         print(f"{country}: {read_count} read -> {stats['records']} records "
@@ -203,9 +218,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         provenance=provenance,
         outputs=outputs,
         contract=_merge_contracts(contract_parts),
+        child_detail=child_detail,
+        heavy_fields=heavy_fields,
+        text_threshold=args.text_threshold,
     )
     print(f"manifest: {manifest['records']} records, {manifest['distinct_media']} distinct media, "
           f"unit={manifest['record_unit']} -> {output}")
+    for warning in manifest.get("contract_warnings") or []:
+        print(f"WARNING {warning['kind']} {warning.get('country')} {warning.get('step')}: "
+              f"{warning['detail']}")
     return 0
 
 

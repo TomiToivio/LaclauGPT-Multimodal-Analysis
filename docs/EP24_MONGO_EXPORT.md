@@ -49,31 +49,85 @@ fake collection raises if `insert_one` is ever called. The URI is never written 
 only the **name of the environment variable** that supplied it, because the manifest is copied into
 issues and notes.
 
-## Artifacts (the #195 contract)
+## Artifacts and the stable export contract (#330, #331, #332)
+
+This section is the contract a consumer may build on. It describes what `ep24_mongo_export.py` writes
+through `scripts/ep24/export_mongo_results.py`; `ep24_mongo_dashboard_export.py` is a separate
+producer with its own manifest (see *Compatibility*).
 
 ```
-fi.csv  pl.csv  pt.csv  combined.csv        one row per video
-records.jsonl                               the same rows, JSON per line
-dna_statements.csv  sna_nodes.csv  entities.csv  themes.csv   normalized children
+<country>.csv  combined.csv      one row per record at record_unit; the lean index
+<country>_text.jsonl.gz          cells longer than text_bundle.threshold, keyed by record_id
+children/<country>_<role>.csv    normalized one-to-many rows: entities, themes, dna_statements, sna
 MANIFEST.json  DATA_DICTIONARY.md
 ```
 
-`MANIFEST.json` carries the fields the dashboard's `coverage_rows()` reads:
+### The lean index is lossy on purpose, and the manifest says how
+
+Any cell longer than `text_bundle.threshold` (default **1,000** characters) is removed from the row
+CSV and written to `<country>_text.jsonl.gz` under the row's own `record_id`. The bundle is JSON per
+line: `{"record_id": ..., "<field>": "<original cell>", ...}`.
 
 ```json
-{
-  "record_unit": "video",
-  "records": 0, "distinct_media": 0,
-  "record_counts": {"exported_total": 0, "fi": {"read": 0, "exported": 0,
-                                                "duplicates": 0, "invalid_ids": 0,
-                                                "distinct_media": 0}},
-  "stage_coverage": {"fi": {"6_discourse": {"records": 0, "available": true,
-                                            "failed_or_other": 0, "pct_of_exported": 0.0}}},
-  "inputs": {"fi": {"country": "finland", "profile": "mongo",
-                     "source": "laclaugpt_ep2024_reprocess_finland_dataframe",
-                     "stage_unavailable": ["9_rdf"]}}
-}
+"text_bundle": {"suffix": "_text.jsonl.gz", "key": "record_id", "threshold": 1000},
+"heavy_fields": {"finland": {"dna_statements_json": 517, "asr_transcript": 2125}}
 ```
+
+`heavy_fields[country][field]` is the number of rows whose cell moved to the bundle. Read it before
+concluding that a stage produced nothing: on a real FI/PL/PT export **every** record with DNA
+statements had its `dna_statements_json` elided (mean 4,176 characters), so the index CSV alone cannot
+show them. Cells are elided, never truncated or replaced by a sentinel, so the bundle is the only
+source of truth for their content.
+
+### Child tables carry an explicit parent key
+
+| column | meaning |
+|---|---|
+| `parent_record_id` | **the join key.** The parent's `record_id` at this export's `record_unit` (`video:allas_filename` for the default unit), or `""` when no parent survives in this export |
+| `source_record_id` | the parent's `_storage_id` as recorded by the producing step — ingest-level, kept for traceability |
+| `_storage_id` | the **child's own** id (for statements, the statement id) — *not* a parent key |
+| `statement_id`, `evidence_quote`, `actor_name_raw`, `concept_label_raw`, `agreement`, `stance`, `confidence`, `provenance`, `extraction_prompt_version`, `context_sha256`, `uncertainty_notes` | the evidence a reader must show next to the row; absent values are empty strings, never invented |
+
+Children are produced by Mongo collections keyed at pipeline-run level, so a child table can hold runs
+that the export's unit-of-analysis collapse dropped. Those rows are **kept** (`parent_record_id: ""`)
+and counted, not silently deleted:
+
+```json
+"children": {"finland": {"dna_statements": 1583}},
+"children_unit": "video",
+"children_detail": {"finland": {"dna_statements": {"records": 1583, "matched": 1490, "orphan": 93}}}
+```
+
+`children.<country>.<role>` is the row count in the file (backward compatible). `children_detail`
+separates `records` read from `matched` (parent present at `children_unit`) and `orphan`. On the real
+export the manifest's 1,583 statements reconcile to the **1,490** the per-record `dna_statement_count`
+counters report only after the 93 orphans are excluded — reconcile against `matched`, never against the
+file row count.
+
+A consumer that joins children must therefore: read `children_detail` for the denominator, join on
+`parent_record_id`, drop `""`, and deduplicate on `statement_id` within a parent.
+
+### Coverage, and the invariant that is checked
+
+```json
+"record_counts": {"exported_total": 0, "finland": {"read": 0, "exported": 0,
+                                                   "duplicates": 0, "invalid_ids": 0,
+                                                   "distinct_media": 0}},
+"stage_coverage": {"finland": {"6_discourse": {"records": 0, "available": true,
+                                               "failed_or_other": 0, "pct_of_exported": 0.0}}},
+"inputs": {"finland": {"profile": "mongo", "stage_unavailable": ["9_rdf"]}}
+```
+
+Step 7 coverage counts rows carrying `dna_statements_json`, `dna_analysis_markdown` **or a positive
+`dna_statement_count`**. The counter is short, so it survives both moves and coverage stays reproducible
+from the delivered CSV; a `0` counter is an answer, not output.
+
+`contract_warnings` is written by `coverage_reconciliation()` and lists every place where coverage and
+the child tables disagree — a step claiming records with no attached child row (`--children` omitted,
+or a broken identity), a step marked `available: false` while children prove output, or children
+attached while coverage claims nothing. An empty list is the healthy answer, and a test asserts it for
+a synthetic export. Disagreements are **recorded, not resolved**: the exporter does not rewrite one
+number to match the other.
 
 ## Missingness is not a negative finding
 
