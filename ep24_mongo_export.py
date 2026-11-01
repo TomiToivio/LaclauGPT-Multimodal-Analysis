@@ -23,6 +23,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,12 +31,14 @@ from typing import Any
 
 __all__ = [
     "COUNTRY_SLUGS",
+    "DEFAULT_COLLECTION_PREFIX",
     "DEFAULT_RECORD_UNIT",
     "EXPORTER_VERSION",
     "RECORD_UNITS",
     "ExportError",
     "child_collection",
     "collection_name",
+    "validate_collection_prefix",
     "discover_provenance",
     "distinct_media",
     "media_key",
@@ -54,6 +57,17 @@ __all__ = [
 EXPORTER_VERSION = "ep24-mongo-export-2"
 
 COUNTRY_SLUGS: tuple[str, ...] = ("finland", "poland", "portugal")
+
+#: Collection prefix. The original reprocessing run wrote
+#: ``laclaugpt_ep2024_reprocess_<country><suffix>``; later runs (e.g. the Monday500
+#: refresh) write a run-scoped prefix such as
+#: ``laclaugpt_ep24_monday500_20261031_<country><suffix>``. The prefix is data, not
+#: code: a reader that hardcodes it silently exports the previous run's records when
+#: a new run lands beside it. Callers pass it explicitly; the default preserves the
+#: historical contract.
+DEFAULT_COLLECTION_PREFIX = "laclaugpt_ep2024_reprocess_"
+
+_COLLECTION_PREFIX_RE = re.compile(r"^[A-Za-z0-9_]+_$")
 
 #: The unit of analysis. Same contract as the visualization exporters (#205): the row count is only
 #: meaningful next to the unit, and ``video`` is the researcher-facing default.
@@ -95,17 +109,37 @@ def _text(value: Any) -> str:
     return str(value).strip()
 
 
-def collection_name(country: str, suffix: str = "") -> str:
-    """``laclaugpt_ep2024_reprocess_<country><suffix>``."""
+def validate_collection_prefix(prefix: str) -> str:
+    """Reject a prefix that cannot name a safe, run-scoped collection set.
+
+    Fail closed: a typo must not fall back to the default prefix and quietly export the
+    previous run. The trailing underscore is required so ``<prefix><country>`` cannot
+    become a different country's name by concatenation.
+    """
+    text = str(prefix or "").strip()
+    if not text:
+        raise ExportError("empty collection prefix")
+    if not _COLLECTION_PREFIX_RE.match(text):
+        raise ExportError(
+            f"unsafe collection prefix {prefix!r}: expected letters, digits and _ only, "
+            "ending with '_' (e.g. 'laclaugpt_ep24_monday500_20261031_')"
+        )
+    return text
+
+
+def collection_name(country: str, suffix: str = "", *,
+                    prefix: str = DEFAULT_COLLECTION_PREFIX) -> str:
+    """``<prefix><country><suffix>``, default ``laclaugpt_ep2024_reprocess_``."""
     if country not in COUNTRY_SLUGS:
         raise ExportError(f"unknown country {country!r}; expected one of {COUNTRY_SLUGS}")
-    return f"laclaugpt_ep2024_reprocess_{country}{suffix}"
+    return f"{validate_collection_prefix(prefix)}{country}{suffix}"
 
 
-def child_collection(country: str, role: str) -> str:
+def child_collection(country: str, role: str, *,
+                     prefix: str = DEFAULT_COLLECTION_PREFIX) -> str:
     if role not in CHILD_SUFFIXES:
         raise ExportError(f"unknown child role {role!r}; expected one of {sorted(CHILD_SUFFIXES)}")
-    return collection_name(country, CHILD_SUFFIXES[role])
+    return collection_name(country, CHILD_SUFFIXES[role], prefix=prefix)
 
 
 def media_key(row: Mapping[str, Any]) -> str:

@@ -28,6 +28,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="EP24 country x stage coverage audit (#306).")
     parser.add_argument("--country", nargs="+", choices=export.COUNTRY_SLUGS,
                         default=list(export.COUNTRY_SLUGS))
+    parser.add_argument("--collection-prefix", default=export.DEFAULT_COLLECTION_PREFIX,
+                        help="run-scoped collection prefix, e.g. "
+                             "'laclaugpt_ep24_monday500_20261031_' "
+                             f"(default: {export.DEFAULT_COLLECTION_PREFIX})")
     parser.add_argument("--output", required=True, type=Path, help="JSON report path")
     parser.add_argument("--markdown", type=Path, default=None, help="optional markdown report path")
     parser.add_argument("--record-unit", choices=export.RECORD_UNITS,
@@ -125,9 +129,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     db = client[database]
     existing = set(db.list_collection_names())
 
-    report: dict[str, Any] = {"read_only": True, "countries": {}}
+    report: dict[str, Any] = {"read_only": True,
+                               "collection_prefix": args.collection_prefix,
+                               "countries": {}}
     for country in args.country:
-        source = export.collection_name(country, export.CANONICAL_SUFFIX)
+        source = export.collection_name(country, export.CANONICAL_SUFFIX,
+                                            prefix=args.collection_prefix)
         if source not in existing:
             raise SystemExit(f"collection missing for {country}: {source}")
         # Emptiness is decided in Mongo: each *output* column is reduced to 0/1 so transcripts and
