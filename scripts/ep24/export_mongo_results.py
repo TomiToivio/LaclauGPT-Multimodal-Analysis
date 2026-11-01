@@ -51,6 +51,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read-only EP24 MongoDB export (#306).")
     parser.add_argument("--country", nargs="+", choices=export.COUNTRY_SLUGS,
                         default=list(export.COUNTRY_SLUGS))
+    parser.add_argument("--collection-prefix", default=export.DEFAULT_COLLECTION_PREFIX,
+                        help="run-scoped collection prefix, e.g. "
+                             "'laclaugpt_ep24_monday500_20261031_' "
+                             f"(default: {export.DEFAULT_COLLECTION_PREFIX})")
     parser.add_argument("--output", required=True, type=Path, help="destination directory")
     parser.add_argument("--record-unit", choices=export.RECORD_UNITS,
                         default=export.DEFAULT_RECORD_UNIT,
@@ -140,7 +144,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     combined: list[dict[str, Any]] = []
 
     for country in args.country:
-        source = export.collection_name(country, export.CANONICAL_SUFFIX)
+        source = export.collection_name(country, export.CANONICAL_SUFFIX,
+                                      prefix=args.collection_prefix)
         if source not in existing:
             raise SystemExit(f"collection missing for {country}: {source}")
 
@@ -198,7 +203,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         child_counts[country] = {}
         children_contract[country] = {}
         for role in args.children:
-            name = export.child_collection(country, role)
+            name = export.child_collection(country, role, prefix=args.collection_prefix)
             if name not in existing:
                 # Absence is a finding: Poland has no DNA statements collection, PL/PT have no SNA.
                 child_counts[country][role] = 0
