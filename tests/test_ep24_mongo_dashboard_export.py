@@ -95,6 +95,16 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(export.collection_name("poland", "dna_statements"),
                          "lclauGPT".replace("lclauGPT", "laclaugpt_ep2024_reprocess_poland_dna_statements"))
 
+    def test_a_run_scoped_dataset_selects_that_runs_collections(self) -> None:
+        # The Monday500 refresh writes its own prefix; a reader that hard-codes the historical one
+        # silently exports the previous run's records.
+        self.assertEqual(
+            export.collection_name("finland", "dataframe", dataset="ep24_monday500_20261031"),
+            "laclaugpt_ep24_monday500_20261031_finland_dataframe")
+        self.assertEqual(
+            export.collection_name("portugal", "themes", dataset="ep24_monday500_20261031"),
+            "laclaugpt_ep24_monday500_20261031_portugal_themes")
+
 
 class IdentityTests(unittest.TestCase):
     def test_a_document_needs_a_video_id_and_a_media_key(self) -> None:

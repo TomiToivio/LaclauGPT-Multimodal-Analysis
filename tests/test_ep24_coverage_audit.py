@@ -84,3 +84,47 @@ class TestAuditRows:
     def test_every_contracted_stage_is_reported(self):
         result = audit.audit_rows([{}], [STAGE, FakeStage(2, "frame", ("frame_analysis_1",))])
         assert [s["stage"] for s in result["stages"]] == [1, 2]
+
+
+class TestAttemptedAndValid:
+    """The dashboard needs two states beyond completed/failed, and they must not overlap wrongly."""
+
+    def audit(self, rows, status_columns=("preprocess_status",)):
+        return audit.audit_stage(rows, number=1, name="preprocess", appends=STAGE.appends,
+                                 status_columns=status_columns)
+
+    def test_attempted_counts_records_that_recorded_any_status_word(self):
+        rows = [
+            {"asr_transcript": "text", "preprocess_status": "ok"},
+            {"asr_transcript": "", "preprocess_status": "error"},
+            {"asr_transcript": "", "preprocess_status": "ok"},
+            {},  # never touched: no status, no output
+        ]
+        result = self.audit(rows)
+        assert result["attempted"] == 3
+        assert result["not_started"] == 1
+
+    def test_valid_excludes_output_produced_under_a_failure_status(self):
+        rows = [
+            {"asr_transcript": "text", "preprocess_status": "ok"},
+            {"asr_transcript": "text", "preprocess_status": "error"},
+        ]
+        result = self.audit(rows)
+        assert result["completed"] == 2, "both rows carry output"
+        assert result["valid"] == 1, "the failed row's output is usable but not a success"
+        assert result["valid_pct"] == 50.0
+
+    def test_output_without_any_status_column_still_counts_as_valid(self):
+        rows = [{"asr_transcript": "text"}]
+        assert self.audit(rows, status_columns=())["valid"] == 1
+
+    def test_attempted_is_never_below_valid(self):
+        rows = [{"asr_transcript": "text", "preprocess_status": "ok"}, {}]
+        result = self.audit(rows)
+        assert result["attempted"] >= result["valid"] >= result["completed"] - result["failed"]
+
+    def test_an_unauditable_stage_reports_no_valid_or_attempted_counts(self):
+        result = audit.audit_stage([{}, {}], number=9, name="rdf", appends=(), status_columns=())
+        assert result["valid"] == 0
+        assert result["attempted"] == 0
+        assert result["auditable"] is False

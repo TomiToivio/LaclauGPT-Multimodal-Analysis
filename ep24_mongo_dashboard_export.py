@@ -127,9 +127,15 @@ def connection_settings(environ: Mapping[str, str] | None = None) -> tuple[str, 
                       "(LACLAUGPT_MONGO_URI or LACLAUGPT_MONGODB_URI)")
 
 
-def collection_name(country_slug: str, purpose: str) -> str:
-    """The real collection name, derived from the producer's own naming contract."""
-    return StorageConfig(dataset=DATASET, country=country_slug).collection(purpose)
+def collection_name(country_slug: str, purpose: str, *, dataset: str = DATASET) -> str:
+    """The real collection name, derived from the producer's own naming contract.
+
+    ``dataset`` selects the run: the prefix is data, not code. The reprocessing run wrote
+    ``laclaugpt_ep2024_reprocess_*``; the Monday500 refresh writes a run-scoped prefix such as
+    ``laclaugpt_ep24_monday500_20261031_*``. Hard-coding one of them exports the wrong run's records
+    when a newer run lands beside it, so callers that know the run pass it explicitly.
+    """
+    return StorageConfig(dataset=dataset, country=country_slug).collection(purpose)
 
 
 def connect(uri: str, database: str, *, timeout_ms: int = 15000) -> Any:
@@ -337,14 +343,15 @@ def write_data_dictionary(output: Path, manifest: Mapping[str, Any]) -> None:
 def export_countries(client: Any, countries: Sequence[str], output: Path, *,
                      limit: int | None = None, batch_size: int = 500,
                      query: Mapping[str, Any] | None = None, project: bool = True,
-                     uri_source: str = "") -> dict[str, Any]:
+                     uri_source: str = "", dataset: str | None = None) -> dict[str, Any]:
+    run_dataset = dataset or DATASET
     output.mkdir(parents=True, exist_ok=True)
     present = set(client.list_collection_names())
     manifest: dict[str, Any] = {
         "contract": EXPORT_VERSION,
         "builder_version": EXPORT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "dataset": DATASET,
+        "dataset": run_dataset,
         "database": getattr(client, "name", ""),
         "uri_source": uri_source,
         "record_unit": "video",
@@ -358,7 +365,7 @@ def export_countries(client: Any, countries: Sequence[str], output: Path, *,
 
     for short in countries:
         slug = COUNTRIES[short]
-        frame = collection_name(slug, "dataframe")
+        frame = collection_name(slug, "dataframe", dataset=run_dataset)
         manifest["inputs"][short] = {"country": slug, "profile": "mongo", "source": frame,
                                      "stage_unavailable": []}
         if frame not in present:
@@ -393,7 +400,7 @@ def export_countries(client: Any, countries: Sequence[str], output: Path, *,
         combined.extend(rows)
 
         for purpose, table in CHILD_PURPOSES.items():
-            name = collection_name(slug, purpose)
+            name = collection_name(slug, purpose, dataset=run_dataset)
             key = f"{short}_{table}"
             if name not in present:
                 manifest["children"][key] = {"available": False, "records": 0,
@@ -443,6 +450,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--batch-size", type=int, default=500)
     parser.add_argument("--query", default="", metavar="JSON",
                         help="optional Mongo filter, for example one run id")
+    parser.add_argument("--dataset", default=None,
+                        help="dataset/run whose collections are read (collection prefix component); "
+                             "defaults to the historical ep2024_reprocess run")
     parser.add_argument("--no-projection", dest="project", action="store_false", default=True,
                         help="fetch whole documents instead of only the contract's fields "
                              "(slower; useful when auditing what the source actually holds)")
@@ -458,7 +468,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         manifest = export_countries(client, args.countries, args.output, limit=args.limit,
                                     batch_size=args.batch_size, query=query,
-                                    project=args.project, uri_source=uri_source)
+                                    project=args.project, uri_source=uri_source,
+                                    dataset=args.dataset)
     finally:
         client.client.close()
     print(f"exported {manifest['records']} records ({manifest['distinct_media']} distinct media) "

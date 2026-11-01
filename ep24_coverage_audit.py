@@ -12,6 +12,14 @@ A fourth state is the one worth hunting: **status says success, output is empty*
 claiming completion without a substantive result, and no denominator based on "status = ok" will ever
 show it.
 
+Two further counters exist because "present" and "successful" are not the same question:
+
+* **attempted** -- a status word was recorded, whatever it produced (a work-queue marker is an attempt,
+  not a result and not a failure);
+* **valid** -- output exists *and* the stage's own status does not contradict it. A record whose stage
+  wrote a transcript but reported ``error`` is usable by a downstream consumer and is not a success.
+  Collapsing those two is what made #333 unreadable.
+
 Counts only leave this module. The audit never emits row content, quotes, transcripts or identifiers.
 """
 
@@ -90,19 +98,27 @@ def audit_stage(
         return {
             "stage": number, "name": name, "contracted_columns": len(appends),
             "present_columns": 0, "missing_columns": [], "rows": len(rows),
-            "completed": 0, "failed": 0, "not_started": 0, "other_status": 0,
-            "claimed_but_empty": 0, "coverage_pct": None, "auditable": False,
+            "completed": 0, "valid": 0, "attempted": 0, "failed": 0, "not_started": 0,
+            "other_status": 0, "claimed_but_empty": 0, "coverage_pct": None, "auditable": False,
             "note": "stage contracts no output columns in this frame; audit it from its own store",
         }
     present_columns = [c for c in appends if any(c in row for row in rows)]
 
-    not_started = completed = failed = claimed_but_empty = other_status = 0
+    not_started = completed = valid = attempted = failed = claimed_but_empty = other_status = 0
     other_values: dict[str, int] = {}
     for row in rows:
         status = status_of(row, status_columns)
         has_output = any(not empty_value(row.get(column)) for column in output_columns)
+        if status:
+            # A recorded status word is the stage saying it was touched, whatever it produced.
+            attempted += 1
         if has_output:
             completed += 1
+            # "Valid" is stricter than "completed": output that exists while the stage's own status
+            # reports a failure is usable by a downstream consumer but must not be counted as a
+            # success. That distinction is what issue #333 kept collapsing.
+            if not status or status in SUCCESS_STATUSES:
+                valid += 1
             continue
         if status in SUCCESS_STATUSES:
             # The interesting defect: the stage says it succeeded and produced nothing.
@@ -125,12 +141,15 @@ def audit_stage(
         "missing_columns": sorted(set(appends) - set(present_columns)),
         "rows": len(rows),
         "completed": completed,
+        "valid": valid,
+        "attempted": attempted,
         "failed": failed,
         "not_started": not_started,
         "other_status": other_status,
         "other_status_values": dict(sorted(other_values.items())),
         "claimed_but_empty": claimed_but_empty,
         "coverage_pct": round(100 * completed / len(rows), 1) if rows else 0.0,
+        "valid_pct": round(100 * valid / len(rows), 1) if rows else 0.0,
         "auditable": True,
     }
 
