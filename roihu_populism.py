@@ -591,11 +591,11 @@ def process_country(country: str | None = None) -> Path:
 
                 processed_since_checkpoint += 1
                 if processed_since_checkpoint >= checkpoint_every:
-                    write_cumulative_csv(original, out, output_path)
+                    write_cumulative_csv(original, out, output_path, mutable_columns=STEP6_COLUMNS)
                     LOG.info("CSV checkpoint path=%s row=%s", output_path, index)
                     processed_since_checkpoint = 0
 
-        write_cumulative_csv(original, out, output_path)
+        write_cumulative_csv(original, out, output_path, mutable_columns=STEP6_COLUMNS)
         LOG.info("Step 6 complete country=%s output=%s rows=%s", normalized_country, output_path, len(out))
         return output_path
     finally:
