@@ -84,7 +84,7 @@ def verified_checkpoint(frame, destination, *, country):
     for key in ("_pipeline", "_provenance"):
         if key in actual:
             for original, encoded in zip(frame[key], actual[key]):
-                if json.loads(encoded) != json.loads(json_safe_cell(original)):
+                if not encoded and pd.isna(original):\n                    continue\n                if json.loads(encoded) != json.loads(json_safe_cell(original)):
                     raise RuntimeError(f"{country}: nested field round-trip failure: {key}")
     if checksum(destination) != manifest["csv_sha256"]:
         raise RuntimeError("CSV checksum mismatch")
@@ -137,7 +137,7 @@ def main(argv=None):
                     frame["country"] = country
                 else:
                     values = frame["country"].astype(str).str.casefold()
-                    if not values.isin((country, country[:2])).all():
+                    if not values.isin((country, {"finland": "fi", "poland": "pl", "portugal": "pt", "germany": "de", "spain": "es", "hungary": "hu", "croatia": "hr", "france": "fr", "bulgaria": "bg", "sweden": "se"}.get(country, country))).all():
                         raise ValueError(f"{country}: mixed/incorrect country values")
                 country_path = output / f"{country}_full_steps_1_7.csv"
                 detail = verified_checkpoint(frame, country_path, country=country)
