@@ -1,5 +1,9 @@
 """Synthetic verification for read-only live sample export (#373)."""
-from scripts.ep24.export_live_sample import presentation_frame, snapshot_summary
+from scripts.ep24.export_live_sample import (
+    dataset_inventory,
+    presentation_frame,
+    snapshot_summary,
+)
 
 
 def _doc(key, statuses):
@@ -45,3 +49,20 @@ def test_mixed_countries_rejected():
     import pytest
     with pytest.raises(ValueError, match="mixed"):
         presentation_frame([_doc("one", {}), {**_doc("two", {}), "country": "poland"}], "finland")
+
+
+def test_dataset_inventory_separates_the_sample_from_the_full_corpus():
+    """The Monday500 sample and the full corpus share a database; the operator picks one."""
+    names = [
+        "laclaugpt_ep24_monday500_20261031_finland_dataframe",
+        "laclaugpt_ep24_monday500_20261031_poland_dataframe",
+        "laclaugpt_ep24_monday500_20261031_finland_entities",
+        "laclaugpt_ep2024_reprocess_finland_dataframe",
+        "laclaugpt_ep2024_reprocess_portugal_dataframe",
+        "ep24_dataframe",
+        "unrelated_collection",
+    ]
+    assert dataset_inventory(names) == {
+        "ep24_monday500_20261031": ["finland", "poland"],
+        "ep2024_reprocess": ["finland", "portugal"],
+    }

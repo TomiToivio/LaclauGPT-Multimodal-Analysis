@@ -24,11 +24,30 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from ep24_settings import load_private_env, private_root
-from roihu_storage import MongoStorage, StorageConfig
+from roihu_storage import MongoStorage, StorageConfig, collection_prefix
 from scripts.ep24.export_full_corpus import frame_from_docs, verified_checkpoint, coverage
 
 COUNTRIES = ("finland", "poland", "portugal")
 STEPS = range(1, 8)
+
+
+def dataset_inventory(collection_names):
+    """Map every ``laclaugpt_<dataset>_<country>_dataframe`` collection to its dataset.
+
+    The dataset id is the one mistake this export cannot recover from: the full corpus and
+    the Monday500 sample live under different prefixes in the same database, and a wrong
+    guess silently exports the other one. This reads the collection list back so the
+    operator picks from what exists instead of from memory.
+    """
+    inventory = {}
+    for name in collection_names:
+        if not name.startswith("laclaugpt_") or not name.endswith("_dataframe"):
+            continue
+        stem = name[len("laclaugpt_"): -len("_dataframe")]
+        dataset, _, country = stem.rpartition("_")
+        if dataset and country:
+            inventory.setdefault(dataset, []).append(country)
+    return {dataset: sorted(countries) for dataset, countries in sorted(inventory.items())}
 
 
 def status_columns(docs):
@@ -75,13 +94,30 @@ def snapshot_summary(docs):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", required=True,
+    parser.add_argument("--dataset",
                         help="Exact LACLAUGPT_DATASET used by the active sample; never guessed")
+    parser.add_argument("--list-datasets", action="store_true",
+                        help="Print the dataset prefixes present in MongoDB (read-only) and exit")
     parser.add_argument("--country", nargs="+", choices=COUNTRIES, default=list(COUNTRIES))
     parser.add_argument("--output-root", type=Path, default=None,
                         help="PRIVATE parent directory (a new timestamped snapshot is created)")
     args = parser.parse_args(argv)
     load_private_env()
+    if args.list_datasets:
+        config = StorageConfig.from_env()
+        storage = MongoStorage(config)
+        try:
+            inventory = dataset_inventory(storage.db.list_collection_names())
+            print(f"database: {config.mongo_database}  (read-only inventory, no writes)")
+            for dataset, countries in inventory.items():
+                dataframes = [f"{collection_prefix(dataset, country)}_dataframe" for country in countries]
+                rows = sum(storage.db[name].estimated_document_count() for name in dataframes)
+                print(f"  {dataset:36s} countries={','.join(countries):28s} dataframe_docs={rows}")
+        finally:
+            storage.close()
+        return 0
+    if not args.dataset:
+        parser.error("--dataset is required unless --list-datasets is given")
     os.environ["LACLAUGPT_DATASET"] = args.dataset
     root = (args.output_root or private_root() / "outputs" / "presentation_snapshots").expanduser().resolve()
     if root == ROOT or ROOT in root.parents:
