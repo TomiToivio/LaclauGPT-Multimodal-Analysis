@@ -10,7 +10,7 @@ APPROVAL=""
 INPUT_ROOT="${LACLAUGPT_EP24_INPUT_ROOT:-/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/data/to_reprocess}"
 while (($#)); do
   case "$1" in
-    --execute) EXECUTE=1; shift ;;
+    --execute|--submit) EXECUTE=1; shift ;;
     --approval-file) APPROVAL="${2:?approval file missing}"; shift 2 ;;
     --input-root) INPUT_ROOT="${2:?input root missing}"; shift 2 ;;
     --dry-run) shift ;;
