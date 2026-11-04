@@ -39,7 +39,7 @@ with manifest.open("w", encoding="utf-8") as out:
 print(f"Prepared {len(paths)} file hashes for independent storage")
 PY
 # Explicitly fail if remote destination already exists; never coalesce two snapshots.
-if rclone lsf "$TARGET" >/dev/null 2>&1; then
+if rclone lsf "$REMOTE" --dirs-only 2>/dev/null | grep -Fxq "${VERSION}/"; then
   echo "Remote snapshot destination already exists: refuse overwrite" >&2
   exit 2
 fi
