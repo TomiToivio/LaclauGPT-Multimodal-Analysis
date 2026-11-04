@@ -49,7 +49,7 @@ def write_checkpoint(df: pd.DataFrame, csv_path: str | Path, *, stage: str, coun
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    df.to_csv(tmp, index=False, encoding="utf-8")
+    safe = _sqlite_safe_dataframe(df)\n    safe.to_csv(tmp, index=False, encoding="utf-8")\n    tmp.chmod(0o600)
     os.replace(tmp, path)
 
     sqlite_path = path.with_suffix(".sqlite3")
@@ -57,8 +57,8 @@ def write_checkpoint(df: pd.DataFrame, csv_path: str | Path, *, stage: str, coun
     if sqlite_tmp.exists():
         sqlite_tmp.unlink()
     with sqlite3.connect(sqlite_tmp) as db:
-        _sqlite_safe_dataframe(df).to_sql("records", db, index=False, if_exists="replace")
-    os.replace(sqlite_tmp, sqlite_path)
+        safe.to_sql("records", db, index=False, if_exists="replace")
+    sqlite_tmp.chmod(0o600)\n    os.replace(sqlite_tmp, sqlite_path)
 
     manifest = {
         "stage": stage,
@@ -74,5 +74,5 @@ def write_checkpoint(df: pd.DataFrame, csv_path: str | Path, *, stage: str, coun
     manifest_path = path.with_suffix(path.suffix + ".manifest.json")
     manifest_tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
     manifest_tmp.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(manifest_tmp, manifest_path)
+    manifest_tmp.chmod(0o600)\n    os.replace(manifest_tmp, manifest_path)
     return manifest
