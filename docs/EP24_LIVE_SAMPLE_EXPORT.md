@@ -13,6 +13,52 @@ python3 scripts/ep24/export_live_sample.py \
   --output-root /scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/outputs/presentation_snapshots
 ~~~
 
+## Verified run — 2026-11-05 (Laskin, read-only)
+
+**Choose the namespace from what exists, not from memory.** `--list-datasets` prints every dataset
+prefix in the configured database with its countries and observed dataframe counts, then exits:
+
+~~~bash
+python3 scripts/ep24/export_live_sample.py --list-datasets
+# database: spectacleScraper  (read-only inventory, no writes)
+#   ep2024_reprocess          countries=bulgaria,croatia,finland,france,germany,hungary,poland,portugal,spain,sweden dataframe_docs=34917
+#   ep24_monday500_20261031   countries=finland,poland,portugal      dataframe_docs=1500
+~~~
+
+That is the whole argument for the flag: both campaigns live in one database, and the wrong choice
+exports 34,917 full-corpus rows instead of the 1,500 sample rows.
+
+**The export as run.** The runtime env in use stores the connection string as
+`LACLAUGPT_MONGODB_URI`, while `roihu_storage` reads `LACLAUGPT_MONGO_URI`; bridge the name, then export:
+
+~~~bash
+set -a; . /mnt/workspace/LaclauGPT-Private/analysis/ai26/laskin.env; set +a
+export LACLAUGPT_MONGO_URI="$LACLAUGPT_MONGODB_URI"
+export LACLAUGPT_MONGO_DATABASE="${LACLAUGPT_MONGODB_DATABASE:-spectacleScraper}"
+export LACLAUGPT_MONGO_ENABLED=1
+export LACLAUGPT_EP24_PRIVATE_ROOT=/mnt/workspace/LaclauGPT-Private/analysis/ep24_reprocess
+cd /mnt/workspace/LaclauGPT-Multimodal-Analysis
+python3 scripts/ep24/export_live_sample.py \
+  --dataset ep24_monday500_20261031 \
+  --output-root "$LACLAUGPT_EP24_PRIVATE_ROOT/presentation_snapshots"
+~~~
+
+Observed result on 2026-11-05T01:51+02:00 (snapshot `live_20261104T235110Z_10ab4f44`):
+
+| country | persisted rows | columns | step_07 |
+| --- | --- | --- | --- |
+| finland | 500 | 182 | 500 complete |
+| poland | 500 | 170 | 475 pending, 25 error |
+| portugal | 500 | 175 | 475 pending, 25 error |
+| combined | 1500 | 190 | — |
+
+Every CSV, its SQLite companion and its SHA-256 manifest matched on independent re-read; all row
+identities were unique. The snapshot is 4.3 GB of `0600` files in a `0700` directory. Poland and
+Portugal were still running, which is exactly what the export is supposed to show rather than hide.
+
+**Still outstanding in #373:** off-node backup to Allas and the restore drill from that independent
+copy. This snapshot lives on one CSC filesystem, so it is a checkpoint, not a disaster-recovery copy.
+
 **Check the MongoDB collection names before invoking.** Set --dataset to the
 exact LACLAUGPT_DATASET used by the running 500-video sample. A Monday500
 run-specific namespace may differ from ep2024_reprocess. The script deliberately
