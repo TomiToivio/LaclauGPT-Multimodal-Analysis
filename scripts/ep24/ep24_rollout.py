@@ -24,7 +24,7 @@ from ep24_settings import load_private_env
 from roihu_storage import MongoStorage, StorageConfig
 
 SAMPLE = ("finland", "poland", "portugal")
-STEPS = range(1, 8)
+STEPS = range(1, 10)
 
 
 def identity(row):
