@@ -310,6 +310,10 @@ def analyze_context(context: str) -> tuple[str, Any]:
                 {"role": "user", "content": context},
             ],
             format=DNAResult.model_json_schema(),
+            # Qwen3 thinking can consume the entire generation budget before it
+            # produces a single JSON character. Step 7 needs structured coding,
+            # not a hidden reasoning trace. Ollama supports think=False.
+            think=False,
             options={
                 "temperature": 0.0,
                 "num_ctx": metadata["num_ctx"],
