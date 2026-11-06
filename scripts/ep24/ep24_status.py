@@ -7,6 +7,8 @@ duplicate rows inflate it, and rows without a stable id cannot be resumed or exp
 the dataset and collection it actually read, the total, the distinct ``_storage_id`` count, duplicates
 and rows missing an id, and it can refuse to pass silently (``--expect``).
 """
+from __future__ import annotations
+
 from pathlib import Path
 import argparse
 import os
