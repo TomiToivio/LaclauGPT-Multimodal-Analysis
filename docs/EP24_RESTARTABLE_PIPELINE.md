@@ -35,6 +35,10 @@ $LACLAUGPT_EP24_OUTPUT_ROOT/<country>/
 
 after every successful batch.
 
+## Active pipeline scope (issue #380)
+
+Steps 1–9 are active by default. Step 8 performs descriptive Social Network Analysis only (no Castells or Luhmann interpretation), and Step 9 deterministically exports RDF on CPU. Historical code and prior stored results remain intact; enabling these stages does not authorize automatic production-job submission. Use `bash scripts/roihu/run_country_pipeline.sh COUNTRY --from-step 8 --to-step 9` after verifying prior stage completion, if only the previously paused steps need running. Methodological reference: Borgatti, Everett and Johnson, *Analyzing Social Networks*, 2nd ed. The privately provided ebook is not included in the repository.
+
 ## Partial-pipeline semantics
 
 A Step N record is eligible only when Step N-1 is complete. Each stage claims a small batch atomically in MongoDB, runs the unchanged numbered analysis script against a temporary cumulative CSV, persists the output, marks those rows complete, updates RAG, and writes a cumulative checkpoint.
