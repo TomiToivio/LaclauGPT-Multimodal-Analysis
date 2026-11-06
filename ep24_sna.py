@@ -646,7 +646,7 @@ def render_markdown_report(
     edges: Iterable[Mapping[str, Any]],
     metrics: Mapping[str, Any],
     empirical_summary: str,
-    castells_interpretation: str,
+    castells_interpretation: str = "",  # legacy caller compatibility; deliberately unused
 ) -> str:
     node_rows = list(nodes)
     edge_rows = list(edges)
@@ -678,10 +678,6 @@ def render_markdown_report(
         "No additional model-written empirical summary was produced. "
         "The node/edge tables above remain the authoritative graph representation."
     )
-    castells = _text(castells_interpretation) or (
-        "No Castellsian interpretation was produced. The graph can still be used "
-        "as a descriptive network artifact without theoretical interpretation."
-    )
 
     return "\n".join(
         [
@@ -695,7 +691,7 @@ def render_markdown_report(
             "",
             "## Network construction",
             "Only relations explicitly supported by upstream evidence are admitted. "
-            "The graph topology is deterministic after extraction; the theory prompt cannot add nodes or edges.",
+            "The topology is deterministic after extraction; no theoretical interpretation model is run.",
             "",
             "## Nodes",
             *node_lines,
@@ -719,14 +715,11 @@ def render_markdown_report(
             "Refer to sna_analysis_markdown for the full extraction narrative; the validated node/edge tables above are authoritative.",
             # Avoid embedding the independently persisted analysis a second time.
             "",
-            "## Castellsian interpretation",
-            "Refer to sna_castells_interpretation_markdown for the separate, non-empirical interpretation.",
-            "",
             "## Caveats and uncertainty",
             "This is a descriptive network built from the analysed sample, not evidence of hidden "
             "coordination, causality, friendship, strategic control or population-level influence. "
-            "Terms such as programmer, switcher and network-making power are interpretive concepts "
-            "and should be used only when the observed relations justify them.",
+            "Do not extrapolate event fragments to the full population; relation types and "
+            "observational boundaries must be explicit.",
             "",
             "## Provenance / run metadata",
             f"- SNA schema: `{SNA_SCHEMA_VERSION}`",
