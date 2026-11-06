@@ -125,3 +125,28 @@ If a job dies:
 - cumulative CSV/SQLite checkpoints remain available independently of MongoDB.
 
 The machine-readable boundary contract is `config/ep24_pipeline_columns.json`.
+
+### Resuming a sample pilot, without redoing the full corpus (#379)
+
+A resumed chain inherits whatever dataset its environment resolves to, and `roihu_job_common.sh`
+defaults `LACLAUGPT_DATASET` to `ep2024_reprocess` when the env file omits it. A pilot resume therefore
+needs two guards, both now enforced:
+
+```bash
+# 1. Verify identity, isolation and claim state. Read-only; exits non-zero on any HARD STOP condition.
+python scripts/ep24/preflight_pilot.py --countries finland poland portugal \
+    --dataset ep24_monday500_20261031 --expect-unique 500
+
+# 2. Refuse to submit unless every Slurm job will inherit the pilot dataset.
+bash scripts/roihu/run_country_pipeline.sh portugal --from-step 1 --to-step 7 --limit 0 \
+    --require-dataset ep24_monday500_20261031
+```
+
+The preflight checks what `ep24_status.py` cannot: **distinct `_storage_id` records** (500 rows over 480
+identities is a duplicate-identity resume), dataset isolation (the full-corpus namespace is refused by
+name), and stale claims per step, which explain why records are ineligible for up to six hours after a
+killed job. The submission guard resolves the dataset exactly as the job will — from
+`LACLAUGPT_EP24_ENV_FILE` — prints it, writes it into the run manifest, and refuses on mismatch; put
+`LACLAUGPT_DATASET` in the env *file*, not only in your shell, because `sbatch` copies the job's
+environment from submission time.
+
