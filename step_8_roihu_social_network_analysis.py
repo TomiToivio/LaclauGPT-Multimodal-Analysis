@@ -353,6 +353,9 @@ def run_language(lang: str) -> Path | None:
     all_edges: list[dict] = []
 
     for index, row in selected.iterrows():
+        # Legacy interpretation fields are preserved in the schema, not emitted by the new analysis.
+        df.at[index, "sna_castells_interpretation_markdown"] = ""
+        df.at[index, "sna_castells_prompt_version"] = ""
         evidence, truncation, context_hash = sna_evidence_report(row, model=model)
         LOG.info("step8 row=%s context_sha256=%s packet_chars=%d tokens_est=%d fields_truncated=%d characters_lost=%d",
                  index, context_hash, len(evidence), truncation["estimated_tokens"],
