@@ -9,6 +9,8 @@ This is reporting. The gate before a resubmission is ``scripts/ep24/preflight_pi
 the pilot's identity, isolation and claim state and exits non-zero; keeping a second gate here would let
 the two drift apart.
 """
+from __future__ import annotations
+
 from pathlib import Path
 import argparse
 import os
