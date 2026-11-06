@@ -3,8 +3,7 @@
 
 The model extracts explicit relations. Deterministic code then constructs stable
 Node-Edge-Node tables, calculates a deliberately small set of transparent SNA
-metrics, persists additive outputs, and writes a human-readable report with a
-separate Castells-informed interpretation.
+metrics, persists additive outputs, and writes a human-readable descriptive SNA report.
 """
 from __future__ import annotations
 
@@ -40,8 +39,7 @@ from ep24_sna import (
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG = logging.getLogger("step_8_roihu_social_network_analysis")
 
-PROMPT_VERSION = "ep24-sna-extraction/3.1-audited-relations"
-CASTELLS_PROMPT_VERSION = "ep24-sna-castells/1.0"
+PROMPT_VERSION = "ep24-sna-extraction/4.0-textbook-descriptive"
 
 EXTRACTION_SYSTEM = """Extract only empirical actor-to-actor communication or institutional
 relations from this EP24 record. One source video produces evidence-backed EVENTS,
@@ -72,19 +70,10 @@ STRICT NETWORK LAYER SEPARATION:
   relation type. No inferred coordination, influence, motives or hidden ties.
 - Keep single-video results descriptive; network power, hubs, programmer and
   switcher roles require aggregated longitudinal observations.
-The empirical edge list is fixed before any Castells interpretation.
+Use only standard Social Network Analysis: clearly defined actors, ties, direction,
+evidence, sampling boundaries, and missingness. No additional political or
+sociological interpretive theories. Return only descriptive SNA.
 """
-
-CASTELLS_SYSTEM = """Interpret the supplied, already-constructed social network through a
-limited Manuel Castells network-society / Communication Power lens. The graph topology is
-fixed: NEVER add, remove, infer, or rename nodes or edges. This is only a single-document EVENT FRAGMENT, not a whole societal network. Do not attribute network-making power, significant hubs or brokerage from this fragment. Discuss communication networks,
-flows, inclusion/exclusion, communication power and network-making power only to the
-extent visible in the supplied graph. Use 'programmer' or 'switcher' only when the
-observed relations provide specific evidence; otherwise explicitly say the role cannot be
-established. Do not infer hidden coordination, motives, causality, strategic control, or
-population-level influence from a small sample. Produce short Markdown prose labelled as
-interpretation rather than empirical fact."""
-
 
 def _models():
     """Import runtime-only dependencies after CLI parsing."""
@@ -102,10 +91,7 @@ def _models():
         analysis_markdown: str
         edges: list[SNAEdge]
 
-    class CastellsResult(BaseModel):
-        interpretation_markdown: str
-
-    return SNAResult, CastellsResult
+    return SNAResult
 
 
 def source(lang: str) -> Path | None:
@@ -279,38 +265,6 @@ def build_sna_evidence(row) -> str:
     return build_stage_packet(8, row).text
 
 
-def _castells_interpretation(ollama, model: str, nodes, edges, metrics) -> str:
-    if not edges:
-        return (
-            "The sample contains no evidence-supported social edges, so a Castellsian "
-            "interpretation of network position or network-making power is not warranted."
-        )
-    _, CastellsResult = _models()
-    summary = graph_summary(nodes, edges, metrics)
-    response = ollama.chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": CASTELLS_SYSTEM},
-            {"role": "user", "content": summary},
-        ],
-        format=CastellsResult.model_json_schema(),
-        options={"temperature": 0.0, "num_ctx": 8192},
-    )
-    try:
-        return CastellsResult.model_validate_json(
-            response["message"]["content"]
-        ).interpretation_markdown
-    except Exception:
-        LOG.warning(
-            "Castells interpretation response did not match schema; preserving empirical graph without theory text",
-            exc_info=True,
-        )
-        return (
-            "Castellsian interpretation unavailable for this row. The empirical "
-            "node/edge graph and metrics remain valid and unchanged."
-        )
-
-
 def _write_graph_exports(output_path: Path, all_nodes: list[dict], all_edges: list[dict]) -> None:
     base = output_path.with_suffix("")
     nodes_path = Path(str(base) + ".sna_nodes.csv")
@@ -360,7 +314,7 @@ def _persist_mongo(df: pd.DataFrame, all_nodes: list[dict], all_edges: list[dict
 def run_language(lang: str) -> Path | None:
     import ollama
 
-    SNAResult, _ = _models()
+    SNAResult = _models()
     input_path = source(lang)
     if input_path is None:
         LOG.warning("No CSV for %s", lang)
@@ -444,20 +398,18 @@ def run_language(lang: str) -> Path | None:
                     index, reconciliation["merged_count"],
                     reconciliation["ambiguous_count"], reconciliation["unresolved_count"],
                 )
-            castells = _castells_interpretation(ollama, model, nodes, edges, metrics)
             report = render_markdown_report(
                 row,
                 nodes,
                 edges,
                 metrics,
                 extracted.analysis_markdown,
-                castells,
             )
 
             # Preserve the historical Step 8 field meaning for legacy callers.
             df.at[index, "sna_analysis_markdown"] = extracted.analysis_markdown
             df.at[index, "sna_report_markdown"] = report
-            df.at[index, "sna_castells_interpretation_markdown"] = castells
+            df.at[index, "sna_castells_interpretation_markdown"] = ""  # retired compatibility field
             df.at[index, "sna_nodes_json"] = json.dumps(nodes, ensure_ascii=False, sort_keys=True)
             df.at[index, "sna_edges_json"] = json.dumps(edges, ensure_ascii=False, sort_keys=True)
             df.at[index, "sna_metrics_json"] = json.dumps(metrics, ensure_ascii=False, sort_keys=True)
@@ -465,7 +417,7 @@ def run_language(lang: str) -> Path | None:
             df.at[index, "sna_prompt_version"] = PROMPT_VERSION
             df.at[index, "sna_context_sha256"] = context_hash
             df.at[index, "sna_context_truncated"] = json.dumps(truncation, ensure_ascii=False, sort_keys=True)
-            df.at[index, "sna_castells_prompt_version"] = CASTELLS_PROMPT_VERSION
+            df.at[index, "sna_castells_prompt_version"] = ""  # retired compatibility field
             df.at[index, "sna_generated_at"] = datetime.now(timezone.utc).isoformat()
             df.at[index, "sna_status"] = "ok"
             df.at[index, "sna_error"] = ""
