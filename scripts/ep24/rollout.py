@@ -33,7 +33,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 PROTECTED = ("fi", "pl", "pt")
-DEFAULT_STEPS = tuple(range(1, 8))  # Steps 8-9 are paused (#346); opt in deliberately elsewhere.
+DEFAULT_STEPS = tuple(range(1, 10))  # #380: full active chain, 1–9.
 #: The documented order of the remaining countries (README), used only as a tie-break; discovery wins.
 DOCUMENTED_ORDER = ("de", "es", "hu", "hr", "fr", "bg", "se")
 
@@ -129,7 +129,7 @@ def approval_granted(*, approval_file: Path | None = None) -> bool:
 
 def submit_country(country: str, *, runner: Path, extra: Sequence[str] = ()) -> int:
     """Hand one country to the existing per-country SLURM chain."""
-    command = ["bash", str(runner), country, "--to-step", "7", *extra]
+    command = ["bash", str(runner), country, "--to-step", "9", *extra]
     return subprocess.run(command, check=False).returncode
 
 
