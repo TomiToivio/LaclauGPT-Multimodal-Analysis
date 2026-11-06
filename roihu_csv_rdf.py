@@ -37,6 +37,18 @@ def uri(base: str, project: str, kind: str, key: str) -> str:
     return f"{base.rstrip('/')}/{quote(project, safe='')}/{kind}/{digest(key)}"
 
 
+def canonical_actor_uri(base: str, project: str, node_id: str) -> str | None:
+    """Reuse only corroborated upstream entity IDs across DNA and SNA.
+
+    Never unify unresolved labels, anonymous roles or model-generated local IDs.
+    The caller retains legacy URIs for ambiguous or provisional actors.
+    """
+    identifier = str(node_id or "").strip()
+    if not identifier.startswith("entity:") or not identifier[7:]:
+        return None
+    return uri(base, project, "actor", identifier[7:])
+
+
 def literal(value: str) -> str:
     # N-Triples accepts \uXXXX escapes for all control characters.
     result = []
@@ -187,8 +199,12 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
             sid = str(statement.get("statement_id") or "").strip() or digest(
                 json.dumps([key, index, actor, concept], ensure_ascii=False))
             statement_uri = uri(base, project, "dna-statement", sid)
-            actor_uri = uri(base, project, "dna-actor", str(statement.get("actor_id") or actor))
+            actor_id = str(statement.get("actor_id") or "").strip()
+            legacy_actor_uri = uri(base, project, "dna-actor", actor_id or actor)
+            actor_uri = canonical_actor_uri(base, project, actor_id) or legacy_actor_uri
             concept_uri = uri(base, project, "dna-concept", str(statement.get("concept_id") or concept))
+            if actor_uri != legacy_actor_uri:
+                lines.append(triple(legacy_actor_uri, NS + "canonicalActor", actor_uri, resource=True))
             lines.extend([
                 triple(statement_uri, RDF_TYPE, NS + "DNAStatement", resource=True),
                 triple(document, NS + "dnaStatement", statement_uri, resource=True),
@@ -219,7 +235,10 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
         label = str(node_data.get("label", "")).strip()
         if not node_id:
             continue
-        node = uri(base, project, "sna-node", node_id)
+        legacy_node = uri(base, project, "sna-node", node_id)
+        node = canonical_actor_uri(base, project, node_id) or legacy_node
+        if node != legacy_node:
+            lines.append(triple(legacy_node, NS + "canonicalActor", node, resource=True))
         sna_nodes[node_id] = node
         lines.extend([
             triple(node, RDF_TYPE, NS + "SNANode", resource=True),
@@ -242,8 +261,8 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
         if not edge_id or not source_id or not target_id or not relation:
             warnings.append("SNA edge missing edge_id/source/target/relation; retained as raw cell")
             continue
-        source_node = sna_nodes.get(source_id) or uri(base, project, "sna-node", source_id)
-        target_node = sna_nodes.get(target_id) or uri(base, project, "sna-node", target_id)
+        source_node = sna_nodes.get(source_id) or canonical_actor_uri(base, project, source_id) or uri(base, project, "sna-node", source_id)
+        target_node = sna_nodes.get(target_id) or canonical_actor_uri(base, project, target_id) or uri(base, project, "sna-node", target_id)
         edge = uri(base, project, "sna-edge", edge_id)
         lines.extend([
             triple(edge, RDF_TYPE, NS + "SNAEdge", resource=True),
