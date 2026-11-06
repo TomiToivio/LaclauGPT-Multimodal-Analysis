@@ -73,6 +73,7 @@ STRICT NETWORK LAYER SEPARATION:
 - A single-video fragment is not the entire sampled political network.
 - Keep relation family, direction, observed evidence, time and confidence separate.
 - Never infer social contact from shared themes, agreement or opposition.
+- No additional political theory or network power interpretation belongs in Step 8.
 """
 
 
