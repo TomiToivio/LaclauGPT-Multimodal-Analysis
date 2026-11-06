@@ -89,6 +89,26 @@ python scripts/ep24/ep24_status.py
 python scripts/ep24/ep24_status.py --country finland
 ```
 
+### Identity check before a resume (#379)
+
+A total is not a count of records. Duplicate rows inflate it, and a row without `_storage_id` can neither
+be resumed nor exported. Before resubmitting an interrupted pilot, assert the expected number of
+**distinct** stable ids per country:
+
+```bash
+for c in finland poland portugal; do
+  python scripts/ep24/ep24_status.py --country "$c" --expect 500 || exit 1
+done
+```
+
+The command prints the dataset and collection it actually read, then
+`total=… unique=… duplicates=… missing_id=…`, and exits **2** when the distinct count differs from
+`--expect` or when any duplicate or id-less row exists. Exit 2 is the runbook's hard stop: investigate the
+collection, do not launch stages and do not bootstrap or truncate it.
+
+`--expect` is deliberately optional for day-to-day status checks: the pilot assertion belongs to the
+launch, not to every glance at progress.
+
 ## Codebook, Memory and RAG context
 
 Before each batch, the orchestrator appends bounded derived-context columns:
