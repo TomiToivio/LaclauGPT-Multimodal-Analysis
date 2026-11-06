@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Show MongoDB EP24 progress by country and numbered stage.
 
-The issue-#379 runbook has a hard stop: "verify each country reports the expected 500 unique pilot
-records (the simple status command shows total, not uniqueness)". A total is not a count of records —
-duplicate rows inflate it, and rows without a stable id cannot be resumed or exported. So this reports
-the dataset and collection it actually read, the total, the distinct ``_storage_id`` count, duplicates
-and rows missing an id, and it can refuse to pass silently (``--expect``).
+A total is not a count of records (#379): duplicate rows inflate it, and a row without a stable id can
+neither be resumed nor exported. So this reports the dataset and collection it actually read, the total,
+the distinct ``_storage_id`` count, duplicates and rows missing an id.
+
+This is reporting. The gate before a resubmission is ``scripts/ep24/preflight_pilot.py``, which asserts
+the pilot's identity, isolation and claim state and exits non-zero; keeping a second gate here would let
+the two drift apart.
 """
 from __future__ import annotations
 
@@ -23,57 +25,16 @@ load_private_env()
 
 from ep24_stage_orchestrator import countries, status_path
 from roihu_storage import MongoStorage, StorageConfig
+from ep24_status_identity import identity_summary
 
 STATES = ("claimed", "complete", "error", "retry", "skipped")
-
-
-def identity_summary(collection) -> dict:
-    """Total vs distinct stable ids, without assuming the collection is clean.
-
-    ``collection`` is anything that answers ``count_documents`` and ``distinct`` — a real pymongo
-    collection or a test double.
-    """
-    total = collection.count_documents({})
-    ids = [value for value in collection.distinct("_storage_id") if value not in (None, "")]
-    missing = collection.count_documents({"_storage_id": {"$in": [None, ""]}})
-    unique = len(ids)
-    return {
-        "total": total,
-        "unique": unique,
-        "duplicates": max(total - unique - missing, 0),
-        "missing_id": missing,
-    }
-
-
-def identity_failures(country: str, summary: dict, expect: int | None = None) -> list[str]:
-    """Why this country must not pass the runbook's hard stop. Empty list means it passed."""
-    failures: list[str] = []
-    if expect is not None and summary["unique"] != expect:
-        failures.append(
-            f"{country}: expected {expect} distinct ids, found {summary['unique']} "
-            f"(total={summary['total']}, duplicates={summary['duplicates']}, "
-            f"missing_id={summary['missing_id']})"
-        )
-    if summary["duplicates"] or summary["missing_id"]:
-        failures.append(
-            f"{country}: {summary['duplicates']} duplicate rows and "
-            f"{summary['missing_id']} rows without a stable id"
-        )
-    return failures
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--country")
-    parser.add_argument(
-        "--expect",
-        type=int,
-        default=None,
-        help="expected number of distinct stable ids per country; exit 2 when it does not match",
-    )
     args = parser.parse_args()
     selected = [args.country.casefold()] if args.country else countries()
-    failed: list[str] = []
     for country in selected:
         old = os.environ.get("LACLAUGPT_COUNTRY")
         os.environ["LACLAUGPT_COUNTRY"] = country
@@ -86,7 +47,6 @@ def main() -> int:
                 f"{country}: total={summary['total']} unique={summary['unique']} "
                 f"duplicates={summary['duplicates']} missing_id={summary['missing_id']}"
             )
-            failed.extend(identity_failures(country, summary, args.expect))
             for step in range(1, 10):
                 counts = {
                     state: coll.count_documents({f"{status_path(step)}.status": state})
@@ -99,11 +59,6 @@ def main() -> int:
                 os.environ.pop("LACLAUGPT_COUNTRY", None)
             else:
                 os.environ["LACLAUGPT_COUNTRY"] = old
-    if failed:
-        print("\nHARD STOP:", file=sys.stderr)
-        for line in failed:
-            print(f"  - {line}", file=sys.stderr)
-        return 2
     return 0
 
 
