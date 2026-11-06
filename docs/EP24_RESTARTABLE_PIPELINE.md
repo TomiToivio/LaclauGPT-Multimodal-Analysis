@@ -93,25 +93,22 @@ python scripts/ep24/ep24_status.py
 python scripts/ep24/ep24_status.py --country finland
 ```
 
-### Identity check before a resume (#379)
+### Identity in the progress view (#379)
 
-A total is not a count of records. Duplicate rows inflate it, and a row without `_storage_id` can neither
-be resumed nor exported. Before resubmitting an interrupted pilot, assert the expected number of
-**distinct** stable ids per country:
+A total is not a count of records: duplicate rows inflate it, and a row without `_storage_id` can neither
+be resumed nor exported. The progress view therefore prints the dataset and collection it actually read,
+then the total, the distinct id count, duplicates and rows missing an id:
 
-```bash
-for c in finland poland portugal; do
-  python scripts/ep24/ep24_status.py --country "$c" --expect 500 || exit 1
-done
+```
+finland: dataset=ep24_monday500_20261031 collection=laclaugpt_ep24_monday500_20261031_finland_dataframe
+finland: total=500 unique=500 duplicates=0 missing_id=0
 ```
 
-The command prints the dataset and collection it actually read, then
-`total=… unique=… duplicates=… missing_id=…`, and exits **2** when the distinct count differs from
-`--expect` or when any duplicate or id-less row exists. Exit 2 is the runbook's hard stop: investigate the
-collection, do not launch stages and do not bootstrap or truncate it.
-
-`--expect` is deliberately optional for day-to-day status checks: the pilot assertion belongs to the
-launch, not to every glance at progress.
+That is reporting. The **gate** before a resubmission is
+[`scripts/ep24/preflight_pilot.py`](../scripts/ep24/preflight_pilot.py), which asserts the pilot's identity,
+dataset isolation and stale claims and exits non-zero — one gate, one home. Do not add a second pass/fail
+check to the status command: two gates drift apart, and the one an operator did not run is the one that was
+right.
 
 ## Codebook, Memory and RAG context
 
