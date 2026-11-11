@@ -55,3 +55,38 @@ cross-country identity matches without evidence and the relevant data policy.
 pair CSV aggregator and Step 9 RDF projection. Full filtered interactive graphs
 belong in the separate Data Visualization application; this file defines the
 interoperability boundary, not a claim that its UI is already delivered.
+
+## Read-only cross-video event views
+
+`ep24_network_aggregation.aggregate_social_events` accepts cumulative persisted
+records and returns a deterministic, relation-specific event view, weighted
+projection, filtered metrics and source-item/evidence drilldown. Resolved
+`entity:` IDs join across videos; all other IDs are scoped to their document.
+Repeated copies of an event ID count once; conflicting copies fail closed.
+Missing evidence and malformed direction/confidence are rejected and counted.
+This validates the persisted evidence field, not the truth of its quotation.
+
+The CSV adapter never connects to MongoDB or submits jobs:
+
+```bash
+python scripts/ep24/export_social_network.py /private/fi.csv /private/pl.csv \
+  --relation mention --country finland --start 2026-01-01 --end 2026-12-31 \
+  --output /private/network_snapshots/mentions_001
+```
+
+Install `networkx>=3,<4` for GraphML/GEXF export. The destination must be new;
+files are private (0600), with a 0700 output directory and SHA-256 manifest.
+JSON contains the complete boundary, metrics, events, nodes and projection;
+CSV tables and GraphML/GEXF event graphs support downstream visualization.
+GraphML/GEXF use a directed container with the original `directed` event
+attribute preserved. The JSON projection expands undirected events to two arcs.
+Weights count distinct events; self events are retained but excluded from the
+simple loopless density. Isolates absent from selected events are not inferred.
+Dates are inclusive ISO timestamps; an end date alone means midnight. Missing
+or invalid dates are excluded when a time filter is active. Actor filtering
+selects incident events, suitable for an ego view. Confidence defaults to zero
+when absent, and is excluded by a positive minimum-confidence filter.
+
+This delivers the Step 8 aggregation/export interface. Step 6/7 multilayer
+aggregation, interactive application filters and RDF aggregation remain separate
+acceptance work; the existing Step 9 exporter still supplies per-record RDF.

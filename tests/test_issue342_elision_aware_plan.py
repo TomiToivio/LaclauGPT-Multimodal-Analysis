@@ -80,15 +80,15 @@ def test_failed_status_with_output_is_reported_not_retried():
     assert plan["6_discourse"]["failed_with_output"] == ["video:c"]
 
 
-def test_the_manifest_states_which_stages_were_paused(tmp_path: Path):
+def test_the_manifest_reports_reactivated_stages(tmp_path: Path):
     manifest = export.write_manifest(
         tmp_path, record_unit="video", countries={"finland": {"records": 1}},
         child_counts={}, collections_read={}, provenance={}, outputs=[],
         contract={"stage_coverage": {"finland": {"8_sna": {"records": 3, "available": True}}}})
-    assert manifest["paused_stages"] == [8, 9], "paused by default in the active run (#346)"
+    assert manifest["paused_stages"] == [], "all stages active by default (#380)"
     # scope never rewrites history: coverage still reports what the data holds
     assert manifest["stage_coverage"]["finland"]["8_sna"]["records"] == 3
-    assert json.loads((tmp_path / "MANIFEST.json").read_text())["paused_stages"] == [8, 9]
+    assert json.loads((tmp_path / "MANIFEST.json").read_text())["paused_stages"] == []
 
 
 def test_the_audit_does_not_call_a_paused_stage_anomalous(tmp_path: Path, monkeypatch):

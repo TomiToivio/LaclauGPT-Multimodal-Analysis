@@ -120,12 +120,12 @@ class TestDryRun:
         second = json.dumps(plan.plan_for_export(tmp_path, ACTIVE_STEPS, None), sort_keys=True)
         assert first == second, "a dry run that changes between invocations cannot be reviewed"
 
-    def test_paused_steps_are_not_planned(self, tmp_path: Path):
-        """#346: SNA and RDF are paused by default, so a dry run must not queue them."""
+    def test_reactivated_steps_are_planned(self, tmp_path: Path):
+        """#380: SNA and RDF are active without an environment opt-in."""
         build_export(tmp_path, healthy_corpus())
         doc = plan.plan_for_export(tmp_path, ACTIVE_STEPS, None)
-        for paused in ("8_sna", "9_rdf"):
-            assert paused not in doc["steps"], f"{paused} is paused and must not be planned"
+        for active in ("8_sna", "9_rdf"):
+            assert active in doc["steps"], f"{active} must be planned"
 
 
 class TestElision:
