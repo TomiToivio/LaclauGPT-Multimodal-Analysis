@@ -58,7 +58,7 @@ interoperability boundary, not a claim that its UI is already delivered.
 
 ## Read-only cross-video event views
 
-`ep24_network_aggregation.aggregate_social_events` accepts cumulative persisted
+`ep24_sna_aggregate.aggregate_social_events` accepts cumulative persisted
 records and returns a deterministic, relation-specific event view, weighted
 projection, filtered metrics and source-item/evidence drilldown. Resolved
 `entity:` IDs join across videos; all other IDs are scoped to their document.

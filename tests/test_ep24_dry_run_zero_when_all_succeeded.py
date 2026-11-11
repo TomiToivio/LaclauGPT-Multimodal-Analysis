@@ -120,12 +120,18 @@ class TestDryRun:
         second = json.dumps(plan.plan_for_export(tmp_path, ACTIVE_STEPS, None), sort_keys=True)
         assert first == second, "a dry run that changes between invocations cannot be reviewed"
 
-    def test_reactivated_steps_are_planned(self, tmp_path: Path):
-        """#380: SNA and RDF are active without an environment opt-in."""
+    def test_reactivated_steps_are_planned_again(self, tmp_path: Path):
+        """#380: SNA and RDF are back in the normal 1-9 chain, so a dry run may queue them.
+
+        #346 paused them and this test asserted the opposite. The newer decision wins, and the
+        assertion is inverted deliberately rather than deleted: a dry run that silently drops
+        Steps 8-9 is exactly what "paused" used to look like.
+        """
         build_export(tmp_path, healthy_corpus())
         doc = plan.plan_for_export(tmp_path, ACTIVE_STEPS, None)
-        for active in ("8_sna", "9_rdf"):
-            assert active in doc["steps"], f"{active} must be planned"
+        assert set(doc["steps"]) <= set(ACTIVE_STEPS)
+        assert "8_sna" in ACTIVE_STEPS and "9_rdf" in ACTIVE_STEPS
+        assert "8_sna" in doc["steps"] and "9_rdf" in doc["steps"]
 
 
 class TestElision:

@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from ep24_network_aggregation import aggregate_social_events
+from ep24_sna_aggregate import aggregate_social_events
 
 
 def export_view(view: dict, output: Path) -> None:

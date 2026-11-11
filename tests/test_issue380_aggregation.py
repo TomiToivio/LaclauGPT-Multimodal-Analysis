@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from ep24_network_aggregation import aggregate_social_events
+from ep24_sna_aggregate import aggregate_social_events
 
 
 def record(item, source="entity:a", target="entity:b", country="finland", **extra):
