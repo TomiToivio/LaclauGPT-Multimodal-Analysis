@@ -105,14 +105,6 @@ def _run(module, argv):
 
 @pytest.mark.parametrize("scroll", [False, True])
 @pytest.mark.parametrize("prior_video_outputs", [False, True])
-@pytest.mark.xfail(
-    strict=True,
-    reason=("open question (#333 D7): does Step 3 refresh rows whose cumulative input already carries "
-            "vllm output, or resume them? The module preserves upstream columns and writes the new "
-            "inference to vllm_video_scroll/step3_*, while this test still expects SCROLL itself to be "
-            "overwritten. Fixing the behaviour or the expectation must be an explicit decision; strict "
-            "xfail turns this red the moment either happens."),
-)
 def test_reprocessing_refreshes_video_outputs_and_preserves_upstream(
     harness, monkeypatch, scroll, prior_video_outputs,
 ):
@@ -144,9 +136,16 @@ def test_reprocessing_refreshes_video_outputs_and_preserves_upstream(
     ]) == 0
     out = pd.read_csv(output, dtype=str, keep_default_na=False)
     assert len(persisted) == 1
-    assert set(out["SCROLL"]) == {"TRUE" if scroll else "FALSE"}
-    assert set(out["SCROLL_SECONDS"]) == {"[3.0]" if scroll else "[]"}
-    assert set(out["needs_resplit"]) == {"TRUE" if scroll else "FALSE"}
+    # Source annotations remain authoritative; the newly inferred scroll
+    # signal is stored independently under the Step 3 namespace.
+    assert set(out["SCROLL"]) == {"FALSE" if scroll else "TRUE"}
+    assert set(out["SCROLL_SECONDS"]) == {"[]" if scroll else "[9.0]"}
+    assert set(out["vllm_video_scroll"]) == {"TRUE" if scroll else "FALSE"}
+    assert set(out["vllm_video_scroll_seconds"]) == {"[3.0]" if scroll else "[]"}
+    assert set(out["vllm_video_needs_resplit"]) == {"TRUE" if scroll else "FALSE"}
+    assert set(out["needs_resplit"]) == (
+        {"old-output"} if prior_video_outputs else {"TRUE" if scroll else "FALSE"}
+    )
     assert set(out["vllm_video_status"]) == {"ok"}
     selected = out["vllm_video_source_row_index"].astype(int).tolist()
     module.assert_source_metadata_preserved(

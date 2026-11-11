@@ -93,6 +93,7 @@ def test_mongo_persistence_uses_patch_upserts_not_document_replacement(monkeypat
     class FakeCollection:
         def update_one(self, query, update, upsert=False):
             calls.append((query, update, upsert))
+            return type("Result", (), {"matched_count": 1})()
 
     class FakeDB(dict):
         def __getitem__(self, key):
@@ -116,6 +117,7 @@ def test_mongo_persistence_uses_patch_upserts_not_document_replacement(monkeypat
             {
                 "video_id": "vid-1",
                 "country": "Finland",
+                "_storage_id": "fi:vid-1",
                 "custom_prior_field": "keep",
                 "vllm_video_analysis": "analysis",
                 "vllm_video_prompt_sha256": "abc",
@@ -128,14 +130,15 @@ def test_mongo_persistence_uses_patch_upserts_not_document_replacement(monkeypat
     assert status == "mongo_ok:1"
     assert len(calls) == 1
     query, update, upsert = calls[0]
-    assert query["_storage_id"]
-    assert upsert is True
+    # Canonical Stage 3 must patch existing records, not insert new ones.
+    assert query == {"_storage_id": "fi:vid-1"}
+    assert upsert is False
     assert "$set" in update
-    assert "$setOnInsert" in update
+    assert "$setOnInsert" not in update
     assert "_storage_id" not in update["$set"]
-    assert update["$setOnInsert"]["_storage_id"] == query["_storage_id"]
-    assert update["$set"]["custom_prior_field"] == "keep"
+    assert "custom_prior_field" not in update["$set"]
     assert update["$set"]["vllm_video_analysis"] == "analysis"
+    assert "_provenance.step3_video" in update["$set"]
 
 
 def test_step3_production_wrapper_still_processes_all_rows_by_default():
