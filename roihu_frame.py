@@ -168,8 +168,8 @@ video with an unusable 1.0s keyframe."""
         "Prefer direct observation over background context.\\n\\n"
         f"Limited EP24 context (not primary visual evidence):\\n{row_context}"
     )
-    model = ollama_model()
-    logger.info("model=%s model_source=%s", model, ollama_model_source())
+    model = ollama_model(stage=2)
+    logger.info("model=%s model_source=%s", model, ollama_model_source(stage=2))
     logger.debug("model=%s frame_file=%s cumulative_context_chars=%d", model, frame_file, len(row_context))
     logger.debug("cumulative_context=\n%s", _preview(row_context, max(LOG_PREVIEW_CHARS, 10000)))
     frame_analysis = ''
@@ -321,7 +321,7 @@ def analyze_videos(language=None):
         "startup input=%s output=%s model=%s sqlite=%s expected_timestamp=%.1f",
         filename,
         output,
-        ollama_model(),
+        ollama_model(stage=2),
         DB_PATH,
         FRAME_TIMESTAMP_SECONDS,
     )
@@ -351,7 +351,7 @@ def analyze_videos(language=None):
             video_id = ep24_value(row, "video_id")
             author_username = ep24_value(row, "author_username")
             platform = _detect_platform(row)
-            model = ollama_model()
+            model = ollama_model(stage=2)
 
             logger.debug(
                 "row_start index=%s source_id=%s platform=%s author=%s video_id=%s incoming_fields=%d",

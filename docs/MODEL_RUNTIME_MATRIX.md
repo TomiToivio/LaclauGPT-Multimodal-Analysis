@@ -1,5 +1,56 @@
 # Model and runtime selection for the Roihu pipeline
 
+## Stage-specific routing (#378, 2026-11-11)
+
+The active Ollama workers and numbered Slurm launchers now resolve the same
+stage-specific model through `ep24_models.py`. Step 6 is pinned to
+`qwen3.8:27b` independently of shared overrides; a conflicting
+`LACLAUGPT_STEP_6_MODEL` fails before starting inference.
+
+The default `LACLAUGPT_MODEL_PROFILE=preserve` retains the previous shared
+selection for other stages so restarting Monday500 does not silently migrate
+models. For an isolated validation run, select `small-candidate` in its private
+env file. This is a candidate configuration, **not evidence of quality approval**.
+
+| Step | Small-candidate Ollama model |
+|---|---|
+| 2 | `qwen3-vl:8b-instruct-q4_K_M` (image input) |
+| 4 | `qwen3:8b-q4_K_M` |
+| 5 | `qwen3:4b-q4_K_M` |
+| 6 | `qwen3.8:27b` (pinned) |
+| 7 | `qwen3:8b-q4_K_M` |
+| 8 | `qwen3:4b-q4_K_M` |
+
+`LACLAUGPT_STEP_N_MODEL` overrides only stage N (except the fixed Step 6).
+For example, an explicitly reviewed Step 5 fallback can set
+`LACLAUGPT_STEP_5_MODEL=qwen3:8b-q4_K_M`. The old shared helper remains available
+for entity adjudication and historical callers. Workers record the effective
+model and its selection source in their existing logs/metadata/cache keys.
+The Slurm helper uses the same resolver to prestage the actual worker model.
+
+Step 3 remains separately configured: for the candidate run explicitly set
+`LACLAUGPT_VLLM_TEST_MODEL=Qwen/Qwen3-VL-8B-Instruct`; its historical 32B default
+is preserved pending the live migration gate. Step 1 is unchanged and Step 9
+has no LLM. This profile does not invalidate or reset completed Mongo stages.
+
+Exact candidate tags and Q4_K_M packaging were checked against the official
+[8B text](https://ollama.com/library/qwen3:8b-q4_K_M),
+[4B text](https://ollama.com/library/qwen3:4b-q4_K_M), and
+[vision tag listing](https://ollama.com/library/qwen3-vl/tags).
+Tags are not immutable weight hashes: record installed model digests, runtime
+versions and prompt hashes in the private benchmark before promotion.
+
+Still required for #378 closure: offline weight availability on GH200,
+FI/PL/PT plus remaining-country human/evidence quality comparisons, throughput
+and VRAM measurements, unchanged Step 6 verification, interruption/restart,
+and independent backup/restore checks. Do not apply the candidate profile to
+an existing run without its explicit model/provenance review.
+
+The following #144 benchmark record is historical; its shared-model discussion
+predates this stage-specific routing.
+
+---
+
 Issue: #144 — *Research optimal Ollama/vLLM model and runtime for each Roihu analysis step.*
 
 Scope: **documentation only.** This record describes model and runtime selection and the evidence needed to benchmark choices. Step 3 now defaults to 32B by user request, not because 32B quality or memory have been measured on Roihu.

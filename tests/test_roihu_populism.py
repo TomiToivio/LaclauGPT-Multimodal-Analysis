@@ -243,7 +243,11 @@ def test_prompt_does_not_feed_previous_step6_output_back_into_rerun():
 
 
 def test_mongo_resume_requires_exact_prompt_model_and_context(monkeypatch):
-    monkeypatch.setattr("roihu_populism.ollama_model", lambda: "model-a")
+    def model_for_stage(*, stage):
+        assert stage == 6
+        return "model-a"
+
+    monkeypatch.setattr("roihu_populism.ollama_model", model_for_stage)
 
     class Storage:
         def __init__(self, doc):

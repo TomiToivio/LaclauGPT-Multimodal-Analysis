@@ -98,13 +98,18 @@ roihu_diagnostics() {
 }
 
 roihu_start_ollama() {
-  local model="${LACLAUGPT_MULTIMODAL_MODEL:-qwen3.8:27b}"
+  local model
+  if [[ -n "${1:-}" ]]; then
+    model="$(python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_models.py" --stage "$1")" || return 2
+  else
+    model="${LACLAUGPT_MULTIMODAL_MODEL:-qwen3.8:27b}"
+  fi
+  echo "Ollama step=${1:-legacy} model=${model} profile=${LACLAUGPT_MODEL_PROFILE:-preserve}"
   local install_root="${OLLAMA_INSTALL_ROOT:-${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/.ollama}"
   export PATH="${install_root}/bin:${PATH}"
   export LD_LIBRARY_PATH="${install_root}/lib/ollama${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
   export OLLAMA_MODELS="${OLLAMA_MODELS:-${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/.ollama/models}"
   export OLLAMA_HOST="127.0.0.1:$((20000 + ${SLURM_JOB_ID:-1} % 20000))"
-  export LACLAUGPT_MULTIMODAL_MODEL="${model}"
   mkdir -p "${OLLAMA_MODELS}"
   command -v ollama >/dev/null 2>&1 || {
     echo "Ollama not installed. Run scripts/roihu/install_roihu.sh or set OLLAMA_INSTALL_ROOT." >&2

@@ -167,7 +167,7 @@ def sna_evidence_report(row, *, model: str | None = None) -> tuple[str, dict, st
     digest = effective_prompt_fingerprint(
         EXTRACTION_SYSTEM,
         f"{PROMPT_VERSION}\n{packet.text}",
-        model or ollama_model(),
+        model or ollama_model(stage=8),
         {"temperature": 0.0, "num_ctx": 8192},
     )
     return packet.text, report, digest
@@ -348,8 +348,8 @@ def run_language(lang: str) -> Path | None:
         if column not in df.columns:
             df[column] = ""
 
-    model = ollama_model()
-    LOG.info("model=%s model_source=%s", model, ollama_model_source())
+    model = ollama_model(stage=8)
+    LOG.info("model=%s model_source=%s", model, ollama_model_source(stage=8))
     all_nodes: list[dict] = []
     all_edges: list[dict] = []
 
