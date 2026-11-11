@@ -2,11 +2,13 @@
 # #373: explicit read-only planning unless --execute and sample approval are provided.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-MODE="${1:?Usage: run_ep24_rollout.sh continue|fresh [--execute --approval-file PATH] [--input-root PATH]}"
+MODE="${1:?Usage: run_ep24_rollout.sh continue|fresh [--execute] [--approval-file PATH] [--input-root PATH]}"
 shift
 [[ "${MODE}" == "continue" || "${MODE}" == "fresh" ]] || { echo "Expected continue|fresh" >&2; exit 2; }
 EXECUTE=0
-APPROVAL=""
+PRIVATE_ROOT="${LACLAUGPT_EP24_PRIVATE_ROOT:-/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess}"
+# Private, persistent operator sign-off. Never generate approval automatically.
+APPROVAL="${LACLAUGPT_EP24_APPROVAL_FILE:-${PRIVATE_ROOT}/ep24_sample_approved.txt}"
 INPUT_ROOT="${LACLAUGPT_EP24_INPUT_ROOT:-/scratch/project_2009497/LaclauGPT-Private/analysis/ep24_reprocess/data/to_reprocess}"
 while (($#)); do
   case "$1" in
@@ -19,7 +21,12 @@ while (($#)); do
 done
 ARGS=(--mode "${MODE}" --input-root "${INPUT_ROOT}")
 if (( EXECUTE )); then
-  [[ -f "${APPROVAL}" && -s "${APPROVAL}" ]] || { echo "Sample approval file required for execution" >&2; exit 2; }
+  [[ -f "${APPROVAL}" && -s "${APPROVAL}" ]] || {
+    echo "Sample approval file missing/empty: ${APPROVAL}" >&2
+    echo "Review the dry-run and create a signed approval file before --execute." >&2
+    exit 2
+  }
+  echo "Using sample approval: ${APPROVAL}" >&2
   [[ "${LACLAUGPT_DATASET:-ep2024_reprocess}" == "ep2024_reprocess" ]] || {
     echo "Verify and explicitly configure the correct sample namespace before executing" >&2; exit 2;
   }
