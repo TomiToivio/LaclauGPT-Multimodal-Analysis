@@ -9,9 +9,13 @@ would have changed without a single error in the log.
 from __future__ import annotations
 
 import json
+import subprocess
+
 # The module under test lives at the repository root, next to the stage scripts.
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -24,6 +28,7 @@ def clear(monkeypatch):
     for stage in ep24_models.STAGES:
         monkeypatch.delenv(ep24_models.STAGE_ENV.format(stage=stage), raising=False)
         monkeypatch.delenv(f"LACLAUGPT_STEP{stage}_MODEL", raising=False)
+    monkeypatch.delenv("LACLAUGPT_MODEL_PROFILE", raising=False)
 
 
 def test_each_stage_has_its_own_default(monkeypatch):
@@ -127,3 +132,58 @@ def test_deployed_stage_variable_reaches_runtime_and_provenance(monkeypatch):
     monkeypatch.setenv("LACLAUGPT_EP24_MODEL_STEP_5", "explicit:4b")
     assert ep24_models.stage_model(5).name == "explicit:4b"
     assert ep24_models.stage_ollama_model(5) == "explicit:4b"
+
+
+# --------------------------------------------------------------------------- #
+# The deployed candidate profile (#396): the worker, the launcher and the cache key must agree on
+# which model a stage resolves to. The profile is a *named* choice, so it outranks a stray
+# LACLAUGPT_MULTIMODAL_MODEL and loses to an explicit per-stage variable.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("stage", sorted(ep24_models.STAGE_MODELS))
+def test_candidate_worker_and_launcher_agree(stage, monkeypatch):
+    clear(monkeypatch)
+    monkeypatch.setenv("LACLAUGPT_MODEL_PROFILE", "small-candidate")
+    monkeypatch.setenv("LACLAUGPT_MULTIMODAL_MODEL", "wrong-shared:4b")
+    expected = ep24_models.STAGE_MODELS[stage]
+    assert ep24_models.stage_ollama_model(stage) == expected
+    result = subprocess.run(
+        ["python3", str(ROOT / "ep24_models.py"), "--stage", str(stage), "--json"],
+        capture_output=True, text=True, check=True,
+    )
+    assert json.loads(result.stdout)[0]["model"] == expected
+
+
+def test_preserve_profile_keeps_pilot_selection(monkeypatch):
+    clear(monkeypatch)
+    monkeypatch.setenv("LACLAUGPT_MULTIMODAL_MODEL", "pilot:model")
+    assert ep24_models.stage_ollama_model(7) == "pilot:model"
+    assert ep24_models.stage_ollama_model(6) == "qwen3.8:27b"
+
+
+def test_stage_override_is_local_and_reported(monkeypatch):
+    clear(monkeypatch)
+    monkeypatch.setenv("LACLAUGPT_MODEL_PROFILE", "small-candidate")
+    monkeypatch.setenv("LACLAUGPT_STEP5_MODEL", "qwen3:8b-q4_K_M")
+    assert ep24_models.stage_ollama_model(5) == "qwen3:8b-q4_K_M"
+    assert ep24_models.stage_ollama_model_source(5) == "LACLAUGPT_STEP5_MODEL"
+    assert ep24_models.stage_ollama_model(8) == ep24_models.STAGE_MODELS[8]
+    assert ep24_models.stage_ollama_model(6) == "qwen3.8:27b"
+
+
+def test_step6_rejects_accidental_small_override(monkeypatch):
+    clear(monkeypatch)
+    monkeypatch.setenv("LACLAUGPT_STEP6_MODEL", "qwen3:8b-q4_K_M")
+    with pytest.raises(ValueError, match="pinned"):
+        ep24_models.stage_ollama_model(6)
+
+
+def test_unknown_profile_and_non_llm_stages_fail_closed(monkeypatch):
+    clear(monkeypatch)
+    monkeypatch.setenv("LACLAUGPT_MODEL_PROFILE", "typo")
+    with pytest.raises(ValueError, match="Unknown model profile"):
+        ep24_models.stage_ollama_model(7)
+    for stage in (1, 3, 9):
+        with pytest.raises(ValueError, match="Unsupported Ollama"):
+            ep24_models.stage_ollama_model(stage)

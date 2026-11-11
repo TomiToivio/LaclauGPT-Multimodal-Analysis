@@ -92,6 +92,15 @@ def stage_model(stage: int) -> StageModel:
         return StageModel(stage, legacy, str(spec["backend"]), legacy_env, pinned,
                           str(spec["note"]))
 
+    # #396: a named candidate profile for the stages that are not pinned. It sits below an explicit
+    # per-stage variable (a choice somebody made) and above the shared override (a default left lying
+    # around), so "small-candidate" cannot be defeated by an inherited LACLAUGPT_MULTIMODAL_MODEL.
+    if not pinned and model_profile() == "small-candidate":
+        candidate = STAGE_MODELS.get(stage)
+        if candidate:
+            return StageModel(stage, candidate, str(spec["backend"]), "small-candidate", pinned,
+                              str(spec["note"]))
+
     shared = (os.getenv(SHARED_ENV) or "").strip()
     if shared and not pinned:
         return StageModel(stage, shared, str(spec["backend"]), SHARED_ENV, pinned,
@@ -166,9 +175,6 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-
 
 # --------------------------------------------------------------------------- #
 # Backwards compatibility (#156)
@@ -198,6 +204,23 @@ def ollama_model_source(*, specific_env: str | None = None) -> str:
     return "repository_default"
 
 
+STAGE_MODELS = {
+    2: "qwen3-vl:8b-instruct-q4_K_M",
+    4: "qwen3:8b-q4_K_M",
+    5: "qwen3:4b-q4_K_M",
+    6: DEFAULT_OLLAMA_MODEL,
+    7: "qwen3:8b-q4_K_M",
+    8: "qwen3:4b-q4_K_M",
+}
+
+
+def model_profile() -> str:
+    profile = os.getenv("LACLAUGPT_MODEL_PROFILE", "preserve")
+    if profile not in {"preserve", "small-candidate"}:
+        raise ValueError(f"Unknown model profile: {profile}")
+    return profile
+
+
 def stage_ollama_model(step: int) -> str:
     """Compatibility adapter for the deployed Ollama stage resolver."""
     if step not in (2, 4, 5, 6, 7, 8):
@@ -212,3 +235,7 @@ def stage_ollama_model_source(step: int) -> str:
     if step == 6 and source == "repository_default":
         return "step6_pinned_27b_default"
     return source
+
+
+if __name__ == "__main__":  # noqa: E402 — must stay last: the CLI resolves through names defined below it
+    raise SystemExit(main())
