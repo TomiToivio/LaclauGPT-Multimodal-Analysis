@@ -86,7 +86,9 @@ def test_a_half_finished_country_resumes_per_record_not_per_offset():
 
 
 def test_a_finished_country_has_nothing_outstanding():
-    docs = [_record("fi", step_complete=7) for _ in range(500)]
+    # #380 reactivated Steps 8 and 9, so "finished" now means through Step 9, not through Step 7.
+    # A country complete at 7 has two outstanding stages and is no longer a finished country.
+    docs = [_record("fi", step_complete=9) for _ in range(500)]
     plan = rollout.plan_country(FakeCollection(docs), "fi")
     assert plan["outstanding"] == 0
     assert plan["complete_through_final_step"] is True
@@ -146,8 +148,9 @@ def test_approval_lets_the_submission_through(monkeypatch):
 
 def test_a_finished_country_is_not_submitted(monkeypatch):
     monkeypatch.setenv("EP24_SAMPLE_APPROVED", "1")
+    # #380: complete-through-7 is no longer "finished"; Step 9 is the final active stage.
     monkeypatch.setattr(rollout, "_collection_from_settings",
-                        lambda: FakeCollection([_record("fi", step_complete=7)]))
+                        lambda: FakeCollection([_record("fi", step_complete=9)]))
     called = []
     monkeypatch.setattr(rollout, "submit_country", lambda country, **k: called.append(country) or 0)
 
