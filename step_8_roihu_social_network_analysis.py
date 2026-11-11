@@ -27,6 +27,7 @@ from ep24_pipeline import (
     write_cumulative_csv,
 )
 from ep24_sna import (
+    extended_metrics,
     SNA_SCHEMA_VERSION,
     apply_reconciliation_metrics,
     basic_metrics,
@@ -395,6 +396,8 @@ def run_language(lang: str) -> Path | None:
                 "no_supported_actor_relation" if not edges else ""
             )
             metrics = apply_reconciliation_metrics(metrics, reconciliation)
+            # #380 bullet 4: textbook measures, each carrying its own applicability statement.
+            metrics["extended"] = extended_metrics(nodes, edges)
             if reconciliation["merged_count"] or reconciliation["ambiguous_count"]:
                 LOG.info(
                     "identity reconciliation row=%s merged=%d ambiguous=%d unresolved=%d",
