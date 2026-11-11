@@ -568,19 +568,39 @@ def basic_metrics(
         components.append(sorted(component))
 
     n = len(node_ids)
-    unique_arcs = {
-        (_text(edge.get("source")), _text(edge.get("target")))
-        for edge in edge_rows
-        if _text(edge.get("source")) in node_ids and _text(edge.get("target")) in node_ids
-    }
-    # Density is defined on the simple directed projection of the multigraph.
-    # Parallel relations do not produce more possible actor-to-actor pairs.
-    unique_arcs = {(a, b) for a, b in unique_arcs if a != b}
-    density = (len(unique_arcs) / (n * (n - 1))) if n > 1 else 0.0
+    # A directed simple projection counts each ordered pair once. Undirected
+    # observations contribute both orientations; parallel events do not
+    # inflate degree, density, or normalized centrality.
+    unique_arcs: set[tuple[str, str]] = set()
+    for edge in edge_rows:
+        a, b = _text(edge.get("source")), _text(edge.get("target"))
+        if a not in node_ids or b not in node_ids or a == b:
+            continue
+        unique_arcs.add((a, b))
+        if not bool(edge.get("directed", True)):
+            unique_arcs.add((b, a))
+    simple_out = {node_id: 0 for node_id in node_ids}
+    simple_in = {node_id: 0 for node_id in node_ids}
+    for a, b in unique_arcs:
+        simple_out[a] += 1
+        simple_in[b] += 1
+    n = len(node_ids)
+    denominator = n * (n - 1)
+    density = len(unique_arcs) / denominator if denominator else 0.0
     centrality = {
         node_id: (degree[node_id] / (2 * (n - 1)) if n > 1 else 0.0)
         for node_id in node_ids
+    }  # Legacy event-degree measure; can exceed 1 with parallel events.
+    simple_in_centrality = {
+        node_id: (simple_in[node_id] / (n - 1) if n > 1 else 0.0)
+        for node_id in node_ids
     }
+    simple_out_centrality = {
+        node_id: (simple_out[node_id] / (n - 1) if n > 1 else 0.0)
+        for node_id in node_ids
+    }
+    reciprocated = sum((b, a) in unique_arcs for a, b in unique_arcs)
+    reciprocity = reciprocated / len(unique_arcs) if unique_arcs else 0.0
 
     return {
         "schema_version": SNA_SCHEMA_VERSION,
@@ -601,6 +621,11 @@ def basic_metrics(
         "out_degree": dict(sorted(out_degree.items())),
         "weighted_degree": dict(sorted(weighted_degree.items())),
         "degree_centrality": dict(sorted(centrality.items())),
+        "simple_in_degree": dict(sorted(simple_in.items())),
+        "simple_out_degree": dict(sorted(simple_out.items())),
+        "simple_in_degree_centrality": dict(sorted(simple_in_centrality.items())),
+        "simple_out_degree_centrality": dict(sorted(simple_out_centrality.items())),
+        "simple_directed_reciprocity": reciprocity,
     }
 
 
@@ -705,6 +730,7 @@ def render_markdown_report(
             f"- Simple directed density (unique pairs): {float(metrics.get('density', 0.0)):.6f}",
             f"- Unique directed actor pairs: {metrics.get('unique_directed_pair_count', 0)}",
             f"- Relations per pair: {float(metrics.get('mean_relations_per_pair', 0.0)):.3f}",
+            f"- Directed simple-projection reciprocity: {float(metrics.get('simple_directed_reciprocity', 0.0)):.3f}",
             "",
             "## Most connected nodes",
             *top_lines,
