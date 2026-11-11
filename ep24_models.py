@@ -25,6 +25,23 @@ def ollama_model_source(*, specific_env: str | None = None) -> str:
     return "repository_default"
 
 
+STAGE_MODELS = {
+    2: "qwen3-vl:8b-instruct-q4_K_M",
+    4: "qwen3:8b-q4_K_M",
+    5: "qwen3:4b-q4_K_M",
+    6: DEFAULT_OLLAMA_MODEL,
+    7: "qwen3:8b-q4_K_M",
+    8: "qwen3:4b-q4_K_M",
+}
+
+
+def model_profile() -> str:
+    profile = os.getenv("LACLAUGPT_MODEL_PROFILE", "preserve")
+    if profile not in {"preserve", "small-candidate"}:
+        raise ValueError(f"Unknown model profile: {profile}")
+    return profile
+
+
 def stage_ollama_model(step: int) -> str:
     """Resolve a pinned per-stage model without leaking shared defaults into Step 6.
 
@@ -41,6 +58,8 @@ def stage_ollama_model(step: int) -> str:
                 f"Step 6 is pinned to {DEFAULT_OLLAMA_MODEL}; refusing {configured!r}"
             )
         return configured
+    if model_profile() == "small-candidate" and not os.getenv(key):
+        return STAGE_MODELS[step]
     return ollama_model(specific_env=key)
 
 
@@ -51,4 +70,15 @@ def stage_ollama_model_source(step: int) -> str:
         return key
     if step == 6:
         return "step6_pinned_27b_default"
+    if model_profile() == "small-candidate":
+        return "small-candidate"
     return ollama_model_source(specific_env=key)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Resolve the same model as the stage runner")
+    parser.add_argument("--stage", type=int, required=True, choices=sorted(STAGE_MODELS))
+    args = parser.parse_args()
+    print(stage_ollama_model(args.stage))
