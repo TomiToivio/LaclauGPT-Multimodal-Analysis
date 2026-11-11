@@ -35,7 +35,12 @@ def stage_ollama_model(step: int) -> str:
         raise ValueError(f"Unsupported Ollama model stage: {step}")
     key = f"LACLAUGPT_STEP{step}_MODEL"
     if step == 6:
-        return os.getenv(key) or DEFAULT_OLLAMA_MODEL
+        configured = os.getenv(key) or DEFAULT_OLLAMA_MODEL
+        if configured != DEFAULT_OLLAMA_MODEL:
+            raise ValueError(
+                f"Step 6 is pinned to {DEFAULT_OLLAMA_MODEL}; refusing {configured!r}"
+            )
+        return configured
     return ollama_model(specific_env=key)
 
 
