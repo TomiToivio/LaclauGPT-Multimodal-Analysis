@@ -23,3 +23,27 @@ def ollama_model_source(*, specific_env: str | None = None) -> str:
     if os.getenv("LACLAUGPT_MULTIMODAL_MODEL"):
         return "LACLAUGPT_MULTIMODAL_MODEL"
     return "repository_default"
+
+
+def stage_ollama_model(step: int) -> str:
+    """Resolve a pinned per-stage model without leaking shared defaults into Step 6.
+
+    Model migration is opt-in for other stages until validation of exact model
+    tags/quantization on Roihu. Step 6 retains its independent 27B baseline.
+    """
+    if step not in (2, 4, 5, 6, 7, 8):
+        raise ValueError(f"Unsupported Ollama model stage: {step}")
+    key = f"LACLAUGPT_STEP{step}_MODEL"
+    if step == 6:
+        return os.getenv(key) or DEFAULT_OLLAMA_MODEL
+    return ollama_model(specific_env=key)
+
+
+def stage_ollama_model_source(step: int) -> str:
+    """Describe which variable selected a stage's model."""
+    key = f"LACLAUGPT_STEP{step}_MODEL"
+    if os.getenv(key):
+        return key
+    if step == 6:
+        return "step6_pinned_27b_default"
+    return ollama_model_source(specific_env=key)
