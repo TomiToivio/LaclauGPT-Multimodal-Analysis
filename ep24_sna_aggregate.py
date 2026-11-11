@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import csv
 import json
-from collections import defaultdict
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 from xml.sax.saxutils import escape
 
 from ep24_sna import basic_metrics
@@ -190,23 +190,18 @@ def _graphml(view: Mapping[str, Any]) -> str:
         '<key id="label" for="node" attr.name="label" attr.type="string"/>',
         '<key id="relation" for="edge" attr.name="relation" attr.type="string"/>',
         '<key id="weight" for="edge" attr.name="weight" attr.type="int"/>',
-        '<graph id="%s" edgedefault="directed">' % escape(str(view.get("name", "view"))),
+        f'<graph id="{escape(str(view.get("name", "view")))}" edgedefault="directed">',
     ]
     for node in sorted(view.get("nodes") or [], key=lambda n: str(n.get("node_id"))):
         lines.append(
-            '<node id="%s"><data key="label">%s</data></node>'
-            % (escape(str(node.get("node_id"))), escape(str(node.get("label") or "")))
+            f'<node id="{escape(str(node.get("node_id")))}">'
+            f'<data key="label">{escape(str(node.get("label") or ""))}</data></node>'
         )
     for edge in sorted(view.get("edges") or [], key=lambda e: (str(e.get("source")), str(e.get("target")), str(e.get("relation_type")))):
         lines.append(
-            '<edge source="%s" target="%s"><data key="relation">%s</data>'
-            '<data key="weight">%d</data></edge>'
-            % (
-                escape(str(edge.get("source"))),
-                escape(str(edge.get("target"))),
-                escape(str(edge.get("relation_type") or "")),
-                int(edge.get("weight", 1) or 1),
-            )
+            f'<edge source="{escape(str(edge.get("source")))}" target="{escape(str(edge.get("target")))}">'
+            f'<data key="relation">{escape(str(edge.get("relation_type") or ""))}</data>'
+            f'<data key="weight">{int(edge.get("weight", 1) or 1)}</data></edge>'
         )
     lines.extend(["</graph>", "</graphml>", ""])
     return "\n".join(lines)

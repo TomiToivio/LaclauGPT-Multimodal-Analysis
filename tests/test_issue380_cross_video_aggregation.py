@@ -10,8 +10,6 @@ import csv
 import json
 import xml.etree.ElementTree as ET
 
-import pytest
-
 from ep24_sna_aggregate import aggregate_edges, dedupe_events, export_view, views
 
 
