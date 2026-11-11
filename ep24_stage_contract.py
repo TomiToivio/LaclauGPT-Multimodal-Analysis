@@ -99,6 +99,8 @@ STAGE_CONTRACT: tuple[Stage, ...] = (
          "vllm_video_runtime_seconds", "vllm_video_selected_index", "vllm_video_prompt",
          "vllm_video_context_sha256", "vllm_video_persistence_status",
          "SCROLL", "SCROLL_SECONDS", "needs_resplit", "video_initial_skip_seconds",
+         "vllm_video_scroll", "vllm_video_scroll_seconds",
+         "vllm_video_needs_resplit", "vllm_video_video_initial_skip_seconds",
          "vllm_video_api", "vllm_video_analyzed_duration_seconds",
          "vllm_video_inference_seconds", "vllm_video_prompt_hash",
          "vllm_version", "vllm_torch_version", "vllm_cuda_version", "vllm_gpu_name",
