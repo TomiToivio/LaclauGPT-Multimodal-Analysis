@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ep24_models import ollama_model, ollama_model_source
+from ep24_models import ollama_model, ollama_model_source, stage_ollama_model, stage_ollama_model_source
 from ep24_pipeline import (
     ensure_columns,
     load_cumulative_csv,
@@ -190,7 +190,7 @@ def _patch_mongo_dataframe(frame: pd.DataFrame, *, fields: tuple[str, ...], stag
                     doc[field] = row.get(field, "")
             doc[f"_provenance.{stage}"] = {
                 "pipeline_stage": stage,
-                "model": ollama_model(stage=5),
+                "model": stage_ollama_model(5),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             documents.append(doc)
@@ -247,8 +247,8 @@ def get_response(user_prompt, system_prompt):
     logger.info(
         "model_call_start model=%s model_source=%s num_ctx=%d num_predict=%d "
         "prompt_chars=%d approx_tokens=%d",
-        ollama_model(stage=5),
-        ollama_model_source(stage=5),
+        stage_ollama_model(5),
+        stage_ollama_model_source(5),
         num_ctx,
         options["num_predict"],
         len(system_prompt) + len(user_prompt),
@@ -265,7 +265,7 @@ def get_response(user_prompt, system_prompt):
         import ollama
 
         response = ollama.chat(
-            model=ollama_model(stage=5),
+            model=stage_ollama_model(5),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -387,7 +387,7 @@ def analyze_responses(language=None):
         len(df),
         len(df.columns),
         language or "",
-        ollama_model(stage=5),
+        stage_ollama_model(5),
         postprocess_num_ctx(),
         postprocess_num_predict(),
         config.mongo_enabled,

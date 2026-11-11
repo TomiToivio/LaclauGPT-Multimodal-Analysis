@@ -5,7 +5,7 @@
 The active Ollama workers and numbered Slurm launchers now resolve the same
 stage-specific model through `ep24_models.py`. Step 6 is pinned to
 `qwen3.8:27b` independently of shared overrides; a conflicting
-`LACLAUGPT_STEP_6_MODEL` fails before starting inference.
+`LACLAUGPT_STEP6_MODEL` fails before starting inference.
 
 The default `LACLAUGPT_MODEL_PROFILE=preserve` retains the previous shared
 selection for other stages so restarting Monday500 does not silently migrate
@@ -21,9 +21,9 @@ env file. This is a candidate configuration, **not evidence of quality approval*
 | 7 | `qwen3:8b-q4_K_M` |
 | 8 | `qwen3:4b-q4_K_M` |
 
-`LACLAUGPT_STEP_N_MODEL` overrides only stage N (except the fixed Step 6).
+`LACLAUGPT_STEP{N}_MODEL` overrides only stage N (except the fixed Step 6).
 For example, an explicitly reviewed Step 5 fallback can set
-`LACLAUGPT_STEP_5_MODEL=qwen3:8b-q4_K_M`. The old shared helper remains available
+`LACLAUGPT_STEP5_MODEL=qwen3:8b-q4_K_M`. The old shared helper remains available
 for entity adjudication and historical callers. Workers record the effective
 model and its selection source in their existing logs/metadata/cache keys.
 The Slurm helper uses the same resolver to prestage the actual worker model.

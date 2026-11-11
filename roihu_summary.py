@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ep24_db import country_storage
 from ep24_memory import retrieve_researcher_memory
-from ep24_models import ollama_model, ollama_model_source
+from ep24_models import ollama_model, ollama_model_source, stage_ollama_model, stage_ollama_model_source
 from ep24_pipeline import load_cumulative_csv, metadata_context, write_cumulative_csv
 from ep24_prompt_contract import build_stage_packet
 from ep24_rag import retrieve_stage_rag, upsert_stage_rag
@@ -375,12 +375,12 @@ def _summary_options():
 
 def get_llama_summary_response(system_prompt, user_prompt, *, model=None):
     """Get the configured Ollama model's response for the summary analysis."""
-    selected_model = model or ollama_model(stage=4)
+    selected_model = model or stage_ollama_model(4)
     options = _summary_options()
     logger.info(
         "model_call_start model=%s model_source=%s num_ctx=%s num_predict=%s",
         selected_model,
-        ollama_model_source(stage=4),
+        stage_ollama_model_source(4),
         options["num_ctx"],
         options["num_predict"],
     )
@@ -431,7 +431,7 @@ def analyze_videos(language=None):
         logger.warning("input_missing path=%s language=%s", filename, language)
         return
     output = os.getenv("LACLAUGPT_OUTPUT_CSV") or filename
-    model = ollama_model(stage=4)
+    model = stage_ollama_model(4)
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
 
     df = load_cumulative_csv(
@@ -474,7 +474,7 @@ def analyze_videos(language=None):
         len(df),
         len(df.columns),
         model,
-        ollama_model_source(stage=4),
+        stage_ollama_model_source(4),
         DB_PATH,
         config.mongo_enabled,
         config.mongo_database,
