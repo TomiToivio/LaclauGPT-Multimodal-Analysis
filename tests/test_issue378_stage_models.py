@@ -23,6 +23,7 @@ def clear(monkeypatch):
     monkeypatch.delenv(ep24_models.SHARED_ENV, raising=False)
     for stage in ep24_models.STAGES:
         monkeypatch.delenv(ep24_models.STAGE_ENV.format(stage=stage), raising=False)
+        monkeypatch.delenv(f"LACLAUGPT_STEP{stage}_MODEL", raising=False)
 
 
 def test_each_stage_has_its_own_default(monkeypatch):
@@ -115,3 +116,14 @@ def test_json_output_is_machine_readable(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload[0]["model"] == "qwen3.8:27b"
     assert payload[0]["pinned"] is True
+
+
+def test_deployed_stage_variable_reaches_runtime_and_provenance(monkeypatch):
+    clear(monkeypatch)
+    monkeypatch.setenv("LACLAUGPT_STEP5_MODEL", "deployed:8b")
+    assert ep24_models.stage_model(5).name == "deployed:8b"
+    assert ep24_models.stage_model(5).source == "LACLAUGPT_STEP5_MODEL"
+    assert ep24_models.stage_ollama_model(5) == "deployed:8b"
+    monkeypatch.setenv("LACLAUGPT_EP24_MODEL_STEP_5", "explicit:4b")
+    assert ep24_models.stage_model(5).name == "explicit:4b"
+    assert ep24_models.stage_ollama_model(5) == "explicit:4b"

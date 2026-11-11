@@ -7,8 +7,9 @@ exactly the accident #378 exists to prevent: **Step 6 must stay on the 27B model
 Resolution order per stage:
 
 1. ``LACLAUGPT_EP24_MODEL_STEP_<n>`` — an explicit, per-stage choice.
-2. ``LACLAUGPT_MULTIMODAL_MODEL`` — the shared override, for stages that are not pinned.
-3. the stage default in :data:`STAGES`.
+2. ``LACLAUGPT_STEP<n>_MODEL`` — the deployed per-stage compatibility variable.
+3. ``LACLAUGPT_MULTIMODAL_MODEL`` — the shared override, for stages that are not pinned.
+4. the stage default in :data:`STAGES`.
 
 **Pinned stages ignore the shared override entirely** and say so in the log. A pinned stage is one
 where a silent model change would alter research output: Step 6 (Laclau/Palonen discourse analysis).
@@ -80,6 +81,15 @@ def stage_model(stage: int) -> StageModel:
     specific = (os.getenv(specific_env) or "").strip()
     if specific:
         return StageModel(stage, specific, str(spec["backend"]), specific_env, pinned,
+                          str(spec["note"]))
+
+    # Preserve the deployed per-stage variables introduced on main.
+    legacy_env = f"LACLAUGPT_STEP{stage}_MODEL"
+    legacy = (os.getenv(legacy_env) or "").strip()
+    if legacy:
+        if stage == 6 and legacy != str(spec["name"]):
+            raise ValueError(f"Step 6 is pinned to {spec['name']}; refusing {legacy!r}")
+        return StageModel(stage, legacy, str(spec["backend"]), legacy_env, pinned,
                           str(spec["note"]))
 
     shared = (os.getenv(SHARED_ENV) or "").strip()
@@ -186,3 +196,19 @@ def ollama_model_source(*, specific_env: str | None = None) -> str:
     if os.getenv(SHARED_ENV):
         return SHARED_ENV
     return "repository_default"
+
+
+def stage_ollama_model(step: int) -> str:
+    """Compatibility adapter for the deployed Ollama stage resolver."""
+    if step not in (2, 4, 5, 6, 7, 8):
+        raise ValueError(f"Unsupported Ollama model stage: {step}")
+    return stage_model(step).name
+
+
+def stage_ollama_model_source(step: int) -> str:
+    """Preserve the historical pinned-default label for compatibility callers."""
+    stage_ollama_model(step)
+    source = stage_model(step).source
+    if step == 6 and source == "repository_default":
+        return "step6_pinned_27b_default"
+    return source

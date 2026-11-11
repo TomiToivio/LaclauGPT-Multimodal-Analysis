@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ep24_models import ollama_model_source, stage_model
+from ep24_models import stage_model
 from ep24_pipeline import (
     ensure_columns,
     load_cumulative_csv,
@@ -248,7 +248,7 @@ def get_response(user_prompt, system_prompt):
         "model_call_start model=%s model_source=%s num_ctx=%d num_predict=%d "
         "prompt_chars=%d approx_tokens=%d",
         stage_model(5).name,
-        ollama_model_source(),
+        stage_model(5).source,
         num_ctx,
         options["num_predict"],
         len(system_prompt) + len(user_prompt),

@@ -11,7 +11,7 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, Field
 
-from ep24_models import ollama_model_source, stage_model
+from ep24_models import stage_model
 from ep24_pipeline import ensure_columns, load_cumulative_csv, write_cumulative_csv
 from ep24_redis import RedisCoordinator
 from ep24_schema import stable_source_id
@@ -258,7 +258,7 @@ def _model_metadata() -> dict[str, Any]:
     return {
         "provider": "ollama",
         "model": stage_model(6).name,
-        "model_source": ollama_model_source(),
+        "model_source": stage_model(6).source,
         "num_ctx": int(os.getenv("LACLAUGPT_STEP6_NUM_CTX", DEFAULT_NUM_CTX)),
         "num_predict": int(os.getenv("LACLAUGPT_STEP6_NUM_PREDICT", DEFAULT_NUM_PREDICT)),
         "temperature": 0.0,

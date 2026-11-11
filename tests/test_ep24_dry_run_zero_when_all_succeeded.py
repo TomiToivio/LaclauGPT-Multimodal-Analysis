@@ -131,6 +131,7 @@ class TestDryRun:
         doc = plan.plan_for_export(tmp_path, ACTIVE_STEPS, None)
         assert set(doc["steps"]) <= set(ACTIVE_STEPS)
         assert "8_sna" in ACTIVE_STEPS and "9_rdf" in ACTIVE_STEPS
+        assert "8_sna" in doc["steps"] and "9_rdf" in doc["steps"]
 
 
 class TestElision:

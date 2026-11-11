@@ -165,3 +165,13 @@ def test_dry_run_is_the_default(monkeypatch, capsys):
     assert rollout.main(["--mode", "resume-sample", "--country", "fi"]) == 0
     out = capsys.readouterr().out
     assert "cells are outstanding records per step" in out
+
+
+def test_step_seven_completion_still_needs_sna_but_pilot_can_stop_at_seven():
+    collection = FakeCollection([_record("fi", step_complete=7)])
+    full = rollout.plan_country(collection, "fi")
+    assert full["steps"]["8"]["outstanding"] == 1
+    assert not full["complete_through_final_step"]
+    pilot = rollout.plan_country(collection, "fi", steps=tuple(range(1, 8)))
+    assert pilot["outstanding"] == 0
+    assert pilot["complete_through_final_step"]

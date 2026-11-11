@@ -108,6 +108,11 @@ OUTPUT_COLUMNS = (
     "SCROLL_SECONDS",
     "needs_resplit",
     "video_initial_skip_seconds",
+    # Step 3 owns these namespaced observations, not the upstream scroll fields.
+    "vllm_video_scroll",
+    "vllm_video_scroll_seconds",
+    "vllm_video_needs_resplit",
+    "vllm_video_video_initial_skip_seconds",
     # Added for the Laskin feasibility experiment (issue #32) so the same
     # harness can produce a like-for-like Roihu vs Laskin comparison. These
     # are purely additive: every column above is unchanged.
@@ -1003,11 +1008,28 @@ def write_local_checkpoint(
     """Atomically checkpoint cumulative CSV and idempotent SQLite row snapshots."""
     done = selected[: len(results)]
     out_df = source_df.loc[done].reset_index(drop=True).copy()
+    # The feed's scroll annotations belong to the upstream researcher/source
+    # contract. Step 3 publishes its independently observed values under
+    # vllm_video_* even if the input already contains an older Step 3 run.
+    upstream_scroll = {
+        "SCROLL", "SCROLL_SECONDS", "needs_resplit",
+        "video_initial_skip_seconds",
+    }
+    observation_aliases = {
+        "vllm_video_scroll": "SCROLL",
+        "vllm_video_scroll_seconds": "SCROLL_SECONDS",
+        "vllm_video_needs_resplit": "needs_resplit",
+        "vllm_video_video_initial_skip_seconds": "video_initial_skip_seconds",
+    }
     for column in OUTPUT_COLUMNS:
-        values = [result[column] for result in results]
-        # Step 3 owns its declared output fields. Reprocessing must refresh the
-        # canonical names, never hide new results under step3_vllm_* aliases.
-        # Source and upstream fields are protected by the declared stage contract.
+        values = [
+            result.get(column) or result.get(observation_aliases.get(column, ""), "")
+            if column in observation_aliases
+            else result.get(column, "")
+            for result in results
+        ]
+        if column in upstream_scroll and column in source_df.columns:
+            continue
         out_df[column] = values
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -1077,7 +1099,17 @@ def persist_mongo_patch(
             source_id = str(row.get("_storage_id", "")).strip()
             if not source_id:
                 raise RuntimeError("Step 3 Mongo persistence requires canonical _storage_id")
-            fields = {key: row[key] for key in OUTPUT_COLUMNS if key in row.index}
+            # Never overwrite source/researcher scroll annotations in the
+            # canonical Mongo document. New Step 3 observations are stored in
+            # their namespaced vllm_video_* counterparts.
+            upstream_scroll = {
+                "SCROLL", "SCROLL_SECONDS", "needs_resplit",
+                "video_initial_skip_seconds",
+            }
+            fields = {
+                key: row[key] for key in OUTPUT_COLUMNS
+                if key in row.index and key not in upstream_scroll
+            }
             fields["_provenance.step3_video"] = {
                 "pipeline_stage": "step_3_video",
                 "source": source_hint,
@@ -1370,6 +1402,10 @@ def main(argv: list[str] | None = None) -> int:
             record["SCROLL"] = "TRUE" if scroll_meta["SCROLL"] else "FALSE"
             record["SCROLL_SECONDS"] = json.dumps(scroll_meta["SCROLL_SECONDS"])
             record["needs_resplit"] = "TRUE" if needs_resplit(scroll_meta) else "FALSE"
+            record["vllm_video_scroll"] = record["SCROLL"]
+            record["vllm_video_scroll_seconds"] = record["SCROLL_SECONDS"]
+            record["vllm_video_needs_resplit"] = record["needs_resplit"]
+            record["vllm_video_video_initial_skip_seconds"] = record["video_initial_skip_seconds"]
             valid, quality_error = validate_video_analysis(analysis)
             if args.model_backend != "stub" and not valid:
                 raise ValueError(f"Invalid vLLM video output: {quality_error}")

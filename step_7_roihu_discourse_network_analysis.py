@@ -48,7 +48,7 @@ from ep24_dna import (
     statement_id,
     summarize,
 )
-from ep24_models import ollama_model_source, stage_model
+from ep24_models import stage_model
 from ep24_pipeline import ensure_columns, load_cumulative_csv, write_cumulative_csv
 from ep24_schema import stable_source_id
 
@@ -283,7 +283,7 @@ def _model_metadata() -> dict[str, Any]:
     return {
         "provider": "ollama",
         "model": stage_model(7).name,
-        "model_source": ollama_model_source(),
+        "model_source": stage_model(7).source,
         "num_ctx": int(os.getenv("LACLAUGPT_STEP7_NUM_CTX", DEFAULT_NUM_CTX)),
         "num_predict": int(os.getenv("LACLAUGPT_STEP7_NUM_PREDICT", DEFAULT_NUM_PREDICT)),
         "temperature": 0.0,

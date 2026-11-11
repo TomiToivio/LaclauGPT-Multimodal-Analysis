@@ -32,20 +32,26 @@ it is not one.
 
 ---
 
-## 2. What the pipeline does today (measured)
+## 2. Current configured runtimes and defaults
 
 | Step | Runtime actually used | Model default (env override) |
 |---|---|---|
 | 1 ASR | specialist backend, no LLM | `canary` → `nvidia/canary-1b-v2` (`LACLAUGPT_ASR_ENGINE`) |
 | 1 OCR | specialist backend, no LLM | `paddleocr` → `PP-OCRv5` (`LACLAUGPT_OCR_ENGINE`) |
-| 2 keyframe VLM | **Ollama** | `qwen3.8:27b` (`LACLAUGPT_MULTIMODAL_MODEL`) |
+| 2 keyframe VLM | **Ollama** | `qwen3-vl:8b` |
 | 3 whole video | **vLLM** | `Qwen/Qwen3-VL-8B-Instruct` (`LACLAUGPT_VLLM_TEST_MODEL`) |
-| 4 summary/fusion | **Ollama** | `qwen3.8:27b` |
-| 5 structured postprocess | **Ollama** | `qwen3.8:27b` |
+| 4 summary/fusion | **Ollama** | `qwen3:8b` |
+| 5 structured postprocess | **Ollama** | `qwen3:4b` |
 | 6 discourse analysis | **Ollama** | `qwen3.8:27b` |
-| 7 DNA extraction | **Ollama** | `qwen3.8:27b` |
-| 8 SNA extraction | **Ollama** | `qwen3.8:27b` |
+| 7 DNA extraction | **Ollama** | `qwen3:8b` |
+| 8 SNA extraction | **Ollama** | `qwen3:8b` |
 | 9 RDF export | none — deterministic | `model=none` |
+
+Ollama stages resolve `LACLAUGPT_EP24_MODEL_STEP_<n>`, then the deployed
+`LACLAUGPT_STEP<n>_MODEL`, then the shared `LACLAUGPT_MULTIMODAL_MODEL`, then
+the defaults above. Step 6 ignores the shared override; its deployed variable
+rejects models other than 27B, while the explicit EP24 variable permits a
+deliberate change. These are configured defaults, not new benchmark results.
 
 Source: `asr_backend.py`, `ocr_backend.py`, `roihu_frame.py`, `roihu_summary.py`,
 `roihu_postprocess.py`, `roihu_populism.py`,
