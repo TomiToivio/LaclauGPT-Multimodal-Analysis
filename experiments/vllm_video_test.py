@@ -62,7 +62,7 @@ from ep24_schema import (
     value as ep24_value,
 )
 
-DEFAULT_MODEL = "Qwen/Qwen3-VL-32B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 DEFAULT_SAMPLE_SIZE = None
 
 # allas_filename is authoritative for the researcher-feed reprocessing corpus.

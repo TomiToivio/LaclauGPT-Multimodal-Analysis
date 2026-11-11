@@ -115,6 +115,10 @@ def test_mongo_persistence_uses_patch_upserts_not_document_replacement(monkeypat
         [
             {
                 "video_id": "vid-1",
+                # The canonical identity is required by the persistence path (#373): the stage
+                # orchestrator is the exclusive writer, and an upsert without it would create a
+                # duplicate document rather than update one.
+                "_storage_id": "src-1",
                 "country": "Finland",
                 "custom_prior_field": "keep",
                 "vllm_video_analysis": "analysis",

@@ -39,7 +39,7 @@ it is not one.
 | 1 ASR | specialist backend, no LLM | `canary` → `nvidia/canary-1b-v2` (`LACLAUGPT_ASR_ENGINE`) |
 | 1 OCR | specialist backend, no LLM | `paddleocr` → `PP-OCRv5` (`LACLAUGPT_OCR_ENGINE`) |
 | 2 keyframe VLM | **Ollama** | `qwen3.8:27b` (`LACLAUGPT_MULTIMODAL_MODEL`) |
-| 3 whole video | **vLLM** | `Qwen/Qwen3-VL-32B-Instruct` (`LACLAUGPT_VLLM_TEST_MODEL`) |
+| 3 whole video | **vLLM** | `Qwen/Qwen3-VL-8B-Instruct` (`LACLAUGPT_VLLM_TEST_MODEL`) |
 | 4 summary/fusion | **Ollama** | `qwen3.8:27b` |
 | 5 structured postprocess | **Ollama** | `qwen3.8:27b` |
 | 6 discourse analysis | **Ollama** | `qwen3.8:27b` |
@@ -288,6 +288,6 @@ should be proposed as a separate issue citing them.
 
 ## October 2026 change: measured versus configured
 
-The Step 3 **configured default** is now `Qwen/Qwen3-VL-32B-Instruct`, with a shorter EP24 video narrative prompt and revised sampling. The earlier `Qwen/Qwen3-VL-8B-Instruct` vLLM on GH200 run is historical measured evidence, **not** proof that the 32B model fits or improves inference on one GH200. Test 32B on a small sample first.
+The Step 3 **configured default** is now `Qwen/Qwen3-VL-8B-Instruct`, with a shorter EP24 video narrative prompt and revised sampling. The earlier `Qwen/Qwen3-VL-8B-Instruct` vLLM on GH200 run is historical measured evidence, **not** proof that the 32B model fits or improves inference on one GH200. Test 32B on a small sample first.
 
 Step 2 now uses a much shorter, light social-semiotic **single-frame** prompt. It still preserves original fields in MongoDB/CSV, and a versioned context hash invalidates the old frame-cache response when revisiting records. A small rerun should verify quality before resetting completed data.
