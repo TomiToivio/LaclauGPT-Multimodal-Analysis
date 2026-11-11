@@ -35,7 +35,7 @@ def test_accepts_substantive_unique_analysis():
 
 def test_step3_32b_default_and_recommended_sampling():
     from experiments.vllm_video_test import DEFAULT_MODEL, SYSTEM_PROMPT, parse_args
-    assert DEFAULT_MODEL == "Qwen/Qwen3-VL-32B-Instruct"
+    assert DEFAULT_MODEL == "Qwen/Qwen3-VL-8B-Instruct"
     args = parse_args([])
     # Retuned by "Fix Step 3 runaway video descriptions and status-only responses"
     # (#251) from the #234 upgrade values (0.7 / 1.0 / 1.5) to the anti-runaway set

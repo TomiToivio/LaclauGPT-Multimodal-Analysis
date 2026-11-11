@@ -17,7 +17,8 @@ OLLAMA_ACTIVE = (
 )
 
 
-def test_shared_ollama_default_and_override(monkeypatch):
+def test_legacy_resolver_still_answers(monkeypatch):
+    """#378 replaced the shared resolver with a per-stage table; the old shim must keep working."""
     monkeypatch.delenv("LACLAUGPT_MULTIMODAL_MODEL", raising=False)
     assert ep24_models.ollama_model() == "qwen3.8:27b"
     monkeypatch.setenv("LACLAUGPT_MULTIMODAL_MODEL", "custom:model")
@@ -40,8 +41,9 @@ def test_active_ollama_paths_have_no_old_default():
     assert "qwen3.8:27b" in (ROOT / "ep24_models.py").read_text(encoding="utf-8")
 
 
-def test_video_step_uses_vllm_qwen3_vl_32b():
-    expected = "Qwen/Qwen3-VL-32B-Instruct"
+def test_video_step_uses_vllm_qwen3_vl_8b():
+    # #378 moved the video stage from the 32B to the 8B VL model for the pre-production switch.
+    expected = "Qwen/Qwen3-VL-8B-Instruct"
     harness = (ROOT / "experiments/vllm_video_test.py").read_text(encoding="utf-8")
     env_example = (ROOT / "config/vllm_video_test.env.example").read_text(encoding="utf-8")
     sbatch = (ROOT / "scripts/roihu/vllm_video_test.sbatch").read_text(encoding="utf-8")

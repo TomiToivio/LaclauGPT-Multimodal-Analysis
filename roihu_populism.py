@@ -11,7 +11,7 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, Field
 
-from ep24_models import ollama_model, ollama_model_source, stage_ollama_model, stage_ollama_model_source
+from ep24_models import stage_model
 from ep24_pipeline import ensure_columns, load_cumulative_csv, write_cumulative_csv
 from ep24_redis import RedisCoordinator
 from ep24_schema import stable_source_id
@@ -257,8 +257,8 @@ def _prompt_hash(context: str) -> str:
 def _model_metadata() -> dict[str, Any]:
     return {
         "provider": "ollama",
-        "model": stage_ollama_model(6),
-        "model_source": stage_ollama_model_source(6),
+        "model": stage_model(6).name,
+        "model_source": stage_model(6).source,
         "num_ctx": int(os.getenv("LACLAUGPT_STEP6_NUM_CTX", DEFAULT_NUM_CTX)),
         "num_predict": int(os.getenv("LACLAUGPT_STEP6_NUM_PREDICT", DEFAULT_NUM_PREDICT)),
         "temperature": 0.0,
@@ -459,7 +459,7 @@ def _resume_from_mongo(storage, record_id: str, *, context_hash: str) -> dict[st
         model_meta = json.loads(str(doc.get("laclau_model_metadata_json", "") or "{}"))
     except json.JSONDecodeError:
         return None
-    if str(model_meta.get("model", "")) != stage_ollama_model(6):
+    if str(model_meta.get("model", "")) != stage_model(6).name:
         return None
     return {column: doc.get(column, "") for column in STEP6_COLUMNS}
 
@@ -520,7 +520,7 @@ def process_country(country: str | None = None) -> Path:
                 context_hash = _prompt_hash(context)
                 LOG.info(
                     "step6 country=%s row=%s id=%s model=%s prompt=%s context_sha256=%s truncated=%s",
-                    normalized_country, index, record_id, stage_ollama_model(6), PROMPT_VERSION,
+                    normalized_country, index, record_id, stage_model(6).name, PROMPT_VERSION,
                     context_hash, truncated,
                 )
                 try:

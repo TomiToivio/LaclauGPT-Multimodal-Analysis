@@ -19,7 +19,7 @@ import pandas as pd
 
 from ep24_cli import configure_step_cli
 from ep24_entities import fold_key, resolution_lookup
-from ep24_models import ollama_model, ollama_model_source, stage_ollama_model, stage_ollama_model_source
+from ep24_models import stage_model
 from ep24_prompt_contract import effective_prompt_fingerprint
 from ep24_pipeline import (
     load_cumulative_csv,
@@ -167,7 +167,7 @@ def sna_evidence_report(row, *, model: str | None = None) -> tuple[str, dict, st
     digest = effective_prompt_fingerprint(
         EXTRACTION_SYSTEM,
         f"{PROMPT_VERSION}\n{packet.text}",
-        model or stage_ollama_model(8),
+        model or stage_model(8).name,
         {"temperature": 0.0, "num_ctx": 8192},
     )
     return packet.text, report, digest
@@ -348,8 +348,8 @@ def run_language(lang: str) -> Path | None:
         if column not in df.columns:
             df[column] = ""
 
-    model = stage_ollama_model(8)
-    LOG.info("model=%s model_source=%s", model, stage_ollama_model_source(8))
+    model = stage_model(8).name
+    LOG.info("model=%s model_source=%s", model, stage_model(8).source)
     all_nodes: list[dict] = []
     all_edges: list[dict] = []
 

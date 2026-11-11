@@ -24,29 +24,30 @@ def test_doc_exists_and_covers_every_step():
         assert f"| {step} |" in doc, f"step {step} missing from the matrix"
 
 
-def test_ollama_steps_share_the_documented_default_model():
-    """Steps 2 and 4-8 share the centralized qwen3.8:27b Ollama default."""
-    for relative in (
-        "roihu_frame.py",
-        "roihu_summary.py",
-        "roihu_postprocess.py",
-        "roihu_populism.py",
-        "step_7_roihu_discourse_network_analysis.py",
-        "step_8_roihu_social_network_analysis.py",
+def test_ollama_steps_resolve_their_own_stage_model():
+    """#378 replaced the shared default with a per-stage table; Step 6 stays on 27B."""
+    for relative, stage in (
+        ("roihu_frame.py", 2),
+        ("roihu_summary.py", 4),
+        ("roihu_postprocess.py", 5),
+        ("roihu_populism.py", 6),
+        ("step_7_roihu_discourse_network_analysis.py", 7),
+        ("step_8_roihu_social_network_analysis.py", 8),
     ):
         text = _text(relative)
-        assert "ollama_model" in text, relative
+        assert f"stage_model({stage})" in text, f"{relative} must resolve stage {stage}"
     models = _text("ep24_models.py")
-    assert 'DEFAULT_OLLAMA_MODEL = "qwen3.8:27b"' in models
-    assert "LACLAUGPT_MULTIMODAL_MODEL" in models
+    assert '6: {"name": "qwen3.8:27b"' in models, "Step 6 must be pinned to the 27B model"
+    assert '"pinned": True' in models
+    assert "LACLAUGPT_EP24_MODEL_STEP_" in models
     assert "qwen3.8:27b" in DOC.read_text(encoding="utf-8")
 
 
 def test_step3_uses_vllm_with_the_documented_baseline_model():
     text = _text("experiments/vllm_video_test.py")
-    assert 'DEFAULT_MODEL = "Qwen/Qwen3-VL-32B-Instruct"' in text
+    assert 'DEFAULT_MODEL = "Qwen/Qwen3-VL-8B-Instruct"' in text
     assert "vllm" in text.casefold()
-    assert "Qwen/Qwen3-VL-32B-Instruct" in DOC.read_text(encoding="utf-8")
+    assert "Qwen/Qwen3-VL-8B-Instruct" in DOC.read_text(encoding="utf-8")
 
 
 def test_step1_specialist_backends_match_the_document():
@@ -78,4 +79,4 @@ def test_doc_separates_measured_from_estimated():
     assert "Measured (repository)" in doc
     assert "Estimated" in doc
     # The one real Roihu datapoint must be named as such.
-    assert "Qwen/Qwen3-VL-32B-Instruct" in doc and "vLLM on GH200" in doc
+    assert "Qwen/Qwen3-VL-8B-Instruct" in doc and "vLLM on GH200" in doc
