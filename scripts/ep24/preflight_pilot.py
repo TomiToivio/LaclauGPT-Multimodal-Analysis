@@ -130,7 +130,7 @@ def collect(country: str, dataset: str, *, stale_hours: int = 6, sample: int | N
         report.unique_ids = len(ids)
         if sample is not None:
             report.total = min(report.total, sample)
-        for step in range(1, 8):
+        for step in range(1, 10):
             path = status_path(step)
             report.stages[step] = {
                 state: collection.count_documents({f"{path}.status": state})

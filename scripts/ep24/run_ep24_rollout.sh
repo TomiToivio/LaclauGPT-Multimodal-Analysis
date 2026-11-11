@@ -31,6 +31,16 @@ if (( EXECUTE )); then
     echo "Verify and explicitly configure the correct sample namespace before executing" >&2; exit 2;
   }
   command -v sbatch >/dev/null || { echo "sbatch unavailable" >&2; exit 2; }
+  # Lock out a second concurrently submitted rollout from this account. Do not
+  # confuse a clean Mongo stage state with absence of still-running Slurm jobs.
+  command -v squeue >/dev/null || { echo "squeue unavailable; cannot guard concurrent chains" >&2; exit 2; }
+  ACTIVE_JOBS="$(squeue -h -u "${USER}" -o "%j" 2>/dev/null)" || {
+    echo "Cannot query live Slurm jobs; refusing to submit" >&2; exit 2;
+  }
+  if printf '%s\n' "${ACTIVE_JOBS}" | grep -Eiq '(^|[^a-z])(ep24|roihu|laclaugpt)([^a-z]|$)'; then
+    echo "Existing EP24/Roihu jobs may still be live; inspect squeue before resubmission" >&2
+    exit 2
+  fi
   ARGS+=(--apply --approval-file "${APPROVAL}")
 fi
 # The Python planner verifies existing sample matches or refuses to modify MongoDB.
@@ -51,7 +61,7 @@ for path in ordered_country_files(Path(sys.argv[1])):
 PY
 )
 for country in "${COUNTRIES[@]}"; do
-  echo "Submitting stages 1-7 for ${country}; existing completed stages remain complete"
-  bash "${ROOT}/scripts/roihu/run_country_pipeline.sh" "${country}" --limit 0 --from-step 1 --to-step 7
+  echo "Submitting stages 1-9 for ${country}; existing completed stages remain complete"
+  bash "${ROOT}/scripts/roihu/run_country_pipeline.sh" "${country}" --limit 0 --from-step 1 --to-step 9 --require-dataset ep2024_reprocess
 done
 echo "Submission complete. Inspect Slurm jobs, stages, manifests, and off-node backup verification."
