@@ -48,7 +48,7 @@ from ep24_dna import (
     statement_id,
     summarize,
 )
-from ep24_models import ollama_model, ollama_model_source
+from ep24_models import ollama_model, ollama_model_source, stage_ollama_model, stage_ollama_model_source
 from ep24_pipeline import ensure_columns, load_cumulative_csv, write_cumulative_csv
 from ep24_schema import stable_source_id
 
@@ -282,8 +282,8 @@ def _prompt_hash(context: str) -> str:
 def _model_metadata() -> dict[str, Any]:
     return {
         "provider": "ollama",
-        "model": ollama_model(),
-        "model_source": ollama_model_source(),
+        "model": stage_ollama_model(7),
+        "model_source": stage_ollama_model_source(7),
         "num_ctx": int(os.getenv("LACLAUGPT_STEP7_NUM_CTX", DEFAULT_NUM_CTX)),
         "num_predict": int(os.getenv("LACLAUGPT_STEP7_NUM_PREDICT", DEFAULT_NUM_PREDICT)),
         "temperature": 0.0,
@@ -558,7 +558,7 @@ def _resume_from_mongo(storage, record_id: str, *, context_hash: str) -> dict[st
         model_meta = json.loads(str(doc.get("dna_model_metadata_json", "") or "{}"))
     except json.JSONDecodeError:
         return None
-    if str(model_meta.get("model", "")) != ollama_model():
+    if str(model_meta.get("model", "")) != stage_ollama_model(7):
         return None
     return {column: doc.get(column, "") for column in DNA_COLUMNS}
 
@@ -706,7 +706,7 @@ def process_country(country: str | None = None) -> Path:
                 context_hash = _prompt_hash(context)
                 LOG.info(
                     "step7 country=%s row=%s id=%s model=%s prompt=%s context_sha256=%s truncated=%s",
-                    normalized_country, index, record_id, ollama_model(), PROMPT_VERSION,
+                    normalized_country, index, record_id, stage_ollama_model(7), PROMPT_VERSION,
                     context_hash, truncated,
                 )
                 try:
