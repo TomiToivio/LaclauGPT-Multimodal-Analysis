@@ -1015,8 +1015,19 @@ def write_local_checkpoint(
         "SCROLL", "SCROLL_SECONDS", "needs_resplit",
         "video_initial_skip_seconds",
     }
+    observation_aliases = {
+        "vllm_video_scroll": "SCROLL",
+        "vllm_video_scroll_seconds": "SCROLL_SECONDS",
+        "vllm_video_needs_resplit": "needs_resplit",
+        "vllm_video_video_initial_skip_seconds": "video_initial_skip_seconds",
+    }
     for column in OUTPUT_COLUMNS:
-        values = [result.get(column, "") for result in results]
+        values = [
+            result.get(column) or result.get(observation_aliases.get(column, ""), "")
+            if column in observation_aliases
+            else result.get(column, "")
+            for result in results
+        ]
         if column in upstream_scroll and column in source_df.columns:
             continue
         out_df[column] = values
