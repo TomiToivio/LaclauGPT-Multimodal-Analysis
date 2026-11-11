@@ -38,3 +38,9 @@ def test_explicit_step6_model_is_auditable(monkeypatch):
 def test_unknown_stage_fails_closed():
     with pytest.raises(ValueError):
         stage_ollama_model(9)
+
+
+def test_step6_rejects_explicit_smaller_model(monkeypatch):
+    monkeypatch.setenv("LACLAUGPT_STEP6_MODEL", "test:8b")
+    with pytest.raises(ValueError, match="Step 6 is pinned"):
+        stage_ollama_model(6)
