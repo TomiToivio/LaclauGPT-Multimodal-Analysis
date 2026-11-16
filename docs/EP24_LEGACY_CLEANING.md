@@ -12,8 +12,26 @@
 Issue #35 defines a non-destructive bridge from the historical EP24 country CSVs to the
 new Roihu/Phase 2 reprocessing pipeline.
 
-The **canonical, maintained public cleaner is `ep24_cleaner.py`** (issue #413, approved option A). `roihu_clean.py` is the historical/audit-compatible implementation and remains available for reproducibility; its tests and output divergences must be assessed before retiring its execution path. The unreferenced `ep24_legacy_clean.py` has been removed from `main` but is recoverable in Git history and the immutable `legacy` branch where applicable. Real EP24 data, researcher notes,
-country codebooks, and generated derivatives remain in `LaclauGPT-Private`.
+Two cleaners are **maintained on purpose**, and they answer different questions (issue #413, approved
+option **C**). Neither is being retired; a reader should pick by input, not by seniority.
+
+| | `ep24_cleaner.py` (526 lines) | `roihu_clean.py` (1,100 lines) |
+| --- | --- | --- |
+| **Job** | Clean a per-country CSV **against the shared keep-schema workbook** | Clean a per-country CSV **against the schema built into the module** (`KEEP_SCHEMA_ORDER`) |
+| **Input** | `--input <csv> --keep-schema <xlsx> --output-dir <dir> --country <name>` | `--source <csv> --to-reprocess-dir <dir> [--country] [--output-dir]` |
+| **Schema source** | The authoritative workbook, read at run time, so the schema can be revised without touching code | A module constant, so a run is reproducible from the code alone |
+| **Report** | Markdown cleaning report plus the reprocessing outputs | `CleaningOutcome`/`RowDecision` detail, duplicate summary and a build report |
+| **Extra machinery** | Recut worklist, human-label merging, researcher-note normalisation | Tri-state parsing (`TriState`), obsolete-column resolution, seed-value merging, multi-value splitting |
+| **Used by** | `tests/test_ep24_cleaner.py`, and documented as the operator path below | `tests/test_ep24_cleaning.py`, and the per-country audits in `docs/ep24_country_audits/` whose numbers it produced |
+| **Choose it when** | The keep-schema workbook is the thing you want to vary — a new country, a revised column set | You need the audit-compatible path that reproduces published per-country results |
+
+**Rule of thumb:** `ep24_cleaner` is the schema-driven path for current work; `roihu_clean` is the
+code-driven path for reproducing audit figures. They share function names, not a single job, and the
+overlap is deliberate rather than an accident of history.
+
+`ep24_legacy_clean.py` (646 lines), a third unreferenced implementation, was **removed from `main` in
+#413** and is recoverable from Git history and the immutable `legacy` branch where applicable. Real EP24
+data, researcher notes, country codebooks and generated derivatives remain in `LaclauGPT-Private`.
 
 ## One schema for every country
 
