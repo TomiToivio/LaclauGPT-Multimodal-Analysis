@@ -110,6 +110,52 @@ def _output_path(input_path: Path) -> Path:
     return Path(os.getenv("LACLAUGPT_OUTPUT_CSV") or input_path)
 
 
+
+def extract_with_retries(ollama, *, model, evidence, base_budget, max_attempts, validate,
+                         system_prompt: str, schema: dict):
+    """Ask for structured SNA output, retrying with a larger budget before giving up (#405).
+
+    The budget doubles per attempt, and the final exception names truncation, because a budget
+    problem and a malformed model answer have different remedies.
+    """
+    last_error: Exception | None = None
+    last_reason = ""
+    raw = ""
+    for attempt in range(max(1, max_attempts)):
+        budget = max(1, base_budget) * (2 ** attempt)
+        response = ollama.chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": evidence},
+            ],
+            format=schema,
+            think=False,
+            options={"temperature": 0.0, "num_ctx": 8192, "num_predict": budget},
+        )
+        raw = (response.get("message") or {}).get("content") or ""
+        last_reason = str(response.get("done_reason") or "")
+        try:
+            return validate(raw)
+        except Exception as exc:  # noqa: BLE001 - any invalid answer is retryable
+            last_error = exc
+            LOG.warning(
+                "Step 8 invalid structured response attempt=%s/%s num_predict=%s "
+                "response_chars=%s done_reason=%s error=%s",
+                attempt + 1, max_attempts, budget, len(raw), last_reason, exc,
+            )
+    truncated = last_reason == "length" or "EOF while parsing" in str(last_error)
+    hint = (
+        "response was truncated before the JSON closed (done_reason=length): raise "
+        "LACLAUGPT_STEP8_NUM_PREDICT or shorten the evidence context"
+        if truncated
+        else "the model returned content that is not schema-valid"
+    )
+    raise ValueError(
+        f"Step 8 structured JSON validation failed after {max_attempts} attempts "
+        f"[{hint}]: {last_error}"
+    ) from last_error
+
 def _enrich_edges(edges, row) -> list[dict]:
     lookup = resolution_lookup(row.get("ep24_entity_resolution_json"))
     enriched: list[dict] = []
@@ -359,14 +405,23 @@ def run_language(lang: str) -> Path | None:
     all_edges: list[dict] = []
 
     for index, row in selected.iterrows():
-        # Legacy interpretation fields are preserved in the schema, not emitted by the new analysis.
-        df.at[index, "sna_castells_interpretation_markdown"] = ""
-        df.at[index, "sna_castells_prompt_version"] = ""
+        # An earlier attempt can already have populated these columns. If this
+        # retry abstains or fails, do not ship stale successful SNA findings.
+        # Clearing is restricted to Step 8-owned fields; all source and upstream
+        # columns remain immutable under write_cumulative_csv's contract.
+        for column in output_columns:
+            df.at[index, column] = ""
         evidence, truncation, context_hash = sna_evidence_report(row, model=model)
         LOG.info("step8 row=%s context_sha256=%s packet_chars=%d tokens_est=%d fields_truncated=%d characters_lost=%d",
                  index, context_hash, len(evidence), truncation["estimated_tokens"],
                  truncation["fields_truncated"], truncation["characters_lost"])
-        if not any(str(row.get(name) or "").strip() for name in ("asr_transcript", "asr_translation", "ocr_1", "dna_statements_json")):
+        if not any(
+            str(row.get(name) or "").strip().lower() not in ("", "[]", "{}", "null", "none", "nan")
+            for name in ("asr_transcript", "asr_translation", "ocr_1", "dna_statements_json")
+        ):
+            # Both halves of #405's fix: main's stricter emptiness test (#408/#409) decides what
+            # "no evidence" means, and the explicit clear keeps every Step 8-owned column empty even
+            # if the loop-top clearing is ever refactored away.
             clear_step8_output(index)
             df.at[index, "sna_status"] = "no_evidence"
             df.at[index, "sna_error"] = ""
@@ -379,16 +434,18 @@ def run_language(lang: str) -> Path | None:
             continue
 
         try:
-            response = ollama.chat(
+            # #405: step 8 had no output budget and no retry, so a truncated response became a
+            # permanent row error (one real Finland row: "Invalid JSON: EOF").
+            extracted = extract_with_retries(
+                ollama,
                 model=model,
-                messages=[
-                    {"role": "system", "content": EXTRACTION_SYSTEM},
-                    {"role": "user", "content": evidence},
-                ],
-                format=SNAResult.model_json_schema(),
-                options={"temperature": 0.0, "num_ctx": 8192},
+                evidence=evidence,
+                base_budget=int(os.getenv("LACLAUGPT_STEP8_NUM_PREDICT", "2048")),
+                max_attempts=max(1, int(os.getenv("LACLAUGPT_STEP8_PARSE_ATTEMPTS", "3"))),
+                validate=SNAResult.model_validate_json,
+                system_prompt=EXTRACTION_SYSTEM,
+                schema=SNAResult.model_json_schema(),
             )
-            extracted = SNAResult.model_validate_json(response["message"]["content"])
             raw_edges = _enrich_edges(_network_relation_gate(_grounded_edge_candidates(extracted.edges, evidence)), row)
             nodes, edges = graph_from_edges(raw_edges, row)
             # Issue #197: enrichment only supplies a canonical id when the mention
