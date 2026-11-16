@@ -89,6 +89,19 @@ what the model sees.
 `cyrillic_hygiene.py` share `_iter_labels` and `_candidate_files` exactly). They are not part of the
 pipeline, but they are what an operator actually runs, so they belong in the map and in the plan.
 
+## What other agents have already landed (checked before publishing this plan)
+
+- **#415** — a researcher guide on `main`, which this branch **merges with** rather than replaces; the
+  additions are the appends-per-stage table, the human/model/deterministic taxonomy, the provenance
+  triage, the challenge table and the bounded-run caveat.
+- **#420** — approved orphan removal, a canonical cleaner and the Step 7/8 extraction: plan items 4 and 5
+  are therefore already done or in progress, so the order below is adjusted rather than re-proposed.
+- **#421** — a prompt catalogue with versions, budgets and schemas, which delivers plan item 8 ahead of
+  schedule: the prompts were catalogue-able without first moving them into `prompts/`.
+
+Everything else is the state of the tree at the time of writing; `docs/REPO_MAP.md` is the version that
+matters, because it is regenerated and checked.
+
 ## The plan, smallest first
 
 Each item is one PR, and each states what it does **not** change. Nothing here alters prompts, codebooks,
