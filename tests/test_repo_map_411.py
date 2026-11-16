@@ -7,6 +7,7 @@ turning the documentation into a lie nobody notices.
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +46,22 @@ class TestTheCommittedMap:
         for stage in STAGE_CONTRACT:
             assert stage.entry_point in guide, stage.entry_point
 
+
+    def test_the_digest_ignores_the_duplicate_table_but_not_the_structure(self):
+        """The check must survive a Python version that rounds a similarity score differently, and must
+        still fail when a module is added. That is the whole reason a digest exists."""
+        data = repo_map.build(ROOT)
+        baseline = repo_map.structure_digest(data)
+        noisy = json.loads(json.dumps(data))
+        noisy["duplicates"] = [{"name": "x", "similarity": 0.123, "left": "a", "left_line": 1,
+                                "right": "b", "right_line": 2, "lines": 10}]
+        assert repo_map.structure_digest(noisy) == baseline
+        changed = json.loads(json.dumps(data))
+        changed["modules"].append({"path": "new_module.py", "lines": 1, "docstring": None,
+                                   "role": "", "layer": "unclassified", "imported_by": 0,
+                                   "is_entry_point": False, "functions_without_docstring": [],
+                                   "prompt_constants": [], "unimported": True})
+        assert repo_map.structure_digest(changed) != baseline
 
 class TestTheScan:
     def _tree(self, tmp_path: Path, files: dict[str, str]) -> Path:
