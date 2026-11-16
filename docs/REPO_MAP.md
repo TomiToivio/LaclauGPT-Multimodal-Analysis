@@ -199,7 +199,7 @@ A researcher opening these has only the code. Listed in the priority order the r
 - `roihu_postprocess.py` :: `get_response`
 - … and 44 more
 
-## Near-duplicate functions (15 pairs)
+## Near-duplicate functions (11 pairs)
 
 Normalised function bodies (identifiers and literals blanked) at ≥ 0.8 similarity, at least ten lines. A pair is a question — *are these the same decision?* — not an instruction to merge: two stages can compute similar things for different analytical reasons.
 
@@ -213,13 +213,9 @@ Normalised function bodies (identifiers and literals blanked) at ≥ 0.8 similar
 | 1.00 | `_candidate_files` | `scripts/ep24/apostrophe_hygiene.py:191` | `scripts/ep24/cyrillic_hygiene.py:159` | 23 |
 | 0.95 | `_persist_row` | `roihu_discourse_network.py:544` | `roihu_populism.py:478` | 14 |
 | 0.94 | `parse_args` | `scripts/ep24/audit_stage_coverage.py:27` | `scripts/ep24/export_mongo_results.py:50` | 16 |
-| 0.94 | `_prepare_context` | `roihu_discourse_network.py:517` | `roihu_populism.py:450` | 25 |
-| 0.91 | `_open_cache` | `roihu_frame.py:96` | `roihu_summary.py:97` | 21 |
-| 0.88 | `_print_human` | `scripts/ep24/apostrophe_hygiene.py:303` | `scripts/ep24/cyrillic_hygiene.py:210` | 36 |
+| 0.93 | `_prepare_context` | `roihu_discourse_network.py:517` | `roihu_populism.py:450` | 25 |
+| 0.90 | `_open_cache` | `roihu_frame.py:96` | `roihu_summary.py:97` | 21 |
 | 0.84 | `process_country` | `roihu_discourse_network.py:688` | `roihu_populism.py:525` | 151 |
-| 0.83 | `main` | `scripts/ep24/apostrophe_hygiene.py:341` | `scripts/ep24/cyrillic_hygiene.py:240` | 23 |
-| 0.82 | `main` | `scripts/ep24/codebook_coverage.py:319` | `scripts/ep24/cyrillic_hygiene.py:240` | 23 |
-| 0.82 | `analyze_videos` | `puhti_frame.py:119` | `puhti_preprocess.py:110` | 76 |
 
 ## Prompt sites (3)
 
