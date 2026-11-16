@@ -1,3 +1,50 @@
+"""EP24 step 6 — Laclau/Mouffe/Palonen discourse analysis (CSC Roihu).
+
+What this stage is for
+----------------------
+This is the analytical centre of the pipeline: it asks whether, and how, a record articulates a populist
+discourse in the sense the project operationalises — a `formula_of_populism` composed of an **us**, a
+**frontier** and a **them**, with the Palonen-style dynamics around them. Everything before this stage
+prepares material; everything after it measures the result.
+
+Two commitments define the implementation and should be read before changing anything here:
+
+1. **Evidence first.** Every construct carries the quotation that supports it (`EvidenceCandidate` and its
+   subclasses hold evidence alongside the label). A construct whose evidence cannot be found in the context
+   the model was given is not upgraded to a finding.
+2. **Abstention is a valid answer.** `laclau_formula_conditions_met` and `laclau_abstention_reason` exist so
+   that "this record does not articulate a populist formula" is recorded as a result rather than filled in
+   with the nearest available label. A high abstention rate is data; a fabricated formula is not.
+
+Inputs
+------
+The cumulative dataframe rows that passed step 5's quality gate, assembled into a bounded context packet:
+the codebook entries, the research memory, and RAG context, each kept separate and each hashed
+(`laclau_context_sha256`, `laclau_codebook_fingerprint`, `laclau_codebook_context_json`,
+`laclau_memory_context_json`, `laclau_rag_context_json`). The context is truncated to
+`DEFAULT_MAX_CONTEXT_CHARS` when needed and the truncation is recorded (`laclau_context_truncated`) rather
+than silently applied.
+
+Outputs
+-------
+`STEP6_COLUMNS`: the analysis prose and structured JSON, the us/frontier/formula fields, the abstention
+reason, the prompt version (`PROMPT_VERSION`), model metadata, generation timestamp, the context and
+codebook fingerprints, the raw response, status and error, runtime, and persistence status.
+
+How it behaves
+--------------
+* **Prompt versioning.** `PROMPT_VERSION` is written into every row, so a change in the prompt is visible in
+  the data and two batches produced under different prompts can be separated after the fact.
+* **Parse and provider failures** are recorded as `laclau_status`/`laclau_error` with the raw response kept;
+  a row that failed never looks like a row that abstained.
+* **Context isolation.** `analyze_context(context)` is the unit of work, so the prompt assembly can be
+  exercised without a dataframe, and the same context packet cannot leak between records.
+
+Entry point: `step_6_roihu_discourse_analysis.py` drives the dataframe; `analyze_context()` is the analysis
+itself. Note for readers coming from the literature: this stage codes the *formula and its conditions*, not
+a discourse network — that is step 7, and the social layer is step 8.
+"""
+
 from __future__ import annotations
 
 import json
