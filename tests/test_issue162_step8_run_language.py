@@ -111,3 +111,34 @@ def test_step8_has_no_f823_shadowing_of_the_source_helper():
     # A bare ``source =`` or ``source=`` assignment would shadow the helper.
     assert "\n        source =" not in body
     assert "\n                source=" not in body
+
+
+def test_step8_no_evidence_clears_stale_stage_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    pytest.importorskip("pydantic")
+    monkeypatch.setenv("LACLAUGPT_MAX_ROWS", "1")
+    csv_path = tmp_path / "ep24_fi.csv"
+    monkeypatch.setenv("LACLAUGPT_INPUT_CSV", str(csv_path))
+    fields = [
+        "video_id", "allas_filename", "country", "asr_transcript", "sna_analysis_markdown",
+        "sna_report_markdown", "sna_nodes_json", "sna_edges_json", "sna_metrics_json",
+        "sna_schema_version", "sna_prompt_version", "sna_context_sha256",
+        "sna_context_truncated", "sna_generated_at", "sna_status", "sna_error",
+    ]
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow({field: "stale" for field in fields} | {
+            "video_id": "v1", "allas_filename": "a.mp4", "country": "Finland", "asr_transcript": ""
+        })
+
+    module = _load_step8()
+    module.run_language("")
+
+    with csv_path.open(encoding="utf-8") as handle:
+        row = next(csv.DictReader(handle))
+    assert row["sna_status"] == "no_evidence"
+    assert row["sna_analysis_markdown"] == row["sna_report_markdown"] == ""
+    assert row["sna_nodes_json"] == row["sna_edges_json"] == "[]"
+    assert row["sna_context_sha256"] == row["sna_generated_at"] == ""

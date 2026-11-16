@@ -348,6 +348,11 @@ def run_language(lang: str) -> Path | None:
         if column not in df.columns:
             df[column] = ""
 
+    def clear_step8_output(index):
+        """Prevent a failed/reclassified retry from retaining stale Stage 8 results."""
+        for column in output_columns:
+            df.at[index, column] = ""
+
     model = stage_model(8).name
     LOG.info("model=%s model_source=%s", model, stage_model(8).source)
     all_nodes: list[dict] = []
@@ -362,6 +367,7 @@ def run_language(lang: str) -> Path | None:
                  index, context_hash, len(evidence), truncation["estimated_tokens"],
                  truncation["fields_truncated"], truncation["characters_lost"])
         if not any(str(row.get(name) or "").strip() for name in ("asr_transcript", "asr_translation", "ocr_1", "dna_statements_json")):
+            clear_step8_output(index)
             df.at[index, "sna_status"] = "no_evidence"
             df.at[index, "sna_error"] = ""
             df.at[index, "sna_nodes_json"] = "[]"
@@ -430,6 +436,7 @@ def run_language(lang: str) -> Path | None:
             all_nodes.extend(nodes)
             all_edges.extend(edges)
         except Exception as exc:
+            clear_step8_output(index)
             df.at[index, "sna_status"] = "error"
             df.at[index, "sna_error"] = f"{type(exc).__name__}: {exc}"
             LOG.error("STEP8_ROW_ERROR item=%s type=%s retryable=true detail=%s",
