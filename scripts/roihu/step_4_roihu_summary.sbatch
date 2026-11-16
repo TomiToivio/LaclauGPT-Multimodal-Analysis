@@ -39,7 +39,7 @@ source "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/scripts/roihu/roihu_job_common.sh"
 
 roihu_load_runtime "pytorch"
 roihu_diagnostics
-roihu_start_ollama
+roihu_start_ollama 4
 roihu_preflight 4
 
 cd "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"

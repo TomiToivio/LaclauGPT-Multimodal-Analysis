@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from roihu_csv_rdf import NS, export, project_row  # noqa: E402
+from roihu_csv_rdf import DEFAULT_BASE_URI, NS, export, project_row  # noqa: E402
 
 
 class RDFExportTests(unittest.TestCase):
@@ -35,7 +35,7 @@ class RDFExportTests(unittest.TestCase):
     def args(self, name="run", **changes):
         values = dict(input=self.input, output_dir=self.root / name,
                       checkpoint=self.root / "state.sqlite", limit=None, dry_run=False,
-                      base_uri="https://data.example/laclaugpt", project="ep24", dataset_id="fi")
+                      base_uri=DEFAULT_BASE_URI, project="ep24", dataset_id="fi")
         values.update(changes)
         return argparse.Namespace(**values)
 
@@ -146,6 +146,17 @@ class RDFExportTests(unittest.TestCase):
         self.assertEqual(export(self.args("sample", limit=1))["rows"], 1)
         self.input.write_text("videoId,text\n")
         self.assertEqual(export(self.args("empty"))["rows"], 0)
+
+    def test_placeholder_namespace_rejected_without_creating_outputs(self):
+        with self.assertRaisesRegex(ValueError, "Placeholder"):
+            export(self.args(base_uri="https://data.example/laclaugpt"))
+        self.assertFalse((self.root / "run").exists())
+
+    def test_default_namespace_is_not_placeholder(self):
+        self.assertNotIn(".example", DEFAULT_BASE_URI)
+        export(self.args())
+        result = next(csv.DictReader((self.root / "run/final.csv").open(encoding="utf-8", newline="")))
+        self.assertTrue(result["rdf_document_uri"].startswith(DEFAULT_BASE_URI + "/ep24/document/"))
 
     def test_malformed_base_uri_rejected(self):
         for base in ("relative", "https://example.org/a>b", "https://example.org/#fragment"):

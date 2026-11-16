@@ -60,7 +60,7 @@ def test_sna_drops_relations_without_evidence_instead_of_inventing_graph():
     assert basic_metrics(nodes, edges)["edge_count"] == 0
 
 
-def test_human_report_separates_empirical_graph_and_castells_interpretation():
+def test_human_report_contains_only_descriptive_sna():
     nodes, edges = graph_from_edges([_edge()], ROW)
     metrics = basic_metrics(nodes, edges)
     report = render_markdown_report(
@@ -69,21 +69,14 @@ def test_human_report_separates_empirical_graph_and_castells_interpretation():
         edges,
         metrics,
         "Alice explicitly mentions Bob.",
-        "This may be read as a visible communication flow; no programmer or switcher role can be established.",
     )
     assert "# Social Network Analysis" in report
     assert "## Nodes" in report
     assert "## Edges" in report
     assert "## Basic network statistics" in report
-    assert "## Castellsian interpretation" in report
-    assert "theory prompt cannot add nodes or edges" in report
-    # The interpretation is no longer inlined: the report points at the separate,
-    # persisted artefact instead (#283), which is the separation this test is named
-    # for. The interpretive terms stay in the caveats, and the theory text must not
-    # appear in the empirical report at all.
-    assert "Refer to sna_castells_interpretation_markdown" in report
-    assert "programmer, switcher" in report
-    assert "no programmer or switcher role can be established" not in report
+    assert "Castells" not in report
+    assert "Luhmann" not in report
+    assert "## Basic network statistics" in report
 
 
 def test_rdf_projects_same_sna_node_and_edge_identity_with_provenance():

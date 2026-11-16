@@ -568,19 +568,39 @@ def basic_metrics(
         components.append(sorted(component))
 
     n = len(node_ids)
-    unique_arcs = {
-        (_text(edge.get("source")), _text(edge.get("target")))
-        for edge in edge_rows
-        if _text(edge.get("source")) in node_ids and _text(edge.get("target")) in node_ids
-    }
-    # Density is defined on the simple directed projection of the multigraph.
-    # Parallel relations do not produce more possible actor-to-actor pairs.
-    unique_arcs = {(a, b) for a, b in unique_arcs if a != b}
-    density = (len(unique_arcs) / (n * (n - 1))) if n > 1 else 0.0
+    # A directed simple projection counts each ordered pair once. Undirected
+    # observations contribute both orientations; parallel events do not
+    # inflate degree, density, or normalized centrality.
+    unique_arcs: set[tuple[str, str]] = set()
+    for edge in edge_rows:
+        a, b = _text(edge.get("source")), _text(edge.get("target"))
+        if a not in node_ids or b not in node_ids or a == b:
+            continue
+        unique_arcs.add((a, b))
+        if not bool(edge.get("directed", True)):
+            unique_arcs.add((b, a))
+    simple_out = {node_id: 0 for node_id in node_ids}
+    simple_in = {node_id: 0 for node_id in node_ids}
+    for a, b in unique_arcs:
+        simple_out[a] += 1
+        simple_in[b] += 1
+    n = len(node_ids)
+    denominator = n * (n - 1)
+    density = len(unique_arcs) / denominator if denominator else 0.0
     centrality = {
         node_id: (degree[node_id] / (2 * (n - 1)) if n > 1 else 0.0)
         for node_id in node_ids
+    }  # Legacy event-degree measure; can exceed 1 with parallel events.
+    simple_in_centrality = {
+        node_id: (simple_in[node_id] / (n - 1) if n > 1 else 0.0)
+        for node_id in node_ids
     }
+    simple_out_centrality = {
+        node_id: (simple_out[node_id] / (n - 1) if n > 1 else 0.0)
+        for node_id in node_ids
+    }
+    reciprocated = sum((b, a) in unique_arcs for a, b in unique_arcs)
+    reciprocity = reciprocated / len(unique_arcs) if unique_arcs else 0.0
 
     return {
         "schema_version": SNA_SCHEMA_VERSION,
@@ -601,8 +621,260 @@ def basic_metrics(
         "out_degree": dict(sorted(out_degree.items())),
         "weighted_degree": dict(sorted(weighted_degree.items())),
         "degree_centrality": dict(sorted(centrality.items())),
+        "simple_in_degree": dict(sorted(simple_in.items())),
+        "simple_out_degree": dict(sorted(simple_out.items())),
+        "simple_in_degree_centrality": dict(sorted(simple_in_centrality.items())),
+        "simple_out_degree_centrality": dict(sorted(simple_out_centrality.items())),
+        "simple_directed_reciprocity": reciprocity,
     }
 
+
+
+# --------------------------------------------------------------------------- #
+# Extended, applicability-aware metrics (#380 bullet 4)
+# --------------------------------------------------------------------------- #
+#
+# Every value here is either a number or ``None`` with a reason. A density of 0.0 on an empty graph and
+# a density of 0.0 on a graph with no edges are different facts, and a report that prints the same 0.0
+# for both teaches the reader to distrust the column. Pure Python on purpose: networkx is not a declared
+# dependency of this repository, and a metric helper is not a good reason to add one.
+
+Metric = dict[str, Any]
+
+
+def _undirected_simple(nodes: Iterable[Mapping[str, Any]],
+                       edges: Iterable[Mapping[str, Any]]) -> tuple[set[str], set[tuple[str, str]]]:
+    """The simple undirected projection: parallel relations collapse, direction is dropped."""
+    node_ids = {str(node["node_id"]) for node in nodes if node.get("node_id")}
+    pairs: set[tuple[str, str]] = set()
+    for edge in edges:
+        source, target = _text(edge.get("source")), _text(edge.get("target"))
+        if source in node_ids and target in node_ids and source != target:
+            pairs.add((source, target) if source < target else (target, source))
+    return node_ids, pairs
+
+
+def _directed_arcs(nodes: Iterable[Mapping[str, Any]],
+                   edges: Iterable[Mapping[str, Any]]) -> set[tuple[str, str]]:
+    node_ids = {str(node["node_id"]) for node in nodes if node.get("node_id")}
+    return {
+        (_text(edge.get("source")), _text(edge.get("target")))
+        for edge in edges
+        if bool(edge.get("directed", True))          # a reciprocal tie needs a direction to return
+        and _text(edge.get("source")) in node_ids
+        and _text(edge.get("target")) in node_ids
+        and _text(edge.get("source")) != _text(edge.get("target"))
+    }
+
+
+def _neighbours(node_ids: set[str], pairs: set[tuple[str, str]]) -> dict[str, set[str]]:
+    adjacency: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
+    for a, b in pairs:
+        adjacency[a].add(b)
+        adjacency[b].add(a)
+    return adjacency
+
+
+def reciprocity(nodes: Iterable[Mapping[str, Any]],
+                edges: Iterable[Mapping[str, Any]]) -> Metric:
+    """Dyadic reciprocity: the share of directed arcs that are returned.
+
+    Undirected edges are excluded, because a reciprocal tie has no meaning where direction was never
+    recorded — counting them would inflate the score with edges that cannot fail the test.
+    """
+    arcs = _directed_arcs(nodes, edges)
+    if not arcs:
+        return {"value": None, "undefined_reason": "no directed arcs; reciprocity is undefined"}
+    returned = {(a, b) for a, b in arcs if (b, a) in arcs}
+    return {
+        "value": len(returned) / len(arcs),
+        "reciprocated_arc_count": len(returned),
+        "directed_arc_count": len(arcs),
+        "definition": "reciprocated directed arcs / directed arcs",
+    }
+
+
+def clustering(nodes: Iterable[Mapping[str, Any]],
+               edges: Iterable[Mapping[str, Any]]) -> Metric:
+    """Mean local clustering on the undirected simple projection (transitivity, not a triangle census)."""
+    node_ids, pairs = _undirected_simple(nodes, edges)
+    adjacency = _neighbours(node_ids, pairs)
+    local: dict[str, float] = {}
+    for node_id, neighbours in adjacency.items():
+        k = len(neighbours)
+        if k < 2:
+            continue
+        links = sum(1 for a, b in pairs if a in neighbours and b in neighbours)
+        possible = k * (k - 1) / 2
+        local[node_id] = links / possible
+    if not local:
+        return {"value": None,
+                "undefined_reason": "no node has two neighbours; clustering is undefined"}
+    return {
+        "value": sum(local.values()) / len(local),
+        "local": dict(sorted(local.items())),
+        "nodes_measured": len(local),
+        "definition": "mean of 2*links(between neighbours)/(k*(k-1)) over nodes with k>=2",
+    }
+
+
+def closeness(nodes: Iterable[Mapping[str, Any]],
+              edges: Iterable[Mapping[str, Any]]) -> Metric:
+    """Wasserman–Faust closeness on the undirected projection, defined per reachable component."""
+    node_ids, pairs = _undirected_simple(nodes, edges)
+    if len(node_ids) < 2:
+        return {"value": None, "undefined_reason": "fewer than two nodes"}
+    adjacency = _neighbours(node_ids, pairs)
+    values: dict[str, float] = {}
+    for start in sorted(node_ids):
+        distances = {start: 0}
+        queue = deque([start])
+        while queue:
+            current = queue.popleft()
+            for neighbour in sorted(adjacency[current]):
+                if neighbour not in distances:
+                    distances[neighbour] = distances[current] + 1
+                    queue.append(neighbour)
+        reachable = len(distances) - 1
+        if reachable == 0:
+            continue
+        total = sum(distances.values())
+        values[start] = (reachable / (len(node_ids) - 1)) * (reachable / total)
+    if not values:
+        return {"value": None, "undefined_reason": "no node reaches another"}
+    return {
+        "mean": sum(values.values()) / len(values),
+        "per_node": dict(sorted(values.items())),
+        "isolated_node_count": len(node_ids) - len(values),
+        "definition": "Wasserman-Faust: (reachable/(n-1)) * (reachable/sum of distances)",
+    }
+
+
+def betweenness(nodes: Iterable[Mapping[str, Any]],
+                edges: Iterable[Mapping[str, Any]]) -> Metric:
+    """Brandes betweenness on the undirected, unweighted simple projection (deterministic order)."""
+    node_ids, pairs = _undirected_simple(nodes, edges)
+    if len(node_ids) < 3:
+        return {"value": None, "undefined_reason": "fewer than three nodes; betweenness is undefined"}
+    adjacency = _neighbours(node_ids, pairs)
+    centrality = {node_id: 0.0 for node_id in node_ids}
+    for source in sorted(node_ids):
+        stack: list[str] = []
+        predecessors: dict[str, list[str]] = {node_id: [] for node_id in node_ids}
+        sigma = {node_id: 0.0 for node_id in node_ids}
+        sigma[source] = 1.0
+        distance = {node_id: -1 for node_id in node_ids}
+        distance[source] = 0
+        queue = deque([source])
+        while queue:
+            vertex = queue.popleft()
+            stack.append(vertex)
+            for neighbour in sorted(adjacency[vertex]):
+                if distance[neighbour] < 0:
+                    distance[neighbour] = distance[vertex] + 1
+                    queue.append(neighbour)
+                if distance[neighbour] == distance[vertex] + 1:
+                    sigma[neighbour] += sigma[vertex]
+                    predecessors[neighbour].append(vertex)
+        delta = {node_id: 0.0 for node_id in node_ids}
+        while stack:
+            vertex = stack.pop()
+            for predecessor in predecessors[vertex]:
+                if sigma[vertex]:
+                    delta[predecessor] += (sigma[predecessor] / sigma[vertex]) * (1 + delta[vertex])
+            if vertex != source:
+                centrality[vertex] += delta[vertex]
+    # Undirected: each pair is counted from both ends.
+    normaliser = 1.0 / ((len(node_ids) - 1) * (len(node_ids) - 2)) if len(node_ids) > 2 else 1.0
+    values = {node_id: value * normaliser for node_id, value in sorted(centrality.items())}
+    return {
+        "mean": sum(values.values()) / len(values),
+        "per_node": values,
+        "definition": "Brandes on the undirected simple projection, normalised by 1/((n-1)(n-2))",
+    }
+
+
+def greedy_communities(nodes: Iterable[Mapping[str, Any]],
+                       edges: Iterable[Mapping[str, Any]]) -> Metric:
+    """Clauset–Newman–Moore greedy modularity, deterministic because every tie is broken by id.
+
+    Label propagation or Louvain would be faster and would give a different partition on every run;
+    a metric that changes when nothing changes is not a measurement.
+    """
+    node_ids, pairs = _undirected_simple(nodes, edges)
+    if len(node_ids) < 2 or not pairs:
+        return {"value": None, "undefined_reason": "no edges to divide"}
+    communities = {node_id: node_id for node_id in node_ids}
+    members: dict[str, set[str]] = {node_id: {node_id} for node_id in node_ids}
+    degree = {node_id: 0 for node_id in node_ids}
+    for a, b in pairs:
+        degree[a] += 1
+        degree[b] += 1
+    total_degree = sum(degree.values())
+
+    def modularity() -> float:
+        if not total_degree:
+            return 0.0
+        inner: dict[str, int] = {community: 0 for community in members}
+        for a, b in pairs:
+            if communities[a] == communities[b]:
+                inner[communities[a]] += 1
+        edge_count = len(pairs)
+        score = 0.0
+        for community, community_members in members.items():
+            volume = sum(degree[node] for node in community_members)
+            # Q = sum_c [ L_c/m - (d_c/2m)^2 ]; m is the number of edges, d_c the degree sum.
+            score += inner[community] / edge_count - (volume / total_degree) ** 2
+        return score
+
+    improved = True
+    while improved:
+        improved = False
+        best_gain = 1e-12
+        best_pair: tuple[str, str] | None = None
+        community_ids = sorted(members)
+        for left in community_ids:
+            for right in community_ids:
+                if left >= right:
+                    continue
+                gain = 0.0
+                for a, b in sorted(pairs):
+                    if (communities[a] == left and communities[b] == right) or \
+                            (communities[a] == right and communities[b] == left):
+                        gain += 1.0 / total_degree
+                if gain > best_gain:
+                    best_gain, best_pair = gain, (left, right)
+        if best_pair:
+            left, right = best_pair
+            for node in members[right]:
+                communities[node] = left
+            members[left] |= members[right]
+            del members[right]
+            improved = True
+    partition = sorted((sorted(group) for group in members.values()), key=lambda g: g[0])
+    return {
+        "value": modularity(),
+        "communities": partition,
+        "community_count": len(partition),
+        "algorithm": "greedy modularity (CNM), deterministic tie-break by node id",
+    }
+
+
+def extended_metrics(nodes: Iterable[Mapping[str, Any]],
+                     edges: Iterable[Mapping[str, Any]]) -> dict[str, Metric]:
+    """The metrics the textbook asks for, each with its applicability stated."""
+    node_rows, edge_rows = list(nodes), list(edges)
+    return {
+        "reciprocity": reciprocity(node_rows, edge_rows),
+        "clustering": clustering(node_rows, edge_rows),
+        "closeness": closeness(node_rows, edge_rows),
+        "betweenness": betweenness(node_rows, edge_rows),
+        "communities": greedy_communities(node_rows, edge_rows),
+        "definitions": {
+            "projection": "undirected simple projection unless the metric says otherwise",
+            "undefined": "None with a reason, never 0.0; zero would claim a measured value",
+        },
+    }
 
 def graph_summary(
     nodes: Iterable[Mapping[str, Any]],
@@ -646,7 +918,6 @@ def render_markdown_report(
     edges: Iterable[Mapping[str, Any]],
     metrics: Mapping[str, Any],
     empirical_summary: str,
-    castells_interpretation: str,
 ) -> str:
     node_rows = list(nodes)
     edge_rows = list(edges)
@@ -678,11 +949,6 @@ def render_markdown_report(
         "No additional model-written empirical summary was produced. "
         "The node/edge tables above remain the authoritative graph representation."
     )
-    castells = _text(castells_interpretation) or (
-        "No Castellsian interpretation was produced. The graph can still be used "
-        "as a descriptive network artifact without theoretical interpretation."
-    )
-
     return "\n".join(
         [
             "# Social Network Analysis",
@@ -695,7 +961,7 @@ def render_markdown_report(
             "",
             "## Network construction",
             "Only relations explicitly supported by upstream evidence are admitted. "
-            "The graph topology is deterministic after extraction; the theory prompt cannot add nodes or edges.",
+            "The graph topology and statistics are deterministic after evidence extraction.",
             "",
             "## Nodes",
             *node_lines,
@@ -711,6 +977,7 @@ def render_markdown_report(
             f"- Simple directed density (unique pairs): {float(metrics.get('density', 0.0)):.6f}",
             f"- Unique directed actor pairs: {metrics.get('unique_directed_pair_count', 0)}",
             f"- Relations per pair: {float(metrics.get('mean_relations_per_pair', 0.0)):.3f}",
+            f"- Directed simple-projection reciprocity: {float(metrics.get('simple_directed_reciprocity', 0.0)):.3f}",
             "",
             "## Most connected nodes",
             *top_lines,
@@ -719,14 +986,10 @@ def render_markdown_report(
             "Refer to sna_analysis_markdown for the full extraction narrative; the validated node/edge tables above are authoritative.",
             # Avoid embedding the independently persisted analysis a second time.
             "",
-            "## Castellsian interpretation",
-            "Refer to sna_castells_interpretation_markdown for the separate, non-empirical interpretation.",
-            "",
             "## Caveats and uncertainty",
             "This is a descriptive network built from the analysed sample, not evidence of hidden "
             "coordination, causality, friendship, strategic control or population-level influence. "
-            "Terms such as programmer, switcher and network-making power are interpretive concepts "
-            "and should be used only when the observed relations justify them.",
+            "A network observed in one video is not the complete population network.",
             "",
             "## Provenance / run metadata",
             f"- SNA schema: `{SNA_SCHEMA_VERSION}`",

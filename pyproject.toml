@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+graph = [
+  "networkx>=3,<4",
+]
 mongo = [
   "pymongo>=4.10,<5",
 ]
@@ -40,6 +43,7 @@ dev = [
 # semantics is therefore testing a code path that only exists when pymongo is
 # present, so pymongo is a test dependency, not an optional runtime one.
 test = [
+  "networkx>=3,<4",
   "pytest>=8.3,<9",
   "pydantic>=2.9,<3",
   "pandas>=2.2,<3",

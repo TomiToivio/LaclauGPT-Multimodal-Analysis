@@ -46,8 +46,19 @@ python /public/checkout/roihu_csv_rdf.py \
 
 Use `--dry-run` for header/configuration checks without writes (it does not validate
 every row). `--project` and `--base-uri` scope identities; the default base is
-the placeholder `https://data.example/laclaugpt`, not a hosted endpoint.
-Set a stable namespace before downstream consumers depend on it.
+`https://w3id.org/laclaugpt/ep24/resource`, used as an identifier namespace,
+not a claim that a hosted RDF service exists. Override with `--base-uri` or
+`LACLAUGPT_RDF_BASE_URI` if you administer a persistent project namespace.
+The `.example` placeholder is rejected before any output is written.
+
+**Migration from runs created before this change:** Existing `rdf_document_uri`
+and `rdf_row_uri` fields, stage-9 CSV checkpoints, and N-Triples graphs using
+`https://data.example/laclaugpt` are stale. Preserve originals for audit,
+then deliberately re-run Step 9 on those rows with the desired final namespace;
+do not assume that a normal resume will reprocess rows already marked complete.
+The cache fingerprint includes the base URI and code hash, so regenerated
+projections do not reuse old cached identifiers. Check downstream references
+before replacing previously published identifiers.
 
 Batch template (submit from private storage so Slurm logs stay private):
 

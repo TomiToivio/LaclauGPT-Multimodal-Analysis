@@ -16,12 +16,13 @@ import sqlite3
 import sys
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 VERSION = "ep24-rdf-2"
 NS = "https://w3id.org/laclaugpt/ep24/"
+DEFAULT_BASE_URI = "https://w3id.org/laclaugpt/ep24/resource"
 PROV = "http://www.w3.org/ns/prov#"
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 LOG = logging.getLogger("roihu_csv_rdf")
@@ -35,6 +36,18 @@ def digest(value: str) -> str:
 def uri(base: str, project: str, kind: str, key: str) -> str:
     """Project-scoped, opaque stable identity; no names embedded in URIs."""
     return f"{base.rstrip('/')}/{quote(project, safe='')}/{kind}/{digest(key)}"
+
+
+def canonical_actor_uri(base: str, project: str, node_id: str) -> str | None:
+    """Reuse only corroborated upstream entity IDs across DNA and SNA.
+
+    Never unify unresolved labels, anonymous roles or model-generated local IDs.
+    The caller retains legacy URIs for ambiguous or provisional actors.
+    """
+    identifier = str(node_id or "").strip()
+    if not identifier.startswith("entity:") or not identifier[7:]:
+        return None
+    return uri(base, project, "actor", identifier[7:])
 
 
 def literal(value: str) -> str:
@@ -187,8 +200,12 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
             sid = str(statement.get("statement_id") or "").strip() or digest(
                 json.dumps([key, index, actor, concept], ensure_ascii=False))
             statement_uri = uri(base, project, "dna-statement", sid)
-            actor_uri = uri(base, project, "dna-actor", str(statement.get("actor_id") or actor))
+            actor_id = str(statement.get("actor_id") or "").strip()
+            legacy_actor_uri = uri(base, project, "dna-actor", actor_id or actor)
+            actor_uri = canonical_actor_uri(base, project, actor_id) or legacy_actor_uri
             concept_uri = uri(base, project, "dna-concept", str(statement.get("concept_id") or concept))
+            if actor_uri != legacy_actor_uri:
+                lines.append(triple(legacy_actor_uri, NS + "canonicalActor", actor_uri, resource=True))
             lines.extend([
                 triple(statement_uri, RDF_TYPE, NS + "DNAStatement", resource=True),
                 triple(document, NS + "dnaStatement", statement_uri, resource=True),
@@ -219,7 +236,10 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
         label = str(node_data.get("label", "")).strip()
         if not node_id:
             continue
-        node = uri(base, project, "sna-node", node_id)
+        legacy_node = uri(base, project, "sna-node", node_id)
+        node = canonical_actor_uri(base, project, node_id) or legacy_node
+        if node != legacy_node:
+            lines.append(triple(legacy_node, NS + "canonicalActor", node, resource=True))
         sna_nodes[node_id] = node
         lines.extend([
             triple(node, RDF_TYPE, NS + "SNANode", resource=True),
@@ -242,8 +262,8 @@ def project_row(row: dict[str, str], *, base: str, project: str, dataset: str,
         if not edge_id or not source_id or not target_id or not relation:
             warnings.append("SNA edge missing edge_id/source/target/relation; retained as raw cell")
             continue
-        source_node = sna_nodes.get(source_id) or uri(base, project, "sna-node", source_id)
-        target_node = sna_nodes.get(target_id) or uri(base, project, "sna-node", target_id)
+        source_node = sna_nodes.get(source_id) or canonical_actor_uri(base, project, source_id) or uri(base, project, "sna-node", source_id)
+        target_node = sna_nodes.get(target_id) or canonical_actor_uri(base, project, target_id) or uri(base, project, "sna-node", target_id)
         edge = uri(base, project, "sna-edge", edge_id)
         lines.extend([
             triple(edge, RDF_TYPE, NS + "SNAEdge", resource=True),
@@ -297,13 +317,15 @@ def export(args: argparse.Namespace) -> dict:
     if (parsed.scheme not in {"https", "http"} or not parsed.netloc or parsed.query
             or parsed.fragment or any(c.isspace() or c in '<>"{}|^`\\' for c in args.base_uri)):
         raise ValueError("--base-uri must be a plain absolute HTTP(S) URI without query/fragment")
+    if parsed.hostname and (parsed.hostname == "example" or parsed.hostname.endswith(".example")):
+        raise ValueError("Placeholder .example namespace is forbidden for RDF identities; set --base-uri")
     if not args.project.strip() or not args.dataset_id.strip():
         raise ValueError("Project and dataset IDs must not be empty")
     csv.field_size_limit(sys.maxsize)
     # Snapshot to disk, not RAM: later edits to the source cannot create a mixed export.
     # The output directory is deliberately exclusive to this run.
-    LOG.info("stage=%s input=%s output=%s checkpoint=%s model=none",
-             VERSION, source, output, args.checkpoint)
+    LOG.info("stage=%s input=%s output=%s checkpoint=%s base_uri=%s model=none",
+             VERSION, source, output, args.checkpoint, args.base_uri)
     if args.dry_run:
         with source.open(encoding="utf-8-sig", newline="") as stream:
             header = validate_header(csv.DictReader(stream).fieldnames)
@@ -377,7 +399,7 @@ def export(args: argparse.Namespace) -> dict:
             # expose the same deterministic graph as .ttl for RDF tooling.
             shutil.copyfile(output / "graph.nt", output / "graph.ttl")
         manifest = {"status": "complete-with-warnings" if warnings_count else "complete",
-                    "stage": VERSION, "run_id": run_id, "completed_at": datetime.now(UTC).isoformat(),
+                    "stage": VERSION, "run_id": run_id, "completed_at": datetime.now(timezone.utc).isoformat(),
                     "source": str(source), "source_sha256": file_hash.hexdigest(),
                     "code_sha256": code_hash, "project": args.project, "dataset_id": args.dataset_id,
                     "base_uri": args.base_uri, "rows": count, "warnings": warnings_count,
@@ -395,11 +417,12 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(os.environ.get("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", "."))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=root / "ep24_fi.csv")
-    parser.add_argument("--output-dir", type=Path, default=root / "rdf" / datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ"))
+    parser.add_argument("--output-dir", type=Path, default=root / "rdf" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     parser.add_argument("--checkpoint", type=Path, default=root / "database" / "rdf.sqlite3")
     parser.add_argument("--project", default="ep24")
     parser.add_argument("--dataset-id", default=None, help="Stable corpus name; defaults to input file stem")
-    parser.add_argument("--base-uri", default="https://data.example/laclaugpt")
+    parser.add_argument("--base-uri", default=os.environ.get("LACLAUGPT_RDF_BASE_URI", DEFAULT_BASE_URI),
+                        help="Persistent RDF identifier namespace; override with LACLAUGPT_RDF_BASE_URI")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--debug", action="store_true")

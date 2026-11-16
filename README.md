@@ -26,6 +26,10 @@ This repository is the EP24 multimodal analysis implementation of the current La
 
 The compatibility rule is strict: **new functionality is added around or alongside the legacy stages. Existing legacy steps, fields, prompts, schemas, and outputs must not be removed or replaced without explicit human permission.**
 
+## For human researchers
+
+Start with the [researcher's guide to the complete pipeline](docs/RESEARCHER_GUIDE.md) for a plain-language walkthrough of Steps 0–9, a repository map, a prompt-reading guide, and a worked example distinguishing discourse analysis, Discourse Network Analysis, and Social Network Analysis. The guide also explains how to audit a result back to its source evidence and where to find the relevant code, fields, and tests.
+
 ## Legacy research record
 
 The original EP24 implementation used CSC Puhti. That exact historical code is preserved on the [`legacy` branch](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/tree/legacy). Keep it visible and citable. Do not modernize or rewrite that branch.
@@ -56,6 +60,10 @@ bash scripts/roihu/run_step_1.sh
 bash scripts/roihu/run_step_2.sh
 python scripts/ep24/ep24_status.py
 ```
+
+## Researcher's guide and refactor audit
+
+For a plain-language explanation of the nine stages, a repository map, provenance and evidence checklist, glossary, prompt-entry-point inventory, and the incremental audit for [issue #411](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/issues/411), see [Researcher's pipeline guide](docs/RESEARCHER_PIPELINE_GUIDE.md). This guide supplements, rather than replaces, the operational and machine-readable contracts.
 
 ## Current Roihu pipeline
 

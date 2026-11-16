@@ -37,7 +37,7 @@ mkdir -p "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"/{logs,database,outputs,Keyframes
 
 if roihu_step_needs_ollama "${STEP}"; then
   source "${SCRIPT_DIR}/roihu_job_common.sh"
-  roihu_start_ollama
+  roihu_start_ollama "${STEP}"
 fi
 
 # Recover a missing Step 3 rclone before the fail-fast environment check.

@@ -85,10 +85,11 @@ def test_the_manifest_states_which_stages_were_paused(tmp_path: Path):
         tmp_path, record_unit="video", countries={"finland": {"records": 1}},
         child_counts={}, collections_read={}, provenance={}, outputs=[],
         contract={"stage_coverage": {"finland": {"8_sna": {"records": 3, "available": True}}}})
-    assert manifest["paused_stages"] == [8, 9], "paused by default in the active run (#346)"
+    # #380 reactivated Steps 8 and 9; #346 paused them, and #380 is the newer decision.
+    assert manifest["paused_stages"] == [], "no stage is paused in the active run (#380)"
     # scope never rewrites history: coverage still reports what the data holds
     assert manifest["stage_coverage"]["finland"]["8_sna"]["records"] == 3
-    assert json.loads((tmp_path / "MANIFEST.json").read_text())["paused_stages"] == [8, 9]
+    assert json.loads((tmp_path / "MANIFEST.json").read_text())["paused_stages"] == []
 
 
 def test_the_audit_does_not_call_a_paused_stage_anomalous(tmp_path: Path, monkeypatch):

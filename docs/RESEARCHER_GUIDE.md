@@ -1,117 +1,97 @@
-# From a video to an analytical claim — a researcher's guide
+# Researcher's guide to the EP24 analysis pipeline
 
-This page answers one question: **if I want to inspect or challenge an analytical decision, where do I
-look?** It is written for someone who reads code occasionally and social science constantly. The
-generated [`REPO_MAP.md`](REPO_MAP.md) lists every module; this page explains the pipeline the modules
-form.
+This guide is the **reading map** for researchers who need to understand, reproduce, or challenge an analytical result. It does not change analysis behavior, model instructions, or storage contracts. For the machine-readable specification see [the stage contract](../ep24_stage_contract.py), [the cumulative CSV contract](EP24_PIPELINE_CONTRACT.md), and [the operating guide](ROIHU_NUMBERED_PIPELINE.md).
 
-The pipeline turns collected media (videos, posts, pages) into a cumulative **dataframe** — one row per
-item, one column group per stage — and then into a coding you can analyse. Every stage is **additive**:
-source metadata and upstream columns are carried forward unchanged, and a stage only appends its own
-columns. That is the rule `ep24_pipeline.py` enforces, and it is why you can always see what was known
-before a stage made its judgement.
+## Read the pipeline in five minutes
 
-## The ten stages
+**One row represents a source item** (usually one video). Each stage receives a cumulative table and adds fields without dropping earlier fields. A research claim in a late stage should be traceable back to the source item and earlier evidence. The model is an *interpreter of supplied evidence*, not a source of new observations.
 
-| # | stage | code | what it decides | GPU |
-| ---: | --- | --- | --- | --- |
-| 0 | import | `step_0_roihu_import.py` | seeds the Mongo dataframe from private canonical CSVs; never overwrites an existing row | no |
-| 1 | preprocess | `step_1_roihu_preprocess.py` → `roihu_preprocess.py` | stages media from Allas, takes **one** keyframe at t = 1.0 s, OCRs it, runs speech recognition over the whole video | yes |
-| 2 | frame | `step_2_roihu_frame.py` → `roihu_frame.py` | multimodal reading of that one keyframe, with the accumulated row passed as context | yes |
-| 3 | video | `step_3_roihu_video.py` | whole-video analysis with a video-language model (wraps `experiments/vllm_video_test.py`) | yes |
-| 4 | summary | `step_4_roihu_summary.py` → `roihu_summary.py` | social-semiotic summary and fusion of the row's multimodal material | yes |
-| 5 | postprocess | `step_5_roihu_postprocess.py` → `roihu_postprocess.py` | structured entities, themes, sentiment — stored **separately** from the human-coded columns, followed by the quality gate | yes |
-| 6 | discourse analysis | `step_6_roihu_discourse_analysis.py` → `roihu_populism.py` | Laclau/Mouffe/Palonen coding: articulation, us/them, frontier, formula of populism, evidence-linked JSON, abstention | yes |
-| 7 | discourse network | `step_7_roihu_discourse_network_analysis.py` | Leifeld-style DNA statements: one actor–concept statement with an explicit support/oppose qualifier **where evidenced** | yes |
-| 8 | social network | `step_8_roihu_social_network_analysis.py` | evidence-supported actor-to-actor ties; DNA congruence is not treated as a social tie | yes |
-| 9 | RDF export | `step_9_roihu_rdf.py` → `roihu_rdf.py` | deterministic, CPU-only export to RDF; emits no dataframe columns | no |
-
-`ep24_stage_contract.py` holds this table in machine-readable form — module, entry point, sbatch script,
-the columns each stage appends, and a note on what it does. **It is the source of truth**; if this page
-and the contract disagree, the contract is right and this page is a bug.
-
-## What is a model doing, and what is a rule?
-
-Three different kinds of judgement end up in the same dataframe, and the column names tell you which:
-
-| kind | how to recognise it | who decides | can it be wrong in the interpretive sense? |
+| Step | Research question | Main code to read | How the result is produced |
 | --- | --- | --- | --- |
-| **human-coded** | `political_preference`, `entities`, `themes`, `researcher_note` | the researcher, outside the pipeline | no — it is the reference |
-| **model-generated** | `frame_analysis_*`, `summary_*`, `vllm_video_*`, `formula_of_populism_*`, `laclau_*`, `dna_*`, `sna_*` | an LLM, per stage, from a prompt you can read in that stage's module | yes |
-| **deterministic** | `*_quality_status`, `*_quality_reason`, `*_context_sha256`, `rdf_*`, aggregates | code — thresholds and rules you can test | no, but the **threshold choice** is a methodological one |
+| 0. Import/bootstrap | Which source item and researcher annotations are we analysing? | `step_0_roihu_import.py`, `ep24_bootstrap.py`, `ep24_schema.py` | Deterministic identity and schema preparation |
+| 1. Preprocess | What speech and visible text are present? | `step_1_roihu_preprocess.py` → `roihu_preprocess.py` | Media extraction, OCR and ASR/translation; backend/model provenance recorded |
+| 2. Frame | What is visible in the selected still image? | `step_2_roihu_frame.py` → `roihu_frame.py` | Model-assisted description of the single source-time 1.0s frame |
+| 3. Video | What happens over time in the clip? | `step_3_roihu_video.py` → `experiments/vllm_video_test.py` | Optional whole-video VLM; scroll quality controls |
+| 4. Summary | What combined account is supported by the different modalities? | `step_4_roihu_summary.py` → `roihu_summary.py` | Evidence-preserving fusion of frame, video, OCR, ASR and metadata |
+| 5. Postprocess | Which entities, themes and sentiment targets can be structured? | `step_5_roihu_postprocess.py` → `roihu_postprocess.py` | Legacy-compatible normalization and structured extraction |
+| 6. Discourse | How is political meaning articulated? | `step_6_roihu_discourse_analysis.py` → `roihu_populism.py` | Laclau/Palonen-informed interpretation; **not** an observed social tie |
+| 7. DNA | Who makes which supported or opposed claim? | `step_7_roihu_discourse_network_analysis.py`, `ep24_dna.py` | Model-assisted actor–concept statement coding with provenance |
+| 8. SNA | Which social/communication relations are evidenced? | `step_8_roihu_social_network_analysis.py`, `ep24_sna.py` | Model-assisted extraction of evidenced events, then deterministic graphs and metrics |
+| 9. RDF | How can the resulting records and graph be queried? | `step_9_roihu_rdf.py` → `roihu_csv_rdf.py` | Deterministic export of **existing** findings; not a new interpretation |
 
-The quality gate (`laclaugpt_quality.py`) is the clearest example of the third row: it returns
-`OK` / `REPROCESS` / `DELETE` for steps 2–5 by rules, and those rules decide which rows survive into the
-next stage. If a finding looks like an artefact, the gate is one of the first places to check.
+The numbered `step_*.py` files are the public entry points, **not duplicates to delete**. Several deliberately forward into historical `roihu_*.py` implementation files. The `legacy` branch is an immutable published research record and must not be edited.
 
-## Provenance: how to trace a claim back
+## Where to find things
 
-Three kinds of trace exist, and they answer different questions:
+| Location | What belongs here |
+| --- | --- |
+| `step_N_roihu_*.py` | Direct, numbered CLI entry points; one per stage |
+| `roihu_*.py` | Existing compatibility stage implementations; do not remove because a wrapper exists |
+| `ep24_*.py` | Shared contracts, configuration, provenance, schema, storage, graph, and orchestration logic |
+| `scripts/roihu/` | Slurm jobs, setup/submit wrappers, and operational tooling |
+| `scripts/ep24/` | Import, reporting, QA, export and rollout utilities |
+| `config/` | Public schema and example configuration; **no secrets** |
+| `docs/` | Research/operational contracts, methodological cautions and historical audit reports |
+| `tests/` | Synthetic fixtures and regression tests; no confidential research records |
 
-1. **Which context did the model see?** Context hashes are appended per stage
-   (`frame_analysis_context_sha256`, `dna_context_sha256`, and the prompt contract in
-   `ep24_prompt_contract.py`). Equal hashes mean equal context; a changed hash between two runs means the
-   model saw something different, not that it reasoned differently.
-2. **Which prompt and codebook produced a coding?** The prompt text lives inside the stage module today
-   (see the *Prompt sites* section of [`REPO_MAP.md`](REPO_MAP.md)); the codebook is loaded from the
-   private registry (`roihu_codebooks.py`, `roihu_codebook_sources.py`) and its identity resolution is in
-   `roihu_identity.py`.
-3. **Which evidence supports a statement?** Step 6 and 7 outputs are evidence-linked JSON
-   (`laclau_structured_json`, `dna_statements_json`): each coding carries the span it rests on, and
-   abstention is a recorded outcome (`laclau_formula_conditions_met`, `uncertainty`) rather than an
-   empty cell.
+**Start here:** `README.md` (project orientation), this guide (concepts and evidence), `docs/ROIHU_NUMBERED_PIPELINE.md` (operation), `docs/EP24_PIPELINE_CONTRACT.md` (data meanings), `docs/CODING_STYLE.md` (readable implementation conventions), `AGENTS.md` (non-negotiable protections).
 
-If a claim cannot be traced through all three, treat it as unverified rather than as a finding. That is
-the same rule the audit tools in the sibling repositories apply.
+## Following one analytical claim
 
-## Running, inspecting, resuming
+1. Identify the original source through `video_id`, `allas_filename`, `country`, and `_storage_id` (where present). IDs must not be regenerated merely because a stage is rerun.
+2. Inspect the cumulative CSV: earlier columns survive as later stages append fields. Compare the relevant row in the previous and current checkpoint rather than reading a final narrative alone.
+3. Inspect input evidence (source video, frame, OCR, transcript and model-visible source packet). The initial feed-scroll artifact affects visual analysis; see [video handling](EP24_VIDEO_HANDLING.md). Step 1 ASR intentionally analyses the full video.
+4. Read the stage's system prompt and input builder **as executed by that stage**, not a prose paraphrase of what the prompt should say. Stage-specific prompt constants live in source; `ep24_prompt_contract.py` defines shared evidence/context packet rules and fingerprints for applicable stages.
+5. Check the response validation, normalization, evidence quotation, missing-value handling and retry path. A plausible model claim unsupported by source material is not a valid observation.
+6. Inspect the appended structured and Markdown fields, stage status, model/runtime identification and prompt/version provenance. Missing results and failed validations must not be mistaken for a coded absence.
+7. For DNA, keep actor–concept stance separate from SNA actor–actor ties. For SNA, distinguish model-extracted relationship events from deterministically calculated graph measures; network interpretations cannot create evidence or alter graph topology.
+8. When uncertain, compare with the applicable schema/tests and record the limitation rather than inferring absent evidence.
+
+### A conceptual (synthetic) example
+
+Suppose a source video contains a verifiable quote, “Party A opposes proposal B.” This is **illustrative, not a real research observation**. Step 1 may transcribe those words; Step 4 may summarize the clip; Step 6 may interpret its discourse; Step 7 may encode an actor–concept statement (`Party A` / `proposal B` / oppose), *if* the quote and actor attribution meet its rules. The statement does **not** automatically establish a social interaction between Party A and some other actor. Step 8 should not fabricate an actor–actor edge. Step 9 may serialize only what earlier stages actually produced.
+
+## How prompts should be read
+
+A prompt has four distinct layers: (1) **research objective**, (2) **source evidence provided in this run**, (3) **researcher-defined coding rules and codebook/context**, and (4) **required output schema and validation conditions**. Do not collapse these layers.
+
+- Shared model-visible evidence-versus-context distinctions and token/character budget behavior: [`ep24_prompt_contract.py`](../ep24_prompt_contract.py) and [prompt runbook](EP24_PROMPT_EVIDENCE_RUNBOOK.md).
+- Step 6 interpretation prompt: [`roihu_populism.py`](../roihu_populism.py).
+- Step 7 DNA system prompt: [`step_7_roihu_discourse_network_analysis.py`](../step_7_roihu_discourse_network_analysis.py), constant `SYSTEM_PROMPT`.
+- Step 8 SNA extraction prompt: [`step_8_roihu_social_network_analysis.py`](../step_8_roihu_social_network_analysis.py), constant `EXTRACTION_SYSTEM`.
+- For other stages, follow the named entry-point arrows above to the actual implementation and search for the prompt text passed to its backend. A prompt constant is not necessarily the complete final model-visible packet.
+
+Research code's detailed prompts may be long for good methodological reasons. Any rewriting that changes substantive criteria, priorities, examples, or JSON requirements is a *methodological modification*, not harmless code cleanup. Real restricted prompts and codebooks must stay in private storage.
+
+## Operational reality and verification
+
+Follow [the Roihu operating guide](ROIHU_NUMBERED_PIPELINE.md) for current submission commands, checkpoint/resume semantics and Slurm logs; use [storage documentation](MONGODB_STORAGE.md) to distinguish MongoDB durable state, Redis coordination, Allas media and cumulative CSV. Do not assume that one local Python command can reproduce a Roihu GPU job without its dependencies, configured private material, and source data.
+
+For checks that do not require real media or private infrastructure, run focused regression tests, such as:
 
 ```bash
-python step_6_roihu_discourse_analysis.py --help     # every numbered step shares one CLI contract
-python step_6_roihu_discourse_analysis.py --limit 5  # bounded run over five eligible rows
+python -m pytest tests/test_ep24_stage_contract.py tests/test_prompt_contract.py
 ```
 
-- **Running a stage** always goes through `ep24_cli.configure_step_cli`, which resolves the stage number,
-  the private settings, and the cumulative dataframe paths. Two wrappers that behave differently are a
-  bug, not a preference.
-- **Which rows a stage touches** is decided by `ep24_stage_orchestrator.py` from database state
-  (`ep24_stage_state.py`, `ep24_eligibility.py`) — not by the CSV order. A row skipped by an eligibility
-  rule is `not eligible`, which is different from failed.
-- **Resuming** is safe by construction: stages are additive and idempotent over their own columns;
-  `ep24_backups.py` writes atomic checkpoints for the cumulative dataframe.
-- **Debugging a single row** means reading its columns before and after the stage, plus the log line
-  `ep24_logging.py` writes for that stage. If the two disagree about what the stage did, the log is the
-  one to trust about the run, the columns about the result.
+Before declaring a refactor behavior-preserving, compare stage schemas, prompt fingerprints, representative synthetic results, CLI defaults, stdout/log behavior, and checkpoint/resume paths. LLM responses may vary; deterministic processing can be checked by exact equality, while model-inference comparisons need bounded, evidence-based assessment.
 
 ## Glossary
 
-| term | meaning in this pipeline |
-| --- | --- |
-| **articulation** | the linking of demands/signifiers into a discourse; coded per row, not per corpus |
-| **nodal point** | a signifier that anchors a discourse and organises the others around it |
-| **empty / floating signifier** | a signifier whose meaning is under contest; "floating" when it is claimed by competing discourses |
-| **antagonism** | a relation in which an identity is constituted by blocking another; **not** any conflict or obstacle the model notices |
-| **formation** | a discourse formation: the pattern of articulations the coder identifies in the material |
-| **imaginary** | the horizon that makes a formation seem natural or desirable |
-| **formula of populism** | Laclau's criteria for a populist articulation (equivalence chain, frontier, unfulfilled demand) — recorded as conditions met, not as a verdict |
-| **DNA statement** | a discourse-network unit: one actor, one concept, one support/oppose qualifier, one evidence span |
-| **arena** | the sampled stratum a source belongs to (elites, media, public, …); a sampling fact, never an ideology label |
-| **codebook** | the private, bilingual set of category definitions and aliases the coding is validated against |
-| **evidence span** | the quoted fragment a coding rests on, located in the source text |
-| **abstention** | the model declining to code because the evidence does not support it — a recorded outcome, not a missing value |
-| **quality gate** | the deterministic `OK`/`REPROCESS`/`DELETE` decision between stages 2 and 5 |
-| **cumulative dataframe** | the single CSV/Mongo table where each stage appends its columns to the same rows |
+- **ASR:** Automatic speech recognition, turning audio into a transcript.
+- **OCR:** Optical character recognition, reading text in images.
+- **VLM:** Vision-language model, analysing images/video and text.
+- **Cumulative CSV:** A table that preserves earlier columns and appends later-stage results.
+- **Provenance:** Evidence of where a value came from, which model/prompt processed it and how it was transformed.
+- **Codebook:** Researcher-defined analytical categories and operational coding definitions.
+- **DA / discourse analysis:** Interpretation of the articulation of political meaning; here mainly Laclau/Palonen-informed.
+- **DNA / Discourse Network Analysis:** Statements connecting an actor, concept, stance, source and time; not automatically communication ties.
+- **SNA / Social Network Analysis:** Explicitly supported actor-to-actor connections and descriptive graph metrics.
+- **RDF:** Resource Description Framework, a structured representation used for linked/queryable graph data.
+- **Checkpoint:** Durable intermediate state used for inspection or safe resumption.
+- **Prompt fingerprint:** Reproducibility metadata identifying the effective model-visible instructions/configuration; see its concrete implementation for scope.
 
-## Where to challenge a decision
+## Safe future simplification (issue #411)
 
-| question | where to look |
-| --- | --- |
-| Why does this row have a coding I disagree with? | the row's `*_structured_json` and its evidence spans; then the stage prompt in that module |
-| Why was this row dropped? | `*_quality_status` / `*_quality_reason`, then the gate rules in `laclaugpt_quality.py` |
-| Why did this row never run? | stage state and eligibility (`ep24_stage_state.py`, `ep24_eligibility.py`) |
-| Did the model see the same thing last run? | the `*_context_sha256` columns |
-| Is this an artefact of the sample? | the arena/eligibility columns, and the coverage audits under `scripts/ep24/` |
-| Where is the code for a stage? | [`REPO_MAP.md`](REPO_MAP.md), or `ep24_stage_contract.py` |
+The current tree has multiple operational wrappers and historically accumulated reports. **Similarity of names is not proof of redundant behavior.** Audit invocation references, field contracts, Slurm scripts, tests, publication dependencies and private workflows before moving or consolidating files. Keep numbered entry points and compatibility implementations until a tested migration is explicitly approved.
 
-The goal of the current refactor (#411) is that every answer in that table stays readable from the
-documentation and the code, without a maintainer in the loop.
+The biggest readability gains are likely to come from reducing unclear navigation, improving module docstrings where thin, and maintaining a **single discoverable guide** rather than rewriting established human research logic. This document provides that starting point.

@@ -1,3 +1,49 @@
+"""EP24 step 4 — cumulative whole-record summary (CSC Roihu).
+
+What this stage is for
+----------------------
+Steps 1–3 turn a post into evidence: OCR text, ASR transcript, one keyframe analysis, and — for video —
+a whole-video analysis. None of that is yet a *reading* of the record. This stage produces one: a
+social-semiotic pre-analysis of the multimodal material, written **before** discourse analysis so that
+later stages read a faithful account of signs and cross-modal relations rather than raw model transcripts.
+
+The methodological orientation is stated in the prompt itself (`get_llama_summary_system_prompt`): social
+semiotics and multimodality (Halliday/SFL descriptive categories, Kress & van Leeuwen composition and
+visual structure), a cautious denotation-before-connotation rule, and an explicit instruction not to
+perform discourse analysis yet. That boundary is the point of the stage: it describes, it does not
+interpret politically.
+
+Inputs
+------
+The cumulative per-country dataframe. The prompt is assembled from everything the earlier stages
+accumulated for the row (`metadata`, OCR text, transcript, frame and video analyses), and from the
+codebook/memory context where the project profile enables it.
+
+Outputs
+-------
+Appended columns (`OUTPUT_COLUMNS`): `metadata`, `summary_analysis`, `summary_summary_md`, the
+`summary_quality_*` pair, and the shared `laclaugpt_quality` status columns. Nothing is overwritten.
+
+How it behaves
+--------------
+* **Cache.** A local SQLite cache keyed by (prompt, model, generation settings) short-circuits repeated
+  work across batches; CSV and MongoDB remain the cumulative stores, so the cache can be deleted without
+  losing results.
+* **Retries.** A response that ends mid-thought is retried rather than stored: the loop inspects the
+  completion reason and response length, raises the output budget where it can, and fails loudly
+  ("summary model failed to return a complete response after N attempts") instead of caching a truncated
+  summary. A partial summary is worse than no summary, because every later stage reads it as fact.
+* **Quality gate.** `laclaugpt_quality.summary_quality_decision` classifies the result and sets the shared
+  status columns; step 6 eligibility later requires `quality == OK`, so a bad summary stops the record
+  before it reaches discourse analysis.
+* **Provenance.** `metadata` carries the prompt identity and hash, the model, and the effective generation
+  settings, so a stored summary can be tied to the prompt that produced it.
+
+Entry point: `analyze_videos()` (invoked by `step_4_roihu_summary.py`). Failure modes worth remembering: a
+record with no usable text reaches this stage with an empty prompt subject (the quality gate is what stops
+it), and a model that ignores the output budget produces the retry path above.
+"""
+
 import hashlib
 import json
 import logging
@@ -10,7 +56,7 @@ from pathlib import Path
 
 from ep24_db import country_storage
 from ep24_memory import retrieve_researcher_memory
-from ep24_models import ollama_model, ollama_model_source
+from ep24_models import stage_model
 from ep24_pipeline import load_cumulative_csv, metadata_context, write_cumulative_csv
 from ep24_prompt_contract import build_stage_packet
 from ep24_rag import retrieve_stage_rag, upsert_stage_rag
@@ -375,12 +421,12 @@ def _summary_options():
 
 def get_llama_summary_response(system_prompt, user_prompt, *, model=None):
     """Get the configured Ollama model's response for the summary analysis."""
-    selected_model = model or ollama_model()
+    selected_model = model or stage_model(4).name
     options = _summary_options()
     logger.info(
         "model_call_start model=%s model_source=%s num_ctx=%s num_predict=%s",
         selected_model,
-        ollama_model_source(),
+        stage_model(4).source,
         options["num_ctx"],
         options["num_predict"],
     )
@@ -431,7 +477,7 @@ def analyze_videos(language=None):
         logger.warning("input_missing path=%s language=%s", filename, language)
         return
     output = os.getenv("LACLAUGPT_OUTPUT_CSV") or filename
-    model = ollama_model()
+    model = stage_model(4).name
     max_rows = int(os.getenv("LACLAUGPT_MAX_ROWS", "0") or 0)
 
     df = load_cumulative_csv(
@@ -474,7 +520,7 @@ def analyze_videos(language=None):
         len(df),
         len(df.columns),
         model,
-        ollama_model_source(),
+        stage_model(4).source,
         DB_PATH,
         config.mongo_enabled,
         config.mongo_database,

@@ -1,3 +1,46 @@
+"""EP24 step 5 — structured extraction and conservative normalization (CSC Roihu).
+
+What this stage is for
+----------------------
+Step 4 produces a prose reading of the record. A dataframe cannot be computed over prose, so this stage
+extracts the machine-readable layer: entities, themes, and sentiment, as structured JSON that later stages
+and the networks can count.
+
+The rule that shapes the whole module: **machine output never lands on top of human coding.** Entities and
+themes produced by a model are stored in their own `postprocess_*` columns next to — never instead of — the
+researcher-coded columns. When a downstream reader sees two entity columns, that is why: one is a
+measurement, the other is a judgement, and the pipeline keeps them separable on purpose.
+
+Conservative normalization follows immediately: extracted entities are resolved against the codebook and
+memory layer (`ep24_entities`, `roihu_identity`, `ep24_context`), and the resolution is written as
+`ep24_entity_resolution_json` so that a reader can see what was matched, what was left unmatched, and what
+was ambiguous. Conservative means: an ambiguous match stays unmatched and visible rather than being forced
+onto the nearest label.
+
+Inputs
+------
+The cumulative dataframe with step 4 summaries. `select_step5_checkpoint` decides which rows a resumed run
+processes, so that an orchestrated re-run does not redo finished work.
+
+Outputs
+-------
+Appended columns: `postprocess_entities`, `postprocess_themes`, `positive`/`neutral`/`negative`,
+`postprocess_summary_md`, `ep24_entity_resolution_json`, and the shared quality columns. Persistence goes
+through `_patch_mongo_dataframe`, which updates only the fields this stage owns for the rows it touched —
+a re-run cannot silently blank a column it did not produce.
+
+How it behaves
+--------------
+* **Quality routing.** `laclaugpt_quality` classifies each result; `REPROCESS` and `DELETE` are audited in
+  the batch output rather than dropped, because "this record failed quality review" is a finding a
+  researcher may need to report. Step 6 eligibility then gates on `quality == OK`.
+* **Failure.** A structured-output parse failure is recorded with the reason and the raw response kept, so
+  a parse failure is distinguishable from a model failure — a distinction the downstream defect register
+  depends on.
+
+Entry point: `analyze_responses()` (invoked by `step_5_roihu_postprocess.py`).
+"""
+
 import json
 import logging
 import os
@@ -8,7 +51,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ep24_models import ollama_model, ollama_model_source
+from ep24_models import stage_model
 from ep24_pipeline import (
     ensure_columns,
     load_cumulative_csv,
@@ -190,7 +233,7 @@ def _patch_mongo_dataframe(frame: pd.DataFrame, *, fields: tuple[str, ...], stag
                     doc[field] = row.get(field, "")
             doc[f"_provenance.{stage}"] = {
                 "pipeline_stage": stage,
-                "model": ollama_model(),
+                "model": stage_model(5).name,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             documents.append(doc)
@@ -247,8 +290,8 @@ def get_response(user_prompt, system_prompt):
     logger.info(
         "model_call_start model=%s model_source=%s num_ctx=%d num_predict=%d "
         "prompt_chars=%d approx_tokens=%d",
-        ollama_model(),
-        ollama_model_source(),
+        stage_model(5).name,
+        stage_model(5).source,
         num_ctx,
         options["num_predict"],
         len(system_prompt) + len(user_prompt),
@@ -265,7 +308,7 @@ def get_response(user_prompt, system_prompt):
         import ollama
 
         response = ollama.chat(
-            model=ollama_model(),
+            model=stage_model(5).name,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -387,7 +430,7 @@ def analyze_responses(language=None):
         len(df),
         len(df.columns),
         language or "",
-        ollama_model(),
+        stage_model(5).name,
         postprocess_num_ctx(),
         postprocess_num_predict(),
         config.mongo_enabled,

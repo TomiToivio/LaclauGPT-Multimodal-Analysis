@@ -25,10 +25,9 @@ def test_report_does_not_duplicate_llm_sections():
     metrics = basic_metrics([], [])
     report = render_markdown_report(
         row, [], [], metrics, "DISTINCT EMPIRICAL REPORT",
-        "DISTINCT CASTELLS REPORT",
     )
     assert "DISTINCT EMPIRICAL REPORT" not in report
-    assert "DISTINCT CASTELLS REPORT" not in report
+    assert "Castells" not in report
     assert "Unique directed actor pairs" in report
 
 

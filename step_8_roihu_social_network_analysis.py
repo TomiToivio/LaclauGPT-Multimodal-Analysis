@@ -3,8 +3,7 @@
 
 The model extracts explicit relations. Deterministic code then constructs stable
 Node-Edge-Node tables, calculates a deliberately small set of transparent SNA
-metrics, persists additive outputs, and writes a human-readable report with a
-separate Castells-informed interpretation.
+metrics, persists additive outputs, and writes a human-readable descriptive SNA report.
 """
 from __future__ import annotations
 
@@ -20,7 +19,7 @@ import pandas as pd
 
 from ep24_cli import configure_step_cli
 from ep24_entities import fold_key, resolution_lookup
-from ep24_models import ollama_model, ollama_model_source
+from ep24_models import stage_model
 from ep24_prompt_contract import effective_prompt_fingerprint
 from ep24_pipeline import (
     load_cumulative_csv,
@@ -28,6 +27,7 @@ from ep24_pipeline import (
     write_cumulative_csv,
 )
 from ep24_sna import (
+    extended_metrics,
     SNA_SCHEMA_VERSION,
     apply_reconciliation_metrics,
     basic_metrics,
@@ -40,8 +40,7 @@ from ep24_sna import (
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 LOG = logging.getLogger("step_8_roihu_social_network_analysis")
 
-PROMPT_VERSION = "ep24-sna-extraction/3.1-audited-relations"
-CASTELLS_PROMPT_VERSION = "ep24-sna-castells/1.0"
+PROMPT_VERSION = "ep24-sna-extraction/4.0-textbook-descriptive"
 
 EXTRACTION_SYSTEM = """Extract only empirical actor-to-actor communication or institutional
 relations from this EP24 record. One source video produces evidence-backed EVENTS,
@@ -72,19 +71,10 @@ STRICT NETWORK LAYER SEPARATION:
   relation type. No inferred coordination, influence, motives or hidden ties.
 - Keep single-video results descriptive; network power, hubs, programmer and
   switcher roles require aggregated longitudinal observations.
-The empirical edge list is fixed before any Castells interpretation.
+Use only standard Social Network Analysis: clearly defined actors, ties, direction,
+evidence, sampling boundaries, and missingness. No additional political or
+sociological interpretive theories. Return only descriptive SNA.
 """
-
-CASTELLS_SYSTEM = """Interpret the supplied, already-constructed social network through a
-limited Manuel Castells network-society / Communication Power lens. The graph topology is
-fixed: NEVER add, remove, infer, or rename nodes or edges. This is only a single-document EVENT FRAGMENT, not a whole societal network. Do not attribute network-making power, significant hubs or brokerage from this fragment. Discuss communication networks,
-flows, inclusion/exclusion, communication power and network-making power only to the
-extent visible in the supplied graph. Use 'programmer' or 'switcher' only when the
-observed relations provide specific evidence; otherwise explicitly say the role cannot be
-established. Do not infer hidden coordination, motives, causality, strategic control, or
-population-level influence from a small sample. Produce short Markdown prose labelled as
-interpretation rather than empirical fact."""
-
 
 def _models():
     """Import runtime-only dependencies after CLI parsing."""
@@ -102,10 +92,7 @@ def _models():
         analysis_markdown: str
         edges: list[SNAEdge]
 
-    class CastellsResult(BaseModel):
-        interpretation_markdown: str
-
-    return SNAResult, CastellsResult
+    return SNAResult
 
 
 def source(lang: str) -> Path | None:
@@ -122,6 +109,52 @@ def source(lang: str) -> Path | None:
 def _output_path(input_path: Path) -> Path:
     return Path(os.getenv("LACLAUGPT_OUTPUT_CSV") or input_path)
 
+
+
+def extract_with_retries(ollama, *, model, evidence, base_budget, max_attempts, validate,
+                         system_prompt: str, schema: dict):
+    """Ask for structured SNA output, retrying with a larger budget before giving up (#405).
+
+    The budget doubles per attempt, and the final exception names truncation, because a budget
+    problem and a malformed model answer have different remedies.
+    """
+    last_error: Exception | None = None
+    last_reason = ""
+    raw = ""
+    for attempt in range(max(1, max_attempts)):
+        budget = max(1, base_budget) * (2 ** attempt)
+        response = ollama.chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": evidence},
+            ],
+            format=schema,
+            think=False,
+            options={"temperature": 0.0, "num_ctx": 8192, "num_predict": budget},
+        )
+        raw = (response.get("message") or {}).get("content") or ""
+        last_reason = str(response.get("done_reason") or "")
+        try:
+            return validate(raw)
+        except Exception as exc:  # noqa: BLE001 - any invalid answer is retryable
+            last_error = exc
+            LOG.warning(
+                "Step 8 invalid structured response attempt=%s/%s num_predict=%s "
+                "response_chars=%s done_reason=%s error=%s",
+                attempt + 1, max_attempts, budget, len(raw), last_reason, exc,
+            )
+    truncated = last_reason == "length" or "EOF while parsing" in str(last_error)
+    hint = (
+        "response was truncated before the JSON closed (done_reason=length): raise "
+        "LACLAUGPT_STEP8_NUM_PREDICT or shorten the evidence context"
+        if truncated
+        else "the model returned content that is not schema-valid"
+    )
+    raise ValueError(
+        f"Step 8 structured JSON validation failed after {max_attempts} attempts "
+        f"[{hint}]: {last_error}"
+    ) from last_error
 
 def _enrich_edges(edges, row) -> list[dict]:
     lookup = resolution_lookup(row.get("ep24_entity_resolution_json"))
@@ -180,7 +213,7 @@ def sna_evidence_report(row, *, model: str | None = None) -> tuple[str, dict, st
     digest = effective_prompt_fingerprint(
         EXTRACTION_SYSTEM,
         f"{PROMPT_VERSION}\n{packet.text}",
-        model or ollama_model(),
+        model or stage_model(8).name,
         {"temperature": 0.0, "num_ctx": 8192},
     )
     return packet.text, report, digest
@@ -279,38 +312,6 @@ def build_sna_evidence(row) -> str:
     return build_stage_packet(8, row).text
 
 
-def _castells_interpretation(ollama, model: str, nodes, edges, metrics) -> str:
-    if not edges:
-        return (
-            "The sample contains no evidence-supported social edges, so a Castellsian "
-            "interpretation of network position or network-making power is not warranted."
-        )
-    _, CastellsResult = _models()
-    summary = graph_summary(nodes, edges, metrics)
-    response = ollama.chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": CASTELLS_SYSTEM},
-            {"role": "user", "content": summary},
-        ],
-        format=CastellsResult.model_json_schema(),
-        options={"temperature": 0.0, "num_ctx": 8192},
-    )
-    try:
-        return CastellsResult.model_validate_json(
-            response["message"]["content"]
-        ).interpretation_markdown
-    except Exception:
-        LOG.warning(
-            "Castells interpretation response did not match schema; preserving empirical graph without theory text",
-            exc_info=True,
-        )
-        return (
-            "Castellsian interpretation unavailable for this row. The empirical "
-            "node/edge graph and metrics remain valid and unchanged."
-        )
-
-
 def _write_graph_exports(output_path: Path, all_nodes: list[dict], all_edges: list[dict]) -> None:
     base = output_path.with_suffix("")
     nodes_path = Path(str(base) + ".sna_nodes.csv")
@@ -360,7 +361,7 @@ def _persist_mongo(df: pd.DataFrame, all_nodes: list[dict], all_edges: list[dict
 def run_language(lang: str) -> Path | None:
     import ollama
 
-    SNAResult, _ = _models()
+    SNAResult = _models()
     input_path = source(lang)
     if input_path is None:
         LOG.warning("No CSV for %s", lang)
@@ -393,17 +394,26 @@ def run_language(lang: str) -> Path | None:
         if column not in df.columns:
             df[column] = ""
 
-    model = ollama_model()
-    LOG.info("model=%s model_source=%s", model, ollama_model_source())
+    model = stage_model(8).name
+    LOG.info("model=%s model_source=%s", model, stage_model(8).source)
     all_nodes: list[dict] = []
     all_edges: list[dict] = []
 
     for index, row in selected.iterrows():
+        # An earlier attempt can already have populated these columns. If this
+        # retry abstains or fails, do not ship stale successful SNA findings.
+        # Clearing is restricted to Step 8-owned fields; all source and upstream
+        # columns remain immutable under write_cumulative_csv's contract.
+        for column in output_columns:
+            df.at[index, column] = ""
         evidence, truncation, context_hash = sna_evidence_report(row, model=model)
         LOG.info("step8 row=%s context_sha256=%s packet_chars=%d tokens_est=%d fields_truncated=%d characters_lost=%d",
                  index, context_hash, len(evidence), truncation["estimated_tokens"],
                  truncation["fields_truncated"], truncation["characters_lost"])
-        if not any(str(row.get(name) or "").strip() for name in ("asr_transcript", "asr_translation", "ocr_1", "dna_statements_json")):
+        if not any(
+            str(row.get(name) or "").strip().lower() not in ("", "[]", "{}", "null", "none", "nan")
+            for name in ("asr_transcript", "asr_translation", "ocr_1", "dna_statements_json")
+        ):
             df.at[index, "sna_status"] = "no_evidence"
             df.at[index, "sna_error"] = ""
             df.at[index, "sna_nodes_json"] = "[]"
@@ -415,16 +425,18 @@ def run_language(lang: str) -> Path | None:
             continue
 
         try:
-            response = ollama.chat(
+            # #405: step 8 had no output budget and no retry, so a truncated response became a
+            # permanent row error (one real Finland row: "Invalid JSON: EOF").
+            extracted = extract_with_retries(
+                ollama,
                 model=model,
-                messages=[
-                    {"role": "system", "content": EXTRACTION_SYSTEM},
-                    {"role": "user", "content": evidence},
-                ],
-                format=SNAResult.model_json_schema(),
-                options={"temperature": 0.0, "num_ctx": 8192},
+                evidence=evidence,
+                base_budget=int(os.getenv("LACLAUGPT_STEP8_NUM_PREDICT", "2048")),
+                max_attempts=max(1, int(os.getenv("LACLAUGPT_STEP8_PARSE_ATTEMPTS", "3"))),
+                validate=SNAResult.model_validate_json,
+                system_prompt=EXTRACTION_SYSTEM,
+                schema=SNAResult.model_json_schema(),
             )
-            extracted = SNAResult.model_validate_json(response["message"]["content"])
             raw_edges = _enrich_edges(_network_relation_gate(_grounded_edge_candidates(extracted.edges, evidence)), row)
             nodes, edges = graph_from_edges(raw_edges, row)
             # Issue #197: enrichment only supplies a canonical id when the mention
@@ -438,26 +450,26 @@ def run_language(lang: str) -> Path | None:
                 "no_supported_actor_relation" if not edges else ""
             )
             metrics = apply_reconciliation_metrics(metrics, reconciliation)
+            # #380 bullet 4: textbook measures, each carrying its own applicability statement.
+            metrics["extended"] = extended_metrics(nodes, edges)
             if reconciliation["merged_count"] or reconciliation["ambiguous_count"]:
                 LOG.info(
                     "identity reconciliation row=%s merged=%d ambiguous=%d unresolved=%d",
                     index, reconciliation["merged_count"],
                     reconciliation["ambiguous_count"], reconciliation["unresolved_count"],
                 )
-            castells = _castells_interpretation(ollama, model, nodes, edges, metrics)
             report = render_markdown_report(
                 row,
                 nodes,
                 edges,
                 metrics,
                 extracted.analysis_markdown,
-                castells,
             )
 
             # Preserve the historical Step 8 field meaning for legacy callers.
             df.at[index, "sna_analysis_markdown"] = extracted.analysis_markdown
             df.at[index, "sna_report_markdown"] = report
-            df.at[index, "sna_castells_interpretation_markdown"] = castells
+            df.at[index, "sna_castells_interpretation_markdown"] = ""  # retired compatibility field
             df.at[index, "sna_nodes_json"] = json.dumps(nodes, ensure_ascii=False, sort_keys=True)
             df.at[index, "sna_edges_json"] = json.dumps(edges, ensure_ascii=False, sort_keys=True)
             df.at[index, "sna_metrics_json"] = json.dumps(metrics, ensure_ascii=False, sort_keys=True)
@@ -465,7 +477,7 @@ def run_language(lang: str) -> Path | None:
             df.at[index, "sna_prompt_version"] = PROMPT_VERSION
             df.at[index, "sna_context_sha256"] = context_hash
             df.at[index, "sna_context_truncated"] = json.dumps(truncation, ensure_ascii=False, sort_keys=True)
-            df.at[index, "sna_castells_prompt_version"] = CASTELLS_PROMPT_VERSION
+            df.at[index, "sna_castells_prompt_version"] = ""  # retired compatibility field
             df.at[index, "sna_generated_at"] = datetime.now(timezone.utc).isoformat()
             df.at[index, "sna_status"] = "ok"
             df.at[index, "sna_error"] = ""
@@ -478,7 +490,10 @@ def run_language(lang: str) -> Path | None:
                       row.get("_storage_id", ""), type(exc).__name__, exc)
             LOG.exception("SNA failed row=%s file=%s", index, input_path)
 
-    write_cumulative_csv(original, df, output_path)
+    # Mongo-derived cumulative rows can already contain Step 8 results from an
+    # earlier attempt. Refresh only fields explicitly owned by this stage while
+    # keeping source metadata and every upstream stage immutable.
+    write_cumulative_csv(original, df, output_path, mutable_columns=output_columns)
     _write_graph_exports(output_path, all_nodes, all_edges)
     try:
         _persist_mongo(df, all_nodes, all_edges, output_path, model)

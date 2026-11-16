@@ -65,10 +65,17 @@
       "preserve_all": true,
       "known_outputs": [
         "SCROLL",
-        "SCROLL_SECONDS"
+        "SCROLL_SECONDS",
+        "needs_resplit",
+        "video_initial_skip_seconds",
+        "vllm_video_scroll",
+        "vllm_video_scroll_seconds",
+        "vllm_video_needs_resplit",
+        "vllm_video_video_initial_skip_seconds"
       ],
       "known_output_prefixes": [
-        "video_"
+        "video_",
+        "vllm_video_"
       ]
     },
     "4": {

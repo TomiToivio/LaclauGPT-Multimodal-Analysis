@@ -48,13 +48,13 @@ from ep24_dna import (
     statement_id,
     summarize,
 )
-from ep24_models import ollama_model, ollama_model_source
+from ep24_models import stage_model
 from ep24_pipeline import ensure_columns, load_cumulative_csv, write_cumulative_csv
 from ep24_schema import stable_source_id
 
 LOG = logging.getLogger("ep24.step7")
 
-PROMPT_VERSION = "ep24-dna-leifeld-v3-polarity-evidence-gate"
+PROMPT_VERSION = "ep24-dna-leifeld-v4-bounded-json"
 DEFAULT_MAX_CONTEXT_CHARS = 28000
 DEFAULT_NUM_CTX = 16384
 DEFAULT_NUM_PREDICT = 4096
@@ -169,6 +169,15 @@ PROVENANCE
 - Every statement needs an evidence_quote grounded in the CURRENT SOURCE EVIDENCE.
   Never cite memory/RAG/codebook text as the quote.
 - Record uncertainty and counter-evidence rather than guessing.
+
+OUTPUT BUDGET
+- Keep analysis_markdown to at most 600 characters: a brief audit summary, not
+  a reproduction of the transcript or detailed reasoning.
+- Write one concise statement per distinct evidenced actor-concept position.
+  Avoid duplicate/paraphrased claims; never invent or merge distinct positions.
+- Each proposition and uncertainty note must be brief. Evidence quotes should
+  contain only the shortest verbatim source span proving the position.
+- Keep corpus_level_cautions brief. JSON must be complete and closed.
 """
 
 
@@ -282,8 +291,8 @@ def _prompt_hash(context: str) -> str:
 def _model_metadata() -> dict[str, Any]:
     return {
         "provider": "ollama",
-        "model": ollama_model(),
-        "model_source": ollama_model_source(),
+        "model": stage_model(7).name,
+        "model_source": stage_model(7).source,
         "num_ctx": int(os.getenv("LACLAUGPT_STEP7_NUM_CTX", DEFAULT_NUM_CTX)),
         "num_predict": int(os.getenv("LACLAUGPT_STEP7_NUM_PREDICT", DEFAULT_NUM_PREDICT)),
         "temperature": 0.0,
@@ -297,19 +306,32 @@ def analyze_context(context: str) -> tuple[str, Any]:
     metadata = _model_metadata()
     # A successful HTTP response can still contain an empty or truncated JSON
     # document (notably when the model exhausts its generation budget).
-    # Retry validation failures with progressively larger output budgets.
+    # On truncated JSON, retry with a compact output contract, not only more tokens.
     max_attempts = max(1, int(os.getenv("LACLAUGPT_STEP7_PARSE_ATTEMPTS", "3")))
     last_error = None
     raw = ""
     for attempt in range(max_attempts):
         num_predict = metadata["num_predict"] * (2 ** attempt)
+        retry_instruction = (
+            "" if attempt == 0 else
+            "\n\nRETRY: The previous JSON was invalid or exceeded the output "
+            "budget. Return COMPLETE, MINIMAL JSON. Keep analysis_markdown below "
+            "250 characters; omit repetitive commentary and repeated claims. "
+            "Use the shortest verbatim evidence quotes. Preserve all distinct "
+            "supported claims; never add claims or return empty merely to fit. "
+            "Close every JSON string, array and object."
+        )
         response = ollama.chat(
             model=metadata["model"],
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": SYSTEM_PROMPT + retry_instruction},
                 {"role": "user", "content": context},
             ],
             format=DNAResult.model_json_schema(),
+            # Qwen3 thinking can consume the entire generation budget before it
+            # produces a single JSON character. Step 7 needs structured coding,
+            # not a hidden reasoning trace. Ollama supports think=False.
+            think=False,
             options={
                 "temperature": 0.0,
                 "num_ctx": metadata["num_ctx"],
@@ -327,8 +349,15 @@ def analyze_context(context: str) -> tuple[str, Any]:
                 attempt + 1, max_attempts, num_predict, len(raw),
                 response.get("done_reason", "unknown"), exc,
             )
+    # #405: a truncated response and a malformed one have different remedies; say which it was.
+    truncated = ("EOF while parsing" in str(last_error)
+                 or (raw and not raw.rstrip().endswith(("}", "]"))))
+    hint = ("response was truncated before the JSON closed: raise the step-7 output budget "
+            "or shorten the context" if truncated
+            else "the model returned content that is not schema-valid")
     raise Step7ParseError(
-        f"Step 7 structured JSON validation failed after {max_attempts} attempts: {last_error}",
+        f"Step 7 structured JSON validation failed after {max_attempts} attempts [{hint}]: "
+        f"{last_error}",
         raw_response=raw,
     ) from last_error
 
@@ -554,7 +583,7 @@ def _resume_from_mongo(storage, record_id: str, *, context_hash: str) -> dict[st
         model_meta = json.loads(str(doc.get("dna_model_metadata_json", "") or "{}"))
     except json.JSONDecodeError:
         return None
-    if str(model_meta.get("model", "")) != ollama_model():
+    if str(model_meta.get("model", "")) != stage_model(7).name:
         return None
     return {column: doc.get(column, "") for column in DNA_COLUMNS}
 
@@ -674,7 +703,7 @@ def process_country(country: str | None = None) -> Path:
     out = original.copy()
     ensure_columns(out, DNA_COLUMNS)
 
-    enriched, context_handle = _prepare_context(out, normalized_country)
+    enriched, context_handle = _prepare_context(out.copy(deep=True), normalized_country)
     for column in EXTERNAL_CONTEXT_COLUMNS:
         if column in enriched.columns and column not in original.columns:
             # Enrichment supplies missing context; never mutate an incoming
@@ -702,7 +731,7 @@ def process_country(country: str | None = None) -> Path:
                 context_hash = _prompt_hash(context)
                 LOG.info(
                     "step7 country=%s row=%s id=%s model=%s prompt=%s context_sha256=%s truncated=%s",
-                    normalized_country, index, record_id, ollama_model(), PROMPT_VERSION,
+                    normalized_country, index, record_id, stage_model(7).name, PROMPT_VERSION,
                     context_hash, truncated,
                 )
                 try:
@@ -793,11 +822,11 @@ def process_country(country: str | None = None) -> Path:
 
                 processed_since_checkpoint += 1
                 if processed_since_checkpoint >= checkpoint_every:
-                    write_cumulative_csv(original, out, output_path)
+                    write_cumulative_csv(original, out, output_path, mutable_columns=DNA_COLUMNS)
                     LOG.info("CSV checkpoint path=%s row=%s", output_path, index)
                     processed_since_checkpoint = 0
 
-        write_cumulative_csv(original, out, output_path)
+        write_cumulative_csv(original, out, output_path, mutable_columns=DNA_COLUMNS)
         LOG.info("Step 7 complete country=%s output=%s rows=%s", normalized_country, output_path, len(out))
         try:
             exports = write_exports(out, normalized_country, output_path)

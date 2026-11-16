@@ -21,7 +21,7 @@ def test_runner_preserves_historical_stage_order():
 def test_inference_stages_use_configurable_model():
     for name in ("roihu_frame.py", "roihu_summary.py", "roihu_postprocess.py", "roihu_populism.py"):
         text = (ROOT / name).read_text(encoding="utf-8")
-        assert "ollama_model" in text, name
+        assert "stage_model" in text, name
     defaults = (ROOT / "ep24_models.py").read_text(encoding="utf-8")
     assert 'DEFAULT_OLLAMA_MODEL = "qwen3.8:27b"' in defaults
     assert "LACLAUGPT_MULTIMODAL_MODEL" in defaults

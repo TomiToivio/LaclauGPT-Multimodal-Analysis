@@ -43,7 +43,7 @@ echo "Submitting EP24 Step ${STEP}: ${SBATCH}"
 # shell variables, so the private project logs directory belongs here.
 SBATCH_OPTIONS=()
 if [[ -n "${LACLAUGPT_SBATCH_DEPENDENCY:-}" ]]; then
-  [[ "${LACLAUGPT_SBATCH_DEPENDENCY}" =~ ^afterok:[0-9]+$ ]] || {
+  [[ "${LACLAUGPT_SBATCH_DEPENDENCY}" =~ ^(afterok|afterany):[0-9]+$ ]] || {
     echo "Invalid LACLAUGPT_SBATCH_DEPENDENCY" >&2; exit 2;
   }
   SBATCH_OPTIONS+=(--dependency="${LACLAUGPT_SBATCH_DEPENDENCY}")

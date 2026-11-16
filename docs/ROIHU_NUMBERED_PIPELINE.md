@@ -13,14 +13,14 @@ The active EP24 workflow is intentionally boring to operate: **one Python file, 
 | 5 | `step_5_roihu_postprocess.py` | `scripts/roihu/step_5_roihu_postprocess.sbatch` | structured legacy postprocess |
 | 6 | `step_6_roihu_discourse_analysis.py` | `scripts/roihu/step_6_roihu_discourse_analysis.sbatch` | Laclau/Palonen discourse analysis |
 | 7 | `step_7_roihu_discourse_network_analysis.py` | `scripts/roihu/step_7_roihu_discourse_network_analysis.sbatch` | DNA actor-concept statements |
-| 8 | `step_8_roihu_social_network_analysis.py` | `scripts/roihu/step_8_roihu_social_network_analysis.sbatch` | basic SNA node/edge graph + metrics + Castells interpretation |
+| 8 | `step_8_roihu_social_network_analysis.py` | `scripts/roihu/step_8_roihu_social_network_analysis.sbatch` | standard descriptive SNA node/edge graph + metrics |
 | 9 | `step_9_roihu_rdf.py` | `scripts/roihu/step_9_roihu_rdf.sbatch` | RDF/knowledge-graph export of cumulative data |
 
 Step 3 is reserved now so Steps 4-9 never need renaming. Until the vLLM experiment is accepted, Step 3 is optional.
 
 ## One command per country (recommended)
 
-Run this **on the Roihu login node** to submit the active Steps 1–7
+Run this **on the Roihu login node** to submit the active Steps 1–9
 as an ordered SLURM dependency chain:
 
 ```bash
@@ -34,7 +34,7 @@ Replace `portugal` with `finland`, `poland`, or another available country.
 `--retry-errors` includes previously failed rows but does not invalidate
 already-completed checkpoints. **Do not run separate jobs manually.**
 
-This submits seven jobs by default with `afterany` dependencies. Step N+1 starts
+This submits nine jobs by default with `afterany` dependencies. Step N+1 starts
 after Step N's SLURM job terminates, even when upstream records fail. Stage failures
 remain auditable; retry unsuccessful rows selectively. Previously completed MongoDB
 records are preserved. Each stage has its own environment and resource profile
@@ -129,7 +129,7 @@ From the public checkout:
 sbatch scripts/roihu/step_1_roihu_preprocess.sbatch
 # inspect output/logs
 sbatch scripts/roihu/step_2_roihu_frame.sbatch
-# optional while experimental
+# native-video analysis
 sbatch scripts/roihu/step_3_roihu_video.sbatch
 sbatch scripts/roihu/step_4_roihu_summary.sbatch
 sbatch scripts/roihu/step_5_roihu_postprocess.sbatch
