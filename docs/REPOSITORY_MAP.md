@@ -30,9 +30,11 @@ Stage numbering, entry points, appended columns and the per-stage notes are decl
 
 Two conventions matter when reading the code:
 
-* **`step_N_roihu_*.py` is the executable stage; `roihu_<stage>.py` is its implementation.** The step file
-  parses arguments, opens the log, and calls into the implementation module. When you want to know what a
-  stage *does*, read `roihu_<stage>.py`; when you want to know how it is *invoked*, read the `step_` file.
+* **`step_N_roihu_*.py` is the executable stage; `roihu_<stage>.py` is its implementation.** Most step files
+  parse arguments and call into the implementation module. Steps 7 and 8 are compatibility aliases: the
+  entry-point names remain for Slurm, while their code lives in `roihu_discourse_network.py` and
+  `roihu_sna.py`. When you want to know what a stage *does*, read the implementation; when you want to know
+  how it is *invoked*, read the `step_` file.
 * **A stage appends columns, it does not rewrite them.** The `appends` tuple in the contract is the
   authoritative list, and `tests/test_ep24_stage_contract.py` guards it. Human-coded legacy columns are
   never overwritten by a model-derived stage: model output lands in its own columns.
@@ -90,7 +92,6 @@ Two conventions matter when reading the code:
 | `ep24_input_schema.py` | Inspects the real incoming schema before preprocessing. |
 | `ep24_mongo_export.py` | Read-only export of finished results from shared MongoDB. |
 | `ep24_mongo_dashboard_export.py` | Read-only export shaped for the dashboards. |
-| `roihu_storage_sync.py` | Optional post-pipeline sync of CSV outputs into MongoDB. |
 | `ep24_graph_aggregate.py` | Read-only aggregation of graph layers across videos and countries. |
 | `ep24_coverage_audit.py`, `scripts/ep24/audit_*` | Coverage, contract, diff and bundle audits. |
 | `laclaugpt_quality.py` | The deterministic OK/REPROCESS/DELETE quality gate shared by steps 2–5. |
@@ -104,7 +105,6 @@ Two conventions matter when reading the code:
 | `ep24_logs.py` | Older implementation of the same convention, still used by the orchestrator. See `AUDIT_411.md` — it is a consolidation candidate, not a second convention. |
 | `ep24_backups.py` | Atomic CSV/SQLite/manifest checkpoints for cumulative frames. |
 | `ep24_redis.py` | Optional Redis coordination; MongoDB remains the durable source of truth. |
-| `diagnose_ep24_step6.py` | Read-only diagnostics for the step-6 eligibility gate. |
 | `ep24_result_reporting.py` | Human-readable, private per-stage reporting. |
 
 ### Historical implementations kept for compatibility
@@ -191,12 +191,13 @@ top-level module is missing from this file.
 | --- | --- |
 | `ep24_allas.py` | Stage EP24 media from CSC Allas before Step 1 runs. |
 | `ep24_bootstrap.py` | EP24 country bootstrap for MongoDB-first restartable processing. |
-| `ep24_cleaner.py` | Auditable EP24 legacy-data cleaner (issue #35). |
 | `ep24_entities.py` | Multilingual entity normalization and resolution (issue #142). |
-| `ep24_legacy_clean.py` | Non-destructive cleaning/export framework for legacy per-country dataframes. |
 | `ep24_schema.py` | Researcher-feed metadata helpers. |
 | `ep24_status_identity.py` | Identity arithmetic for the status tool, kept out of a script's import side effects (#379). |
-| `roihu_clean.py` | Non-destructive cleaning of legacy per-country dataframes (issue #35). |
+| `ep24_cleaner.py` | **Canonical** auditable EP24 legacy-data cleaner (issue #35; #413 chose option A). |
+| `roihu_clean.py` | Historical/audit-compatible cleaner retained for parity and reproducibility; not the canonical path. |
+| `roihu_discourse_network.py` | Step 7 implementation: Leifeld DNA statement extraction, prompts, persistence and exports. |
+| `roihu_sna.py` | Step 8 implementation: evidence-backed SNA extraction, graph construction, metrics and report. |
 | `step_0_roihu_import.py` | Step 0: seed the Mongo dataframe from private canonical country CSVs. |
 | `puhti_frame.py` | Historical step 2 implementation (CSC Puhti). Reference only — paired with `roihu_frame.py` by `tests/test_legacy_safety.py`. |
 | `puhti_preprocess.py` | Historical step 1 implementation (CSC Puhti). Reference only. |
