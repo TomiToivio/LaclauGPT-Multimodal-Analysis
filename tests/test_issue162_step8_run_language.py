@@ -124,6 +124,7 @@ def test_retry_without_source_evidence_clears_previous_sna_results(
             "video_id", "allas_filename", "country",
             "dna_statements_json", "sna_analysis_markdown",
             "sna_report_markdown", "sna_nodes_json", "sna_edges_json",
+            "sna_context_sha256", "sna_generated_at", "sna_schema_version",
             "sna_status"
         ])
         writer.writeheader()
@@ -134,6 +135,9 @@ def test_retry_without_source_evidence_clears_previous_sna_results(
             "sna_report_markdown": "obsolete report",
             "sna_nodes_json": '[{"id":"old"}]',
             "sna_edges_json": '[{"source":"old","target":"old"}]',
+            "sna_context_sha256": "obsolete_hash",
+            "sna_generated_at": "obsolete_timestamp",
+            "sna_schema_version": "obsolete_schema",
             "sna_status": "ok",
         })
     monkeypatch.setenv("LACLAUGPT_INPUT_CSV", str(csv_path))
@@ -151,4 +155,8 @@ def test_retry_without_source_evidence_clears_previous_sna_results(
     assert row["sna_report_markdown"] == ""
     assert row["sna_nodes_json"] == "[]"
     assert row["sna_edges_json"] == "[]"
+    assert row["sna_context_sha256"] == ""
+    assert row["sna_generated_at"] == ""
+    assert row["sna_schema_version"] == ""
+    assert row["video_id"] == "v1"
     assert json.loads(row["sna_metrics_json"])["empty_reason"] == "no_source_evidence"
