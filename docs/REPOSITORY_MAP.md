@@ -163,7 +163,7 @@ sbatch scripts/roihu/step_4_roihu_summary.sbatch
 | decision | where it is written down |
 | --- | --- |
 | What each stage operationalises | the `notes=` field of each stage in `ep24_stage_contract.py`, plus the module docstring of its implementation |
-| Prompt content and ordering | `ep24_prompt_contract.py` and the stage's prompt builder (`build_postprocess_prompt`, `_prompt_*` helpers) |
+| Prompt content and ordering | `ep24_prompt_contract.py` and the stage's prompt builder (`build_postprocess_prompt`, `_prompt_*` helpers); every prompt is catalogued in [`EP24_PROMPT_CATALOG.md`](EP24_PROMPT_CATALOG.md) with its version, budget, schema and retry policy |
 | Codebook definitions and versioning | `roihu_codebooks.py` plus the private workbooks; `docs/EP24_CODEBOOK_*` |
 | What counts as evidence | step 6's evidence-first rules in `roihu_populism.py`; `docs/EP24_ISSUE306_PRIVACY_GATE.md` for what may leave |
 | What is a quality failure | `laclaugpt_quality.py` |
