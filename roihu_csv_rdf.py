@@ -22,6 +22,7 @@ from urllib.parse import quote, urlsplit
 
 VERSION = "ep24-rdf-2"
 NS = "https://w3id.org/laclaugpt/ep24/"
+DEFAULT_BASE_URI = "https://w3id.org/laclaugpt/ep24/resource"
 PROV = "http://www.w3.org/ns/prov#"
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 LOG = logging.getLogger("roihu_csv_rdf")
@@ -316,13 +317,15 @@ def export(args: argparse.Namespace) -> dict:
     if (parsed.scheme not in {"https", "http"} or not parsed.netloc or parsed.query
             or parsed.fragment or any(c.isspace() or c in '<>"{}|^`\\' for c in args.base_uri)):
         raise ValueError("--base-uri must be a plain absolute HTTP(S) URI without query/fragment")
+    if parsed.hostname and (parsed.hostname == "example" or parsed.hostname.endswith(".example")):
+        raise ValueError("Placeholder .example namespace is forbidden for RDF identities; set --base-uri")
     if not args.project.strip() or not args.dataset_id.strip():
         raise ValueError("Project and dataset IDs must not be empty")
     csv.field_size_limit(sys.maxsize)
     # Snapshot to disk, not RAM: later edits to the source cannot create a mixed export.
     # The output directory is deliberately exclusive to this run.
-    LOG.info("stage=%s input=%s output=%s checkpoint=%s model=none",
-             VERSION, source, output, args.checkpoint)
+    LOG.info("stage=%s input=%s output=%s checkpoint=%s base_uri=%s model=none",
+             VERSION, source, output, args.checkpoint, args.base_uri)
     if args.dry_run:
         with source.open(encoding="utf-8-sig", newline="") as stream:
             header = validate_header(csv.DictReader(stream).fieldnames)
@@ -418,7 +421,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--checkpoint", type=Path, default=root / "database" / "rdf.sqlite3")
     parser.add_argument("--project", default="ep24")
     parser.add_argument("--dataset-id", default=None, help="Stable corpus name; defaults to input file stem")
-    parser.add_argument("--base-uri", default="https://data.example/laclaugpt")
+    parser.add_argument("--base-uri", default=os.environ.get("LACLAUGPT_RDF_BASE_URI", DEFAULT_BASE_URI),
+                        help="Persistent RDF identifier namespace; override with LACLAUGPT_RDF_BASE_URI")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--debug", action="store_true")
