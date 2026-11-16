@@ -1,3 +1,49 @@
+"""EP24 step 4 — cumulative whole-record summary (CSC Roihu).
+
+What this stage is for
+----------------------
+Steps 1–3 turn a post into evidence: OCR text, ASR transcript, one keyframe analysis, and — for video —
+a whole-video analysis. None of that is yet a *reading* of the record. This stage produces one: a
+social-semiotic pre-analysis of the multimodal material, written **before** discourse analysis so that
+later stages read a faithful account of signs and cross-modal relations rather than raw model transcripts.
+
+The methodological orientation is stated in the prompt itself (`get_llama_summary_system_prompt`): social
+semiotics and multimodality (Halliday/SFL descriptive categories, Kress & van Leeuwen composition and
+visual structure), a cautious denotation-before-connotation rule, and an explicit instruction not to
+perform discourse analysis yet. That boundary is the point of the stage: it describes, it does not
+interpret politically.
+
+Inputs
+------
+The cumulative per-country dataframe. The prompt is assembled from everything the earlier stages
+accumulated for the row (`metadata`, OCR text, transcript, frame and video analyses), and from the
+codebook/memory context where the project profile enables it.
+
+Outputs
+-------
+Appended columns (`OUTPUT_COLUMNS`): `metadata`, `summary_analysis`, `summary_summary_md`, the
+`summary_quality_*` pair, and the shared `laclaugpt_quality` status columns. Nothing is overwritten.
+
+How it behaves
+--------------
+* **Cache.** A local SQLite cache keyed by (prompt, model, generation settings) short-circuits repeated
+  work across batches; CSV and MongoDB remain the cumulative stores, so the cache can be deleted without
+  losing results.
+* **Retries.** A response that ends mid-thought is retried rather than stored: the loop inspects the
+  completion reason and response length, raises the output budget where it can, and fails loudly
+  ("summary model failed to return a complete response after N attempts") instead of caching a truncated
+  summary. A partial summary is worse than no summary, because every later stage reads it as fact.
+* **Quality gate.** `laclaugpt_quality.summary_quality_decision` classifies the result and sets the shared
+  status columns; step 6 eligibility later requires `quality == OK`, so a bad summary stops the record
+  before it reaches discourse analysis.
+* **Provenance.** `metadata` carries the prompt identity and hash, the model, and the effective generation
+  settings, so a stored summary can be tied to the prompt that produced it.
+
+Entry point: `analyze_videos()` (invoked by `step_4_roihu_summary.py`). Failure modes worth remembering: a
+record with no usable text reaches this stage with an empty prompt subject (the quality gate is what stops
+it), and a model that ignores the output budget produces the retry path above.
+"""
+
 import hashlib
 import json
 import logging
