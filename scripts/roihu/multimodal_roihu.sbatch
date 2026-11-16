@@ -63,7 +63,35 @@ ollama list >/dev/null 2>&1 || {
 
 if ! ollama show "${MODEL}" >/dev/null 2>&1; then
   if [[ ${LACLAUGPT_MULTIMODAL_PULL_MODEL:-0} == 1 ]]; then
-    ollama pull "${MODEL}"
+    command -v flock >/dev/null 2>&1 || {
+      echo "flock is required for a shared Ollama model store." >&2
+      exit 3
+    }
+    exec {pull_fd}>"${OLLAMA_MODELS}/.laclaugpt-pull.lock"
+    if ! flock -w "${LACLAUGPT_OLLAMA_PULL_LOCK_SECONDS:-1800}" "${pull_fd}"; then
+      echo "Timed out waiting for shared Ollama model-store lock." >&2
+      exit 3
+    fi
+    if ! ollama show "${MODEL}" >/dev/null 2>&1; then
+      PULL_LOG="${PRIVATE_ROOT}/logs/ollama_pull_${SLURM_JOB_ID:-interactive}.log"
+      pull_ok=0
+      for attempt in 1 2; do
+        echo "Pulling ${MODEL} (attempt ${attempt}/2); log=${PULL_LOG}" >&2
+        if ollama pull "${MODEL}" >>"${PULL_LOG}" 2>&1 &&
+           ollama show "${MODEL}" >/dev/null 2>&1; then
+          pull_ok=1
+          break
+        fi
+        tail -n 12 "${PULL_LOG}" >&2 || true
+        if [[ ${attempt} -lt 2 ]]; then sleep 5; fi
+      done
+      if [[ "${pull_ok}" != 1 ]]; then
+        echo "Ollama model pull failed after two attempts; see ${PULL_LOG}." >&2
+        exit 3
+      fi
+    fi
+    flock -u "${pull_fd}"
+    exec {pull_fd}>&-
   else
     echo "Required model missing: ${MODEL}" >&2
     echo "Pull it before submission or set LACLAUGPT_MULTIMODAL_PULL_MODEL=1." >&2
