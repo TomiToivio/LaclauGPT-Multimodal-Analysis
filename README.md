@@ -61,6 +61,10 @@ bash scripts/roihu/run_step_2.sh
 python scripts/ep24/ep24_status.py
 ```
 
+## Researcher's guide and refactor audit
+
+For a plain-language explanation of the nine stages, a repository map, provenance and evidence checklist, glossary, prompt-entry-point inventory, and the incremental audit for [issue #411](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/issues/411), see [Researcher's pipeline guide](docs/RESEARCHER_PIPELINE_GUIDE.md). This guide supplements, rather than replaces, the operational and machine-readable contracts.
+
 ## Current Roihu pipeline
 
 The active Roihu interface is deliberately numbered because each stage is submitted as a separate Slurm batch job. The canonical demo limit is **100 rows/videos per language** via `LACLAUGPT_MAX_ROWS=100`; set it to `0` for the full corpus where supported.
