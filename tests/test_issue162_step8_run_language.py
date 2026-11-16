@@ -113,32 +113,50 @@ def test_step8_has_no_f823_shadowing_of_the_source_helper():
     assert "\n                source=" not in body
 
 
-def test_step8_no_evidence_clears_stale_stage_output(
+def test_retry_without_source_evidence_clears_previous_sna_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    pytest.importorskip("pydantic")
     monkeypatch.setenv("LACLAUGPT_MAX_ROWS", "1")
+    monkeypatch.delenv("LACLAUGPT_OUTPUT_CSV", raising=False)
     csv_path = tmp_path / "ep24_fi.csv"
-    monkeypatch.setenv("LACLAUGPT_INPUT_CSV", str(csv_path))
-    fields = [
-        "video_id", "allas_filename", "country", "asr_transcript", "sna_analysis_markdown",
-        "sna_report_markdown", "sna_nodes_json", "sna_edges_json", "sna_metrics_json",
-        "sna_schema_version", "sna_prompt_version", "sna_context_sha256",
-        "sna_context_truncated", "sna_generated_at", "sna_status", "sna_error",
-    ]
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer = csv.DictWriter(handle, fieldnames=[
+            "video_id", "allas_filename", "country",
+            "dna_statements_json", "sna_analysis_markdown",
+            "sna_report_markdown", "sna_nodes_json", "sna_edges_json",
+            "sna_context_sha256", "sna_generated_at", "sna_schema_version",
+            "sna_status"
+        ])
         writer.writeheader()
-        writer.writerow({field: "stale" for field in fields} | {
-            "video_id": "v1", "allas_filename": "a.mp4", "country": "Finland", "asr_transcript": ""
+        writer.writerow({
+            "video_id": "v1", "allas_filename": "a.mp4", "country": "Finland",
+            "dna_statements_json": "[]",
+            "sna_analysis_markdown": "old analysis",
+            "sna_report_markdown": "obsolete report",
+            "sna_nodes_json": '[{"id":"old"}]',
+            "sna_edges_json": '[{"source":"old","target":"old"}]',
+            "sna_context_sha256": "obsolete_hash",
+            "sna_generated_at": "obsolete_timestamp",
+            "sna_schema_version": "obsolete_schema",
+            "sna_status": "ok",
         })
+    monkeypatch.setenv("LACLAUGPT_INPUT_CSV", str(csv_path))
 
+    def unexpected_chat(**kwargs):
+        raise AssertionError("No-evidence row must not call Ollama")
+
+    monkeypatch.setitem(sys.modules, "ollama", types.SimpleNamespace(chat=unexpected_chat))
     module = _load_step8()
     module.run_language("")
-
     with csv_path.open(encoding="utf-8") as handle:
         row = next(csv.DictReader(handle))
     assert row["sna_status"] == "no_evidence"
-    assert row["sna_analysis_markdown"] == row["sna_report_markdown"] == ""
-    assert row["sna_nodes_json"] == row["sna_edges_json"] == "[]"
-    assert row["sna_context_sha256"] == row["sna_generated_at"] == ""
+    assert row["sna_analysis_markdown"] == ""
+    assert row["sna_report_markdown"] == ""
+    assert row["sna_nodes_json"] == "[]"
+    assert row["sna_edges_json"] == "[]"
+    assert row["sna_context_sha256"] == ""
+    assert row["sna_generated_at"] == ""
+    assert row["sna_schema_version"] == ""
+    assert row["video_id"] == "v1"
+    assert json.loads(row["sna_metrics_json"])["empty_reason"] == "no_source_evidence"
