@@ -90,7 +90,6 @@ Two conventions matter when reading the code:
 | `ep24_input_schema.py` | Inspects the real incoming schema before preprocessing. |
 | `ep24_mongo_export.py` | Read-only export of finished results from shared MongoDB. |
 | `ep24_mongo_dashboard_export.py` | Read-only export shaped for the dashboards. |
-| `roihu_storage_sync.py` | Optional post-pipeline sync of CSV outputs into MongoDB. |
 | `ep24_graph_aggregate.py` | Read-only aggregation of graph layers across videos and countries. |
 | `ep24_coverage_audit.py`, `scripts/ep24/audit_*` | Coverage, contract, diff and bundle audits. |
 | `laclaugpt_quality.py` | The deterministic OK/REPROCESS/DELETE quality gate shared by steps 2–5. |
@@ -104,7 +103,6 @@ Two conventions matter when reading the code:
 | `ep24_logs.py` | Older implementation of the same convention, still used by the orchestrator. See `AUDIT_411.md` — it is a consolidation candidate, not a second convention. |
 | `ep24_backups.py` | Atomic CSV/SQLite/manifest checkpoints for cumulative frames. |
 | `ep24_redis.py` | Optional Redis coordination; MongoDB remains the durable source of truth. |
-| `diagnose_ep24_step6.py` | Read-only diagnostics for the step-6 eligibility gate. |
 | `ep24_result_reporting.py` | Human-readable, private per-stage reporting. |
 
 ### Historical implementations kept for compatibility
@@ -193,7 +191,6 @@ top-level module is missing from this file.
 | `ep24_bootstrap.py` | EP24 country bootstrap for MongoDB-first restartable processing. |
 | `ep24_cleaner.py` | Auditable EP24 legacy-data cleaner (issue #35). |
 | `ep24_entities.py` | Multilingual entity normalization and resolution (issue #142). |
-| `ep24_legacy_clean.py` | Non-destructive cleaning/export framework for legacy per-country dataframes. |
 | `ep24_schema.py` | Researcher-feed metadata helpers. |
 | `ep24_status_identity.py` | Identity arithmetic for the status tool, kept out of a script's import side effects (#379). |
 | `roihu_clean.py` | Non-destructive cleaning of legacy per-country dataframes (issue #35). |
