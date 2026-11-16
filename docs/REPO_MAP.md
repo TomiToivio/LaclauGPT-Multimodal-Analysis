@@ -4,16 +4,16 @@
 
 Generated from the source tree by `tools/repo_map.py`. Regenerate with `python tools/repo_map.py --write`; CI fails when it stops matching the code.
 
-102 modules, 29,452 lines, 67 documents, 158 test files.
+112 modules, 32,283 lines, 75 documents, 181 test files.
 
 ## Where everything lives
 
 | layer | count | what it is |
 | --- | ---: | --- |
-| `operator script` | 34 | an operator or audit script run by hand or from a shell job |
-| `shared: EP24` | 25 | shared EP24 pipeline infrastructure |
+| `operator script` | 42 | an operator or audit script run by hand or from a shell job |
+| `shared: EP24` | 27 | shared EP24 pipeline infrastructure |
+| `shared: Roihu` | 11 | shared Roihu infrastructure or analysis helper |
 | `entry point` | 10 | a numbered pipeline step wrapper; read this to see the order of stages |
-| `shared: Roihu` | 10 | shared Roihu infrastructure or analysis helper |
 | `orchestration` | 7 | the shared command-line contract every numbered step uses |
 | `legacy (Puhti)` | 5 | the historical CSC Puhti implementation of a stage; superseded by the roihu_* modules |
 | `shared: media` | 2 | backend-neutral speech recognition adapters |
@@ -24,45 +24,45 @@ Generated from the source tree by `tools/repo_map.py`. Regenerate with `python t
 | `stage: postprocessing` | 1 | Step 5 — structured postprocessing of the summary output |
 | `stage: preprocessing` | 1 | Step 1 — OCR and speech recognition on the collected media |
 | `stage: summarisation` | 1 | Step 4 — multimodal social-semiotic summary and fusion |
-| `tools` | 1 | read-only diagnostics |
 
 ## Modules
 
 | module | lines | layer | imported by | first docstring line |
 | --- | ---: | --- | ---: | --- |
 | `asr_backend.py` | 233 | shared: media | 3 | Backend-neutral ASR adapters for EP24 on CSC Roihu. |
-| `diagnose_ep24_step6.py` | 42 | tools | 0 | Read-only diagnostics for the EP24 MongoDB Step 6 eligibility gate. |
 | `ep24_allas.py` | 73 | shared: EP24 | 1 | Stage EP24 media from CSC Allas before legacy Step 1 runs. |
-| `ep24_backups.py` | 78 | shared: EP24 | 2 | Atomic CSV + SQLite + manifest checkpoints for cumulative EP24 dataframes. |
-| `ep24_bootstrap.py` | 164 | shared: EP24 | 3 | EP24 country bootstrap for MongoDB-first restartable processing. |
+| `ep24_backups.py` | 82 | shared: EP24 | 3 | Atomic CSV + SQLite + manifest checkpoints for cumulative EP24 dataframes. |
+| `ep24_bootstrap.py` | 164 | shared: EP24 | 5 | EP24 country bootstrap for MongoDB-first restartable processing. |
 | `ep24_cleaner.py` | 526 | shared: EP24 | 0 | Auditable EP24 legacy-data cleaner for issue #35. |
 | `ep24_cli.py` | 179 | orchestration | 13 | Shared command-line contract for numbered EP24 Roihu pipeline steps. |
-| `ep24_context.py` | 159 | shared: EP24 | 4 | Mongo-backed EP24 codebook, memory, RAG and normalization context. |
-| `ep24_coverage_audit.py` | 195 | shared: EP24 | 1 | Country x stage coverage audit for EP24 (#306, deliverable 2). |
-| `ep24_db.py` | 22 | shared: EP24 | 5 | Small EP24-facing database helpers over the existing roihu_storage layer. |
+| `ep24_context.py` | 159 | shared: EP24 | 5 | Mongo-backed EP24 codebook, memory, RAG and normalization context. |
+| `ep24_coverage_audit.py` | 195 | shared: EP24 | 2 | Country x stage coverage audit for EP24 (#306, deliverable 2). |
+| `ep24_db.py` | 22 | shared: EP24 | 6 | Small EP24-facing database helpers over the existing roihu_storage layer. |
 | `ep24_dna.py` | 761 | shared: EP24 | 2 | Leifeld DNA / rDNA compatibility layer for the EP24 Roihu pipeline (issue #182). |
 | `ep24_eligibility.py` | 289 | orchestration | 2 | Non-blocking EP24 stage eligibility (#342). |
 | `ep24_entities.py` | 1019 | shared: EP24 | 4 | Multilingual entity normalization and resolution (issue #142). |
+| `ep24_graph_aggregate.py` | 735 | shared: EP24 | 0 | Read-only aggregation of EP24 graph layers across videos, countries and steps (#380). |
 | `ep24_input_schema.py` | 283 | shared: EP24 | 0 | Real incoming-schema inspection for the EP24 Roihu preprocess stage (#128 §5). |
-| `ep24_legacy_clean.py` | 646 | shared: EP24 | 0 | Non-destructive cleaning/export framework for legacy EP24 per-country dataframes. |
 | `ep24_logging.py` | 204 | shared: EP24 | 9 | One log directory, one filename convention for every EP24 pipeline step (#324). |
 | `ep24_logs.py` | 163 | shared: EP24 | 1 | One log directory, one filename convention, for every EP24 pipeline step (#324). |
 | `ep24_memory.py` | 59 | shared: EP24 | 3 | MongoDB-backed EP24 normalization memory helpers. |
-| `ep24_models.py` | 25 | shared: EP24 | 8 | Shared active-model defaults for the EP24 Roihu pipeline. |
+| `ep24_models.py` | 252 | shared: EP24 | 8 | Per-stage model resolution for the EP24 Roihu pipeline (#378). |
 | `ep24_mongo_dashboard_export.py` | 487 | shared: EP24 | 0 | Read-only EP24 (FI/PL/PT) export from shared MongoDB — issue #306, section 1. |
 | `ep24_mongo_export.py` | 845 | shared: EP24 | 5 | Read-only EP24 FI/PL/PT export from shared MongoDB (#306, deliverable 1). |
-| `ep24_pipeline.py` | 278 | orchestration | 9 | Shared dataframe contract for the active EP24 Roihu pipeline. |
+| `ep24_pipeline.py` | 278 | orchestration | 10 | Shared dataframe contract for the active EP24 Roihu pipeline. |
 | `ep24_prompt_contract.py` | 723 | shared: EP24 | 5 | Shared model-visible prompt/context contract for EP24 Steps 4-8 (issue #241). |
 | `ep24_rag.py` | 103 | shared: EP24 | 3 | MongoDB EP24 RAG persistence and retrieval helpers. |
 | `ep24_redis.py` | 43 | shared: EP24 | 5 | Optional Redis coordination for EP24. MongoDB remains the durable source of truth. |
 | `ep24_result_reporting.py` | 105 | shared: EP24 | 1 | Human-readable, private, per-stage analysis reporting. |
 | `ep24_schema.py` | 71 | shared: EP24 | 12 | EP24 researcher-feed metadata helpers. |
-| `ep24_scope.py` | 56 | orchestration | 3 | Which EP24 steps are part of the current run (#346). |
-| `ep24_settings.py` | 164 | shared: EP24 | 4 | Load EP24 private runtime settings without exposing or logging secrets. |
-| `ep24_sna.py` | 737 | shared: EP24 | 1 | Deterministic graph construction and reporting for EP24 Step 8 SNA. |
-| `ep24_stage_contract.py` | 284 | orchestration | 4 | Machine-readable stage contract for the numbered EP24 Roihu pipeline (issue #64). |
-| `ep24_stage_orchestrator.py` | 803 | orchestration | 1 | Run one numbered EP24 stage on only Mongo-eligible cumulative records. |
+| `ep24_scope.py` | 36 | orchestration | 3 | Scope of the active EP24 numbered pipeline (#380). |
+| `ep24_settings.py` | 164 | shared: EP24 | 8 | Load EP24 private runtime settings without exposing or logging secrets. |
+| `ep24_sna.py` | 1000 | shared: EP24 | 3 | Deterministic graph construction and reporting for EP24 Step 8 SNA. |
+| `ep24_sna_aggregate.py` | 394 | shared: EP24 | 1 | Cross-video aggregation of persisted Step 8 social events (#380). |
+| `ep24_stage_contract.py` | 286 | orchestration | 5 | Machine-readable stage contract for the numbered EP24 Roihu pipeline (issue #64). |
+| `ep24_stage_orchestrator.py` | 803 | orchestration | 4 | Run one numbered EP24 stage on only Mongo-eligible cumulative records. |
 | `ep24_stage_state.py` | 237 | orchestration | 0 | Durable EP24 pipeline state: stage eligibility, claims, and completion (#64). |
+| `ep24_status_identity.py` | 29 | shared: EP24 | 1 | Identity arithmetic for the EP24 status tool, kept out of the script's import side effects (#379). |
 | `ep24_video.py` | 298 | shared: EP24 | 3 | Shared EP24 video-analysis rules. |
 | `examples/step7_dna_demo.py` | 113 | unclassified | 0 | End-to-end demo of the Step 7 DNA export layer on a synthetic fixture. |
 | `laclaugpt_quality.py` | 323 | shared: quality | 3 | Shared deterministic OK / REPROCESS / DELETE quality gate for EP24 steps 2-5. |
@@ -75,26 +75,29 @@ Generated from the source tree by `tools/repo_map.py`. Regenerate with `python t
 | `roihu_clean.py` | 1100 | shared: Roihu | 0 | Non-destructive cleaning of legacy EP24 per-country dataframes (issue #35). |
 | `roihu_codebook_sources.py` | 381 | shared: Roihu | 1 | Load the private ``codebook_sources`` replacement workbooks into registry entries. |
 | `roihu_codebooks.py` | 1066 | shared: Roihu | 10 | Load and retrieve private bilingual EP24 codebooks on CSC Roihu. |
-| `roihu_csv_rdf.py` | 424 | shared: Roihu | 1 | Project EP24 CSV into RDF without changing historical analytical values. |
+| `roihu_csv_rdf.py` | 447 | shared: Roihu | 1 | Project EP24 CSV into RDF without changing historical analytical values. |
+| `roihu_discourse_network.py` | 857 | shared: Roihu | 1 | Step 7: Discourse Network Analysis (DNA) statement extraction for EP24. |
 | `roihu_enrich.py` | 401 | shared: Roihu | 1 | Additive Memory/Codebook enrichment between postprocess and populism. |
 | `roihu_frame.py` | 495 | stage: frame analysis | 0 | EP24 Step 2: cumulative single-keyframe multimodal analysis on CSC Roihu. |
 | `roihu_identity.py` | 188 | shared: Roihu | 1 | Conservative EP24 codebook identity resolution and human seed recycling. |
 | `roihu_memory.py` | 950 | shared: Roihu | 2 | Persistent EP24 research memory for CSC Roihu. |
-| `roihu_populism.py` | 618 | stage: discourse coding | 0 | **(none)** |
-| `roihu_postprocess.py` | 623 | stage: postprocessing | 0 | **(none)** |
+| `roihu_populism.py` | 665 | stage: discourse coding | 0 | EP24 step 6 — Laclau/Mouffe/Palonen discourse analysis (CSC Roihu). |
+| `roihu_postprocess.py` | 666 | stage: postprocessing | 0 | EP24 step 5 — structured extraction and conservative normalization (CSC Roihu). |
 | `roihu_preprocess.py` | 763 | stage: preprocessing | 0 | EP24 Step 1: schema-preserving one-frame OCR + backend-neutral ASR. |
 | `roihu_rdf.py` | 1098 | shared: Roihu | 0 | RDF / knowledge-graph export for the EP24 multimodal pipeline (CSC Roihu). |
-| `roihu_storage.py` | 451 | shared: Roihu | 12 | External MongoDB storage plus Pandas/CSV interoperability for Roihu. |
-| `roihu_storage_sync.py` | 62 | shared: Roihu | 0 | Optional post-pipeline sync of EP24 CSV outputs into external MongoDB. |
-| `roihu_summary.py` | 741 | stage: summarisation | 0 | **(none)** |
+| `roihu_sna.py` | 517 | shared: Roihu | 1 | Step 8: basic evidence-backed Social Network Analysis for EP24. |
+| `roihu_storage.py` | 451 | shared: Roihu | 15 | External MongoDB storage plus Pandas/CSV interoperability for Roihu. |
+| `roihu_summary.py` | 787 | stage: summarisation | 0 | EP24 step 4 — cumulative whole-record summary (CSC Roihu). |
 | `scripts/asr_bench/bench_faster.py` | 71 | operator script | 0 | Benchmark faster-whisper checkpoints on the same FLEURS samples. |
 | `scripts/asr_bench/fetch_fleurs_samples.py` | 71 | operator script | 0 | Fetch the FLEURS evaluation samples used by the ASR benchmark. |
 | `scripts/ep24/apostrophe_hygiene.py` | 367 | operator script | 0 | Detect identity drift caused by punctuation that is not punctuation to a human. |
 | `scripts/ep24/audit_country_stages.py` | 214 | operator script | 0 | Read-only EP24 country/stage status inventory for issue #306. |
 | `scripts/ep24/audit_ep24_stages.py` | 168 | operator script | 0 | Audit a pinned EP24 export into a per-country, per-stage coverage matrix (#333). |
 | `scripts/ep24/audit_export.py` | 602 | operator script | 0 | Offline audit of an EP24 export directory (#333). |
+| `scripts/ep24/audit_export_bundle.py` | 488 | operator script | 0 | Audit an exported EP24 country bundle without a database (#405, workstream A/B/D). |
 | `scripts/ep24/audit_export_contract.py` | 128 | operator script | 0 | Audit a delivered EP24 export against its own manifest (issues #330, #331, #332, #333). |
 | `scripts/ep24/audit_export_diff.py` | 189 | operator script | 0 | Compare two EP24 export artifact sets and report what changed (#333). |
+| `scripts/ep24/audit_issue405_sources.py` | 145 | operator script | 0 | Issue #405: read-only, aggregate QA of exact FI/PL/PT 2026-11-15 Git LFS CSVs. |
 | `scripts/ep24/audit_stage_coverage.py` | 183 | operator script | 0 | Country x stage 0-9 coverage audit for EP24 (#306, deliverable 2). |
 | `scripts/ep24/bootstrap_ep24_mongodb.py` | 16 | operator script | 0 | Public entry point for EP24 MongoDB bootstrap. |
 | `scripts/ep24/check_bilingual_coverage.py` | 107 | operator script | 0 | Report and gate English *translation-work* coverage for EP24 codebooks (#101/#116). |
@@ -103,13 +106,19 @@ Generated from the source tree by `tools/repo_map.py`. Regenerate with `python t
 | `scripts/ep24/codebook_coverage.py` | 345 | operator script | 0 | Report EP24 country-codebook coverage and fragmentation (issue #72). |
 | `scripts/ep24/cyrillic_hygiene.py` | 261 | operator script | 0 | Detect Latin/Cyrillic mixed-script (homoglyph) defects in EP24 codebooks. |
 | `scripts/ep24/english_label_coverage.py` | 94 | operator script | 0 | Report explicit-English review-state coverage for EP24 country codebooks. |
-| `scripts/ep24/ep24_status.py` | 48 | operator script | 0 | Show MongoDB EP24 progress by country and numbered stage. |
+| `scripts/ep24/ep24_rollout.py` | 178 | operator script | 0 | Conservative, auditable EP24 rollout planning and non-destructive bootstrap (#373). |
+| `scripts/ep24/ep24_status.py` | 66 | operator script | 0 | Show MongoDB EP24 progress by country and numbered stage. |
+| `scripts/ep24/export_full_corpus.py` | 173 | operator script | 0 | Full, lossless EP24 dataframe export with stage coverage and round-trip checks (#373). |
+| `scripts/ep24/export_live_sample.py` | 189 | operator script | 0 | Read-only FI/PL/PT live Mongo snapshot for the Friday EP24 presentation (#373). |
 | `scripts/ep24/export_mongo_results.py` | 287 | operator script | 0 | Read-only EP24 FI/PL/PT export from shared MongoDB (#306). |
+| `scripts/ep24/export_social_network.py` | 90 | operator script | 0 | Export a private filtered Step 8 event view from cumulative CSV snapshots. |
 | `scripts/ep24/fold_fix.py` | 124 | operator script | 0 | Fix the diacritic-folding defect in the EP24 codebook coverage auditor. |
 | `scripts/ep24/plan_ep24_retry.py` | 220 | operator script | 0 | Plan a selective EP24 retry: only the records a step actually failed or never produced (#342). |
+| `scripts/ep24/preflight_pilot.py` | 196 | operator script | 0 | Preflight the Monday500 pilot before a Roihu resubmission (#379). |
 | `scripts/ep24/privacy_gate.py` | 195 | operator script | 0 | Public-repository privacy gate for EP24 work (#306, deliverable 4). |
 | `scripts/ep24/propose_codebook_merges.py` | 95 | operator script | 0 | Propose codebook merges without changing anything (issue #333). |
 | `scripts/ep24/report_stage_coverage.py` | 177 | operator script | 0 | Country x step 0-9 coverage report for an EP24 Mongo export (#306, deliverable 2). |
+| `scripts/ep24/rollout.py` | 200 | operator script | 0 | Plan and launch the EP24 full-corpus rollout (#373). |
 | `scripts/ep24/step4_evidence_coverage.py` | 162 | operator script | 0 | Step 4 evidence-coverage worklist for the rerun gate (#236). |
 | `scripts/roihu/aggregate_step8_events.py` | 64 | operator script | 0 | Aggregate Step 8 event edges without mixing relation families. |
 | `scripts/roihu/benchmark_issue128_backends.py` | 324 | operator script | 0 | Issue #128 real-media benchmark harness for CSC Roihu GH200. |
@@ -125,21 +134,18 @@ Generated from the source tree by `tools/repo_map.py`. Regenerate with `python t
 | `step_1_roihu_preprocess.py` | 19 | entry point | 0 | Step 1: EP24 preprocess on CSC Roihu. |
 | `step_2_roihu_frame.py` | 15 | entry point | 0 | Step 2: deep single-keyframe analysis on CSC Roihu. |
 | `step_3_roihu_video.py` | 39 | entry point | 0 | Step 3: native whole-video Qwen3-VL/vLLM analysis on CSC Roihu. |
-| `step_4_roihu_summary.py` | 10 | entry point | 0 | Step 4: multimodal social-semiotic summary/fusion on CSC Roihu. |
-| `step_5_roihu_postprocess.py` | 10 | entry point | 0 | Step 5: structured post-processing of the summary output on CSC Roihu. |
+| `step_4_roihu_summary.py` | 27 | entry point | 0 | Step 4: fuse multimodal evidence into a readable research summary. |
+| `step_5_roihu_postprocess.py` | 25 | entry point | 0 | Step 5: structure and normalize the Step 4 multimodal summary. |
 | `step_6_roihu_discourse_analysis.py` | 13 | entry point | 0 | Step 6: Laclau/Palonen discourse analysis. |
-| `step_7_roihu_discourse_network_analysis.py` | 828 | entry point | 1 | Step 7: Discourse Network Analysis (DNA) statement extraction for EP24. |
-| `step_8_roihu_social_network_analysis.py` | 502 | entry point | 0 | Step 8: basic evidence-backed Social Network Analysis for EP24. |
+| `step_7_roihu_discourse_network_analysis.py` | 18 | entry point | 1 | Step 7 CLI compatibility entry point (Discourse Network Analysis). |
+| `step_8_roihu_social_network_analysis.py` | 17 | entry point | 0 | Step 8 CLI compatibility entry point (Social Network Analysis). |
 | `step_9_roihu_rdf.py` | 17 | entry point | 0 | Step 9: deterministic RDF export after discourse/network analysis. |
 | `tools/repo_map.py` | 403 | unclassified | 0 | Map this repository and inventory its duplication, from the code rather than from memory (#411). |
 
-### Modules with no docstring (11)
+### Modules with no docstring (8)
 
 A researcher opening these has only the code. Listed in the priority order the refactor plan uses: analytical stages first.
 
-- `roihu_summary.py` (741 lines, stage: summarisation)
-- `roihu_postprocess.py` (623 lines, stage: postprocessing)
-- `roihu_populism.py` (618 lines, stage: discourse coding)
 - `scripts/roihu/prepare_pipeline_run.py` (105 lines, operator script)
 - `scripts/roihu/summarize_pipeline_run.py` (166 lines, operator script)
 - `scripts/roihu/validate_step_environment.py` (134 lines, operator script)
@@ -149,20 +155,18 @@ A researcher opening these has only the code. Listed in the priority order the r
 - `puhti_preprocess.py` (216 lines, legacy (Puhti))
 - `puhti_summary.py` (320 lines, legacy (Puhti))
 
-### Functions over 30 lines without a docstring (78)
+### Functions over 30 lines without a docstring (84)
 
 - `asr_backend.py` :: `load_asr_model`
-- `diagnose_ep24_step6.py` :: `main`
 - `ep24_allas.py` :: `stage_media`
 - `ep24_backups.py` :: `write_checkpoint`
 - `ep24_bootstrap.py` :: `bootstrap_country`
 - `ep24_cleaner.py` :: `write_outputs`
 - `ep24_cli.py` :: `configure_step_cli`
 - `ep24_entities.py` :: `_fuzzy`
+- `ep24_graph_aggregate.py` :: `write_edges_csv`
 - `ep24_input_schema.py` :: `main`
-- `ep24_legacy_clean.py` :: `decide_row`
-- `ep24_legacy_clean.py` :: `render_markdown_report`
-- `ep24_legacy_clean.py` :: `write_outputs`
+- `ep24_models.py` :: `main`
 - `ep24_mongo_dashboard_export.py` :: `export_countries`
 - `ep24_mongo_dashboard_export.py` :: `main`
 - `ep24_sna.py` :: `graph_summary`
@@ -183,6 +187,8 @@ A researcher opening these has only the code. Listed in the priority order the r
 - `roihu_codebooks.py` :: `load_profile`
 - `roihu_codebooks.py` :: `select_context`
 - `roihu_csv_rdf.py` :: `export`
+- `roihu_discourse_network.py` :: `analyze_context`
+- `roihu_discourse_network.py` :: `process_country`
 - `roihu_enrich.py` :: `enrich_file`
 - `roihu_frame.py` :: `_cache_store`
 - `roihu_memory.py` :: `_init`
@@ -191,33 +197,37 @@ A researcher opening these has only the code. Listed in the priority order the r
 - `roihu_populism.py` :: `process_country`
 - `roihu_postprocess.py` :: `analyze_responses`
 - `roihu_postprocess.py` :: `get_response`
-- … and 38 more
+- … and 44 more
 
-## Near-duplicate functions (11 pairs)
+## Near-duplicate functions (15 pairs)
 
 Normalised function bodies (identifiers and literals blanked) at ≥ 0.8 similarity, at least ten lines. A pair is a question — *are these the same decision?* — not an instruction to merge: two stages can compute similar things for different analytical reasons.
 
 | similarity | function | left | right | lines |
 | ---: | --- | --- | --- | ---: |
 | 1.00 | `get_response` | `puhti_populism.py:292` | `puhti_postprocess.py:92` | 27 |
-| 1.00 | `build_prompt_context` | `roihu_populism.py:234` | `step_7_roihu_discourse_network_analysis.py:259` | 10 |
-| 1.00 | `_clean_document` | `roihu_populism.py:385` | `step_7_roihu_discourse_network_analysis.py:470` | 10 |
-| 1.00 | `_resume_from_mongo` | `roihu_populism.py:446` | `step_7_roihu_discourse_network_analysis.py:541` | 19 |
+| 1.00 | `build_prompt_context` | `roihu_discourse_network.py:268` | `roihu_populism.py:281` | 10 |
+| 1.00 | `_clean_document` | `roihu_discourse_network.py:499` | `roihu_populism.py:432` | 10 |
+| 1.00 | `_resume_from_mongo` | `roihu_discourse_network.py:570` | `roihu_populism.py:493` | 19 |
 | 1.00 | `_iter_labels` | `scripts/ep24/apostrophe_hygiene.py:167` | `scripts/ep24/cyrillic_hygiene.py:135` | 12 |
 | 1.00 | `_candidate_files` | `scripts/ep24/apostrophe_hygiene.py:191` | `scripts/ep24/cyrillic_hygiene.py:159` | 23 |
-| 0.95 | `_persist_row` | `roihu_populism.py:431` | `step_7_roihu_discourse_network_analysis.py:515` | 13 |
+| 0.95 | `_persist_row` | `roihu_discourse_network.py:544` | `roihu_populism.py:478` | 14 |
 | 0.94 | `parse_args` | `scripts/ep24/audit_stage_coverage.py:27` | `scripts/ep24/export_mongo_results.py:50` | 16 |
-| 0.93 | `_prepare_context` | `roihu_populism.py:403` | `step_7_roihu_discourse_network_analysis.py:488` | 26 |
-| 0.90 | `_open_cache` | `roihu_frame.py:96` | `roihu_summary.py:51` | 21 |
-| 0.84 | `process_country` | `roihu_populism.py:478` | `step_7_roihu_discourse_network_analysis.py:659` | 125 |
+| 0.94 | `_prepare_context` | `roihu_discourse_network.py:517` | `roihu_populism.py:450` | 25 |
+| 0.91 | `_open_cache` | `roihu_frame.py:96` | `roihu_summary.py:97` | 21 |
+| 0.88 | `_print_human` | `scripts/ep24/apostrophe_hygiene.py:303` | `scripts/ep24/cyrillic_hygiene.py:210` | 36 |
+| 0.84 | `process_country` | `roihu_discourse_network.py:688` | `roihu_populism.py:525` | 151 |
+| 0.83 | `main` | `scripts/ep24/apostrophe_hygiene.py:341` | `scripts/ep24/cyrillic_hygiene.py:240` | 23 |
+| 0.82 | `main` | `scripts/ep24/codebook_coverage.py:319` | `scripts/ep24/cyrillic_hygiene.py:240` | 23 |
+| 0.82 | `analyze_videos` | `puhti_frame.py:119` | `puhti_preprocess.py:110` | 76 |
 
 ## Prompt sites (3)
 
 Module-level string constants that read as instructions to a model. #411 asks for a prompt catalogue; today these are the closest thing to one, and they live inside stage code.
 
 - `puhti_populism.py` :: `system_prompt`
+- `roihu_discourse_network.py` :: `SYSTEM_PROMPT`
 - `roihu_populism.py` :: `SYSTEM_PROMPT`
-- `step_7_roihu_discourse_network_analysis.py` :: `SYSTEM_PROMPT`
 
 ## Not imported by anything and not an entry point (3)
 
@@ -230,6 +240,7 @@ Candidates for the archive, **after** checking scripts, docs and crontabs: a mod
 ## Documentation
 
 - `docs/ASR_EVALUATION.md`
+- `docs/AUDIT_411.md`
 - `docs/CODING_STYLE.md`
 - `docs/DATA_ANALYSIS_CANDIDATES.md`
 - `docs/ENTITY_NORMALIZATION.md`
@@ -245,8 +256,11 @@ Candidates for the archive, **after** checking scripts, docs and crontabs: a mod
 - `docs/EP24_DEFECT_REGISTER.md`
 - `docs/EP24_ELECTORAL_RELATIONS.md`
 - `docs/EP24_EXPORT_QA_330_333.md`
+- `docs/EP24_FULL_CORPUS_ROLLOUT.md`
 - `docs/EP24_ISSUE306_PRIVACY_GATE.md`
+- `docs/EP24_ISSUE380_SNA_CONTRACT.md`
 - `docs/EP24_LEGACY_CLEANING.md`
+- `docs/EP24_LIVE_SAMPLE_EXPORT.md`
 - `docs/EP24_LOGGING.md`
 - `docs/EP24_LOGGING_324.md`
 - `docs/EP24_MONGO_EXPORT.md`
@@ -254,10 +268,12 @@ Candidates for the archive, **after** checking scripts, docs and crontabs: a mod
 - `docs/EP24_PIPELINE_CONTRACT.md`
 - `docs/EP24_PREPROCESS_COMPATIBILITY.md`
 - `docs/EP24_PREPROCESS_SCHEMA_COMPATIBILITY.md`
+- `docs/EP24_PROMPT_CATALOG.md`
 - `docs/EP24_PROMPT_CONTRACT_CONSOLIDATION.md`
 - `docs/EP24_PROMPT_EVIDENCE_RUNBOOK.md`
 - `docs/EP24_RDF.md`
 - `docs/EP24_RECORD_QA_333.md`
+- `docs/EP24_REFACTOR_AUDIT_411.md`
 - `docs/EP24_RESTARTABLE_PIPELINE.md`
 - `docs/EP24_SAFE_RESET.md`
 - `docs/EP24_STAGE_AUDIT_333.md`
@@ -286,8 +302,10 @@ Candidates for the archive, **after** checking scripts, docs and crontabs: a mod
 - `docs/PHASE_BRANCHING.md`
 - `docs/RDF_EXPORT.md`
 - `docs/REFACTOR_PLAN_411.md`
+- `docs/REPOSITORY_MAP.md`
 - `docs/REPO_MAP.md`
 - `docs/RESEARCHER_GUIDE.md`
+- `docs/RESEARCHER_PIPELINE_GUIDE.md`
 - `docs/ROIHU_MIGRATION.md`
 - `docs/ROIHU_NUMBERED_PIPELINE.md`
 - `docs/ROIHU_PER_STEP_ENVIRONMENTS.md`
