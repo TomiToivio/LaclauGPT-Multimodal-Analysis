@@ -12,7 +12,7 @@
 Issue #35 defines a non-destructive bridge from the historical EP24 country CSVs to the
 new Roihu/Phase 2 reprocessing pipeline.
 
-The public implementation is `ep24_cleaner.py`. Real EP24 data, researcher notes,
+The **canonical, maintained public cleaner is `ep24_cleaner.py`** (issue #413, approved option A). `roihu_clean.py` is the historical/audit-compatible implementation and remains available for reproducibility; its tests and output divergences must be assessed before retiring its execution path. The unreferenced `ep24_legacy_clean.py` has been removed from `main` but is recoverable in Git history and the immutable `legacy` branch where applicable. Real EP24 data, researcher notes,
 country codebooks, and generated derivatives remain in `LaclauGPT-Private`.
 
 ## One schema for every country
