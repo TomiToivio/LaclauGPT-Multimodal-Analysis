@@ -52,7 +52,7 @@ And one pair the epic would naturally merge is documented as intentionally disti
 > export directory for the other without validating the consuming application."
 > — `docs/EP24_MONGO_EXPORT.md:77`, on `ep24_mongo_export.py` vs `ep24_mongo_dashboard_export.py`
 
-So the true surface of "duplicate and obsolete implementations" is **four orphans and one genuine
+So the true surface of "duplicate and obsolete implementations" is **three orphans and one genuine
 copy cluster** (§2, §3) — not a repository-wide collapse.
 
 ### 3. Documentation and inventory can start now; removals cannot
@@ -107,10 +107,15 @@ only after the shared behaviour is pinned, because two copies can already have d
 
 **Documented-intentional pair — do not merge without a decision:** the two Mongo exporters above.
 
-**One duplicate pair with a survivor and a leftover:** `ep24_logging.py` (204) is production
-(imported by `puhti_postprocess` and `roihu_postprocess`); `ep24_logs.py` (163) is imported **only by
-its own test**, and `tests/test_issue324_log_naming.py:4` records that the log code "moved into
-`ep24_logging` when the two halves were reconciled (#329)". The old module survived the move.
+**One duplicate pair, and both halves are live:** `ep24_logging.py` (204) is the
+convention used by nine production modules (the five `puhti_*` and four `roihu_*`
+stages); `ep24_logs.py` (163) is the same convention implemented again and is still
+imported by `ep24_stage_orchestrator.py` (`import ep24_logs` at line 29,
+`ep24_logs.configure_logging(` at line 722) as well as by `tests/test_ep24_logs.py`.
+`tests/test_issue324_log_naming.py:4` records that one half of the log code "moved
+into `ep24_logging` when the two halves were reconciled (#329)", but the orchestrator
+was never migrated: deleting `ep24_logs.py` breaks the orchestrator's logging path.
+This is a genuine duplicate to consolidate, not an orphan to remove.
 
 ## 3. Orphans — measured, not assumed
 
@@ -119,11 +124,11 @@ Modules with no importer, no reference in any `.py`/`.sh`/`.md`, and no CI refer
 | module | lines | last touched | evidence |
 | --- | ---: | --- | --- |
 | `ep24_legacy_clean.py` | 646 | 2026-10-01 | 0 occurrences anywhere; `ep24_cleaner` (526) and `roihu_clean` (1,100) are the two that are documented and tested |
-| `ep24_logs.py` | 163 | 2026-10-31 | imported only by `tests/test_ep24_logs.py`; superseded by `ep24_logging` (#329) |
 | `roihu_storage_sync.py` | 62 | 2026-10-01 | 0 occurrences anywhere |
 | `diagnose_ep24_step6.py` | 42 | 2026-10-13 | 0 occurrences anywhere; has a `main()`, so it may be a manual operator tool |
 
-913 lines — 2.5 % of the top-level code. Whether they are deleted or documented as tools is a
+750 lines. (An earlier draft counted `ep24_logs.py` here; it is imported and called by
+`ep24_stage_orchestrator.py`, so it is a duplicate, not an orphan — see §2.) Whether they are deleted or documented as tools is a
 permission question (`AGENTS.md`), not a technical one.
 
 **The cleaner cluster is the real triplication, and it needs a ruling rather than a delete:**
@@ -167,7 +172,7 @@ the legacy per-country dataframe" is where a researcher currently has to guess.
 
 ### Needs a ruling — blocked, and named
 
-5. **Orphan removal** (§3): delete the 913 lines, or document them as manual operator tools?
+5. **Orphan removal** (§3): delete the 750 lines, or document them as manual operator tools?
 6. **Cleaner cluster** (§3): which of `ep24_cleaner` / `roihu_clean` is canonical, and is
    `ep24_legacy_clean` a third implementation to retire or a framework to keep?
 7. **`_prompt_hash` / `_clean_document` / `_bounded` consolidation** between `roihu_populism` and
