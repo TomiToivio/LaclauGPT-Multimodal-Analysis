@@ -26,6 +26,10 @@ This repository is the EP24 multimodal analysis implementation of the current La
 
 The compatibility rule is strict: **new functionality is added around or alongside the legacy stages. Existing legacy steps, fields, prompts, schemas, and outputs must not be removed or replaced without explicit human permission.**
 
+## For human researchers
+
+Start with the [researcher's guide to the complete pipeline](docs/RESEARCHER_GUIDE.md) for a plain-language walkthrough of Steps 0–9, a repository map, a prompt-reading guide, and a worked example distinguishing discourse analysis, Discourse Network Analysis, and Social Network Analysis. The guide also explains how to audit a result back to its source evidence and where to find the relevant code, fields, and tests.
+
 ## Legacy research record
 
 The original EP24 implementation used CSC Puhti. That exact historical code is preserved on the [`legacy` branch](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/tree/legacy). Keep it visible and citable. Do not modernize or rewrite that branch.
