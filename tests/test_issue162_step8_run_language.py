@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-STEP8 = ROOT / "step_8_roihu_social_network_analysis.py"
+STEP8 = ROOT / "roihu_sna.py"  # #413: step_8_*.py is a CLI shim that aliases this module
 
 
 def _load_step8() -> Any:
