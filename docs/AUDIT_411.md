@@ -1,5 +1,14 @@
 # Refactor audit — repository readability, duplication and explainability (#411)
 
+> **Two audits exist for this epic, and they are meant to be read as a pair.**
+> This one covers *shape and duplication*: what the repository looks like, which duplication is
+> deliberate, and in what order a refactor is safe.
+> `docs/EP24_REFACTOR_AUDIT_411.md` covers *removal and rulings*: which modules are orphans, which
+> decisions need a human, and the plan split by whether a row needs permission.
+> They agree on the layering, the deliberate `puhti_*` boundary and the four identical helper bodies.
+> Where they disagree the disagreement is marked below, with the evidence that settles it — two
+> documents that quietly contradict each other are worse than one honest document.
+
 Status: **before/after audit, deliverable 1 of #411.** Nothing in this document changes the pipeline.
 Every count was produced by reading the repository at `858f383`, not by memory; the script that produced
 them is described at the end so the audit can be repeated.
@@ -43,20 +52,27 @@ concept with different spelling: `normalise_step`/`normalize_step`, `log_path`/`
 #329). This is not a convention with two faces; it is one decision implemented twice, and a caller cannot
 know which is authoritative.
 
-*Usage, which decides the survivor:* `ep24_logging` is imported by 11 modules, `ep24_logs` by 2
-(`ep24_stage_orchestrator.py` and its test). But the orchestrator uses `start_run()`/`open_log()`, which
-`ep24_logging` does not have — so the merge is "move the two functions the orchestrator needs into
-`ep24_logging`, then reduce `ep24_logs` to a re-export shim with a deprecation note". Verdict:
-**consolidate, one PR, with `tests/test_ep24_logs.py` kept and extended.**
+*Usage, which decides the survivor:* `ep24_logging` is imported by 11 modules; `ep24_logs` by 2 — its
+own test **and the orchestrator** (`ep24_stage_orchestrator.py:29`, calling
+`ep24_logs.configure_logging(...)` at line 722). `docs/EP24_REFACTOR_AUDIT_411.md` §2 reports `ep24_logs`
+as "imported only by `tests/test_ep24_logs.py`"; that is wrong, and the two lines above are the
+correction — it matters, because "unused leftover" and "still on the orchestrator's hot path" call for
+different urgency. The orchestrator needs `configure_logging()`, which `ep24_logging` also provides
+(`configure()`), so the merge is: port that call site, keep `ep24_logs` as a re-export shim with a
+deprecation note, and keep `tests/test_ep24_logs.py` as the shim's regression test with the orchestrator's
+call path added. Verdict: **consolidate, one PR.**
 
 ### 2.2 Consolidate — overlapping export tools
 
-`ep24_mongo_export.py` (845 lines, imported by 14 modules) and `ep24_mongo_dashboard_export.py` (487 lines,
-imported by one test and nothing else) both describe themselves as the read-only EP24 export from shared
-MongoDB (#306). The dashboard variant is dead weight on the import graph but may still be the shape a
-dashboard consumes. Verdict: **check the dashboard consumer first, then either merge the shaping into
-`ep24_mongo_export` as an option or archive the module with a documented reason.** Not urgent; not safe to
-delete blind.
+**Correction to an earlier draft of this audit.** `ep24_mongo_export.py` (845 lines, imported by 14
+modules) and `ep24_mongo_dashboard_export.py` (487 lines, imported by one test and nothing else) look like
+one tool implemented twice. They are not, and the repository already says so:
+`docs/EP24_MONGO_EXPORT.md:77` — *"Their identity rules and manifests differ; do not combine their record
+counts or substitute one export directory for the other without validating the consuming application."*
+Two exports with different identity rules are two contracts, and merging them would silently change what a
+downstream reader counts. Verdict: **keep both; cite the contract in each module's docstring so the next
+reader does not repeat my first guess.** The real finding here is that the reason lived only in a document
+nobody reads from the code.
 
 ### 2.3 Consolidate — three coverage audits, five export audits
 
@@ -104,6 +120,14 @@ the whole repository (2 pairs).
   boundary** (done in the map), do not move it in this issue.
 * `diagnose_ep24_step6.py` (43 lines) — fine where it is; listed so it is not mistaken for a stage.
 
+### 2.7 Orphans — measured by the companion audit, not repeated here
+
+`docs/EP24_REFACTOR_AUDIT_411.md` §3 establishes that `ep24_legacy_clean.py` (646 lines),
+`ep24_logs.py`, `roihu_storage_sync.py` (62) and `diagnose_ep24_step6.py` (42) have no importer and no
+reference anywhere in the repository — 913 lines, 2.5 % of the top-level code. Whether they are deleted or
+declared manual operator tools is a permission question under `AGENTS.md`, not a technical one, so this
+audit does not repeat the measurement; it records the dependency between the two documents.
+
 ## 3 Explainability gaps, ranked by what a researcher hits first
 
 1. **The three biggest stage implementations have no module docstring.** `roihu_summary`,
@@ -127,7 +151,7 @@ the whole repository (2 pairs).
 | --- | --- | --- | --- |
 | 1 | `docs/REPOSITORY_MAP.md` + the ratchet test | none | A reader needs the map before any code moves; the test stops it rotting. **Done in this PR.** |
 | 2 | Module docstrings for the three undocumented stage implementations | none (prose only) | The highest-value explainability gap, and it cannot break behaviour. |
-| 3 | Consolidate `ep24_logging`/`ep24_logs` | low | One decision, two implementations; the test suite already covers the surviving path. |
+| 3 | Consolidate `ep24_logging`/`ep24_logs` | low | One decision, two implementations. The orchestrator's `configure_logging` call site must move with it (`ep24_stage_orchestrator.py:722`). |
 | 4 | `scripts/ep24/_audit_common.py` | low | Six tools, one plumbing duplication. |
 | 5 | Generated stage guide from `ep24_stage_contract.py` | none | Turns the `notes=` field into researcher-facing documentation without copying it. |
 | 6 | Prompt catalogue (deliverable 4) | none | Requires reading every prompt; do it after the stages are documented. |
