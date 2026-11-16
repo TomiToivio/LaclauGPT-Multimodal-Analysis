@@ -194,8 +194,8 @@ top-level module is missing from this file.
 | `ep24_entities.py` | Multilingual entity normalization and resolution (issue #142). |
 | `ep24_schema.py` | Researcher-feed metadata helpers. |
 | `ep24_status_identity.py` | Identity arithmetic for the status tool, kept out of a script's import side effects (#379). |
-| `ep24_cleaner.py` | **Canonical** auditable EP24 legacy-data cleaner (issue #35; #413 chose option A). |
-| `roihu_clean.py` | Historical/audit-compatible cleaner retained for parity and reproducibility; not the canonical path. |
+| `ep24_cleaner.py` | Schema-workbook-driven legacy cleaner: current work, human-label merge, reports (#35; #413 option C). |
+| `roihu_clean.py` | Code-driven legacy cleaner: audit-compatible path that reproduces published per-country figures (#35; #413 option C). |
 | `roihu_discourse_network.py` | Step 7 implementation: Leifeld DNA statement extraction, prompts, persistence and exports. |
 | `roihu_sna.py` | Step 8 implementation: evidence-backed SNA extraction, graph construction, metrics and report. |
 | `step_0_roihu_import.py` | Step 0: seed the Mongo dataframe from private canonical country CSVs. |

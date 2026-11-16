@@ -490,7 +490,7 @@ def test_cumulative_write_preserves_every_incoming_column():
 
 def test_stage_contract_column_check_finds_every_declared_dna_column_written():
     """Mirrors tests/test_ep24_stage_contract.py's written-column check."""
-    source = (ROOT / contract.stage(7).module).read_text(encoding="utf-8")
+    source = (ROOT / "roihu_discourse_network.py").read_text(encoding="utf-8")
     missing = [column for column in dna.DNA_COLUMNS if column not in source]
     assert not missing, f"declared but not written in the module: {missing}"
 
@@ -572,7 +572,7 @@ def test_memory_retrieval_does_not_become_statement_evidence(tmp_path, monkeypat
 
 def test_step_7_help_works_without_runtime_dependencies():
     """#152 contract: --help must not import ollama/pydantic at module level."""
-    source = (ROOT / contract.stage(7).module).read_text(encoding="utf-8")
+    source = (ROOT / "roihu_discourse_network.py").read_text(encoding="utf-8")
     head = source.split("def _models", 1)[0]
     # A bare `import ollama` / `from pydantic import ...` at module level would
     # run during --help and break the minimal-environment contract.

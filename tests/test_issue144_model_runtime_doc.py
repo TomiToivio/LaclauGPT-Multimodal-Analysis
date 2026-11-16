@@ -31,8 +31,8 @@ def test_ollama_steps_resolve_their_own_stage_model():
         ("roihu_summary.py", 4),
         ("roihu_postprocess.py", 5),
         ("roihu_populism.py", 6),
-        ("step_7_roihu_discourse_network_analysis.py", 7),
-        ("step_8_roihu_social_network_analysis.py", 8),
+        ("roihu_discourse_network.py", 7),
+        ("roihu_sna.py", 8),
     ):
         text = _text(relative)
         assert f"stage_model({stage})" in text, f"{relative} must resolve stage {stage}"
