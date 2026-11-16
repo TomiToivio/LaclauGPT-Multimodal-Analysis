@@ -436,7 +436,10 @@ def run_language(lang: str) -> Path | None:
                       row.get("_storage_id", ""), type(exc).__name__, exc)
             LOG.exception("SNA failed row=%s file=%s", index, input_path)
 
-    write_cumulative_csv(original, df, output_path)
+    # Mongo-derived cumulative rows can already contain Step 8 results from an
+    # earlier attempt. Refresh only fields explicitly owned by this stage while
+    # keeping source metadata and every upstream stage immutable.
+    write_cumulative_csv(original, df, output_path, mutable_columns=output_columns)
     _write_graph_exports(output_path, all_nodes, all_edges)
     try:
         _persist_mongo(df, all_nodes, all_edges, output_path, model)

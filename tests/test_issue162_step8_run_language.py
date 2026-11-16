@@ -58,7 +58,8 @@ def test_run_language_processes_a_row_instead_of_raising_unbound_local(
     csv_path = tmp_path / "ep24_fi.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(
-            handle, fieldnames=["video_id", "allas_filename", "country", "summary_analysis", "asr_transcript"]
+            handle, fieldnames=["video_id", "allas_filename", "country", "summary_analysis", "asr_transcript",
+                        "sna_analysis_markdown", "sna_report_markdown", "sna_status", "sna_error"]
         )
         writer.writeheader()
         writer.writerow(
@@ -68,6 +69,10 @@ def test_run_language_processes_a_row_instead_of_raising_unbound_local(
                 "country": "Finland",
                 "summary_analysis": "evidence",
                 "asr_transcript": "A mentioned B in a public statement.",
+                "sna_analysis_markdown": "old analysis",
+                "sna_report_markdown": "old report",
+                "sna_status": "retry",
+                "sna_error": "previous failure",
             }
         )
     monkeypatch.setenv("LACLAUGPT_INPUT_CSV", str(csv_path))
@@ -93,6 +98,9 @@ def test_run_language_processes_a_row_instead_of_raising_unbound_local(
     with csv_path.open(encoding="utf-8") as handle:
         row = next(csv.DictReader(handle))
     assert row["sna_analysis_markdown"] == "md"
+    assert row["sna_report_markdown"] != "old report"
+    assert row["sna_status"] == "ok"
+    assert row["sna_error"] == ""
     assert '"relation_type": "mention"' in row["sna_edges_json"]
 
 
