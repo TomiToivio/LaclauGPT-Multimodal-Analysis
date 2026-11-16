@@ -125,15 +125,45 @@ roihu_start_ollama() {
     # Pull missing models into the persistent private OLLAMA_MODELS store by
     # default. Opt out for offline/strict deployments with ...PULL_MODEL=0.
     if [[ "${LACLAUGPT_MULTIMODAL_PULL_MODEL:-1}" == "1" ]]; then
-      echo "Ollama model ${model} missing; downloading to the shared model store."
-      if ! ollama pull "${model}"; then
-        echo "Ollama pull failed for ${model}. Check network access, model tag and available storage; or pre-pull from a network-enabled node." >&2
-        exit 3
-      fi
-      ollama show "${model}" >/dev/null 2>&1 || {
-        echo "Model ${model} still unavailable after pull; see ${log}" >&2
+      # All Roihu Slurm jobs use the same persistent model store. Serialize
+      # installs so two Ollama servers never write/remove the same partial blob.
+      # The lock is advisory; all pipeline launchers must use this helper.
+      command -v flock >/dev/null 2>&1 || {
+        echo "flock is required to safely share OLLAMA_MODELS across jobs" >&2
         exit 3
       }
+      local pull_lock_fd pull_attempt pull_ok=0
+      local pull_log="${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}/logs/ollama_pull_${SLURM_JOB_ID:-interactive}.log"
+      exec {pull_lock_fd}>"${OLLAMA_MODELS}/.laclaugpt-pull.lock"
+      echo "Waiting for Ollama model-store lock: ${OLLAMA_MODELS}" >&2
+      if ! flock -w "${LACLAUGPT_OLLAMA_PULL_LOCK_SECONDS:-1800}" "${pull_lock_fd}"; then
+        echo "Timed out waiting for model-store lock; retry after other jobs finish." >&2
+        exec {pull_lock_fd}>&-
+        exit 3
+      fi
+      # A previous job may have installed this model while we waited.
+      if ollama show "${model}" >/dev/null 2>&1; then
+        pull_ok=1
+      else
+        for pull_attempt in 1 2; do
+          echo "Pulling ${model} (attempt ${pull_attempt}/2); log=${pull_log}" >&2
+          # Avoid megabytes of ANSI progress frames in Slurm logs.
+          if ollama pull "${model}" >>"${pull_log}" 2>&1 &&
+             ollama show "${model}" >/dev/null 2>&1; then
+            pull_ok=1
+            break
+          fi
+          echo "Ollama model pull/verification failed, attempt ${pull_attempt}/2" >&2
+          tail -n 12 "${pull_log}" >&2 || true
+          if [[ ${pull_attempt} -lt 2 ]]; then sleep 5; fi
+        done
+      fi
+      flock -u "${pull_lock_fd}"
+      exec {pull_lock_fd}>&-
+      if [[ "${pull_ok}" != 1 ]]; then
+        echo "Model ${model} unavailable after retries. Check ${pull_log}, free space, file permissions, and concurrent non-pipeline Ollama processes. No partial blobs were deleted." >&2
+        exit 3
+      fi
     else
       echo "Missing Ollama model: ${model}. Auto-pull disabled by LACLAUGPT_MULTIMODAL_PULL_MODEL=0." >&2
       exit 3
