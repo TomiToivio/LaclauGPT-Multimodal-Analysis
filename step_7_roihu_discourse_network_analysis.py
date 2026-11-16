@@ -54,7 +54,7 @@ from ep24_schema import stable_source_id
 
 LOG = logging.getLogger("ep24.step7")
 
-PROMPT_VERSION = "ep24-dna-leifeld-v3-polarity-evidence-gate"
+PROMPT_VERSION = "ep24-dna-leifeld-v4-bounded-json"
 DEFAULT_MAX_CONTEXT_CHARS = 28000
 DEFAULT_NUM_CTX = 16384
 DEFAULT_NUM_PREDICT = 4096
@@ -169,6 +169,15 @@ PROVENANCE
 - Every statement needs an evidence_quote grounded in the CURRENT SOURCE EVIDENCE.
   Never cite memory/RAG/codebook text as the quote.
 - Record uncertainty and counter-evidence rather than guessing.
+
+OUTPUT BUDGET
+- Keep analysis_markdown to at most 600 characters: a brief audit summary, not
+  a reproduction of the transcript or detailed reasoning.
+- Write one concise statement per distinct evidenced actor-concept position.
+  Avoid duplicate/paraphrased claims; never invent or merge distinct positions.
+- Each proposition and uncertainty note must be brief. Evidence quotes should
+  contain only the shortest verbatim source span proving the position.
+- Keep corpus_level_cautions brief. JSON must be complete and closed.
 """
 
 
@@ -297,16 +306,25 @@ def analyze_context(context: str) -> tuple[str, Any]:
     metadata = _model_metadata()
     # A successful HTTP response can still contain an empty or truncated JSON
     # document (notably when the model exhausts its generation budget).
-    # Retry validation failures with progressively larger output budgets.
+    # On truncated JSON, retry with a compact output contract, not only more tokens.
     max_attempts = max(1, int(os.getenv("LACLAUGPT_STEP7_PARSE_ATTEMPTS", "3")))
     last_error = None
     raw = ""
     for attempt in range(max_attempts):
         num_predict = metadata["num_predict"] * (2 ** attempt)
+        retry_instruction = (
+            "" if attempt == 0 else
+            "\n\nRETRY: The previous JSON was invalid or exceeded the output "
+            "budget. Return COMPLETE, MINIMAL JSON. Keep analysis_markdown below "
+            "250 characters; omit repetitive commentary and repeated claims. "
+            "Use the shortest verbatim evidence quotes. Preserve all distinct "
+            "supported claims; never add claims or return empty merely to fit. "
+            "Close every JSON string, array and object."
+        )
         response = ollama.chat(
             model=metadata["model"],
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": SYSTEM_PROMPT + retry_instruction},
                 {"role": "user", "content": context},
             ],
             format=DNAResult.model_json_schema(),
