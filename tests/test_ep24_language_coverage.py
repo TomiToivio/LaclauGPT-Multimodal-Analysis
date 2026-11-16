@@ -7,8 +7,8 @@ ACTIVE_LIST_FILES = (
     "roihu_summary.py",
     "roihu_postprocess.py",
     "roihu_rdf.py",
-    "step_7_roihu_discourse_network_analysis.py",
-    "step_8_roihu_social_network_analysis.py",
+    "roihu_discourse_network.py",
+    "roihu_sna.py",
 )
 
 

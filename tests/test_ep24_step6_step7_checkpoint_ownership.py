@@ -51,7 +51,7 @@ def test_stage_cannot_mutate_existing_shared_context(tmp_path, owned_fields):
 def test_stage_call_sites_use_owned_fields_and_step7_isolates_enrichment():
     root = Path(__file__).resolve().parents[1]
     step6 = (root / "roihu_populism.py").read_text()
-    step7 = (root / "step_7_roihu_discourse_network_analysis.py").read_text()
+    step7 = (root / "roihu_discourse_network.py").read_text()
     assert step6.count("mutable_columns=STEP6_COLUMNS") == 2
     assert step7.count("mutable_columns=DNA_COLUMNS") == 2
     assert "_prepare_context(out.copy(deep=True), normalized_country)" in step7
