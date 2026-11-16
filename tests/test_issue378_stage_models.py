@@ -187,3 +187,17 @@ def test_unknown_profile_and_non_llm_stages_fail_closed(monkeypatch):
     for stage in (1, 3, 9):
         with pytest.raises(ValueError, match="Unsupported Ollama"):
             ep24_models.stage_ollama_model(stage)
+
+
+@pytest.mark.parametrize("stage", (2, 4, 5, 6, 7, 8))
+def test_roihu_launcher_gets_only_ollama_model_name(monkeypatch, capsys, stage):
+    """Shell command substitution must never capture the human-readable model table."""
+    clear(monkeypatch)
+    expected = ep24_models.stage_model(stage).name
+    assert ep24_models.main(["--stage", str(stage), "--model-only"]) == 0
+    assert capsys.readouterr().out == expected + "\n"
+
+
+def test_model_only_requires_exactly_one_stage(capsys):
+    with pytest.raises(SystemExit):
+        ep24_models.main(["--model-only"])
