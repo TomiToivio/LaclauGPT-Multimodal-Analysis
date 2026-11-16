@@ -4,6 +4,12 @@
 changes. This is deliverable 1 of #411 ("before/after audit"), written so the rest of the plan can be
 refused, narrowed or reordered before any code moves.
 
+> **Outcome (#413).** The human author approved the removals in
+> [#413](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/issues/413). `ep24_legacy_clean.py`,
+> `roihu_storage_sync.py` and `diagnose_ep24_step6.py` were **deleted**; `ep24_logs.py` was **kept** — this
+> audit's "test-only" reading of it was out of date, and `ep24_stage_orchestrator.py` imports and uses it.
+> The tables below are left as measured, and record the state before that removal.
+
 **Where the module-by-module map lives:** a separate deliverable under `docs/` covers the repository
 map (which module is which, which step calls what). This document does not repeat it; it covers what
 should happen to those modules, and what cannot be decided by an agent.

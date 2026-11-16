@@ -4,6 +4,12 @@ Status: **before/after audit, deliverable 1 of #411.** Nothing in this document 
 Every count was produced by reading the repository at `858f383`, not by memory; the script that produced
 them is described at the end so the audit can be repeated.
 
+> **Outcome (#413).** The human author approved the removals in
+> [#413](https://github.com/TomiToivio/LaclauGPT-Multimodal-Analysis/issues/413). `ep24_legacy_clean.py`,
+> `roihu_storage_sync.py` and `diagnose_ep24_step6.py` were **deleted**; `ep24_logs.py` was **kept** — this
+> audit's "test-only" reading of it was out of date, and `ep24_stage_orchestrator.py` imports and uses it.
+> The tables below are left as measured, and record the state before that removal.
+
 This is the *before*. A refactor that starts by rewriting stages without this list produces a tidier
 repository that has lost the reason it looked untidy.
 
