@@ -349,8 +349,15 @@ def analyze_context(context: str) -> tuple[str, Any]:
                 attempt + 1, max_attempts, num_predict, len(raw),
                 response.get("done_reason", "unknown"), exc,
             )
+    # #405: a truncated response and a malformed one have different remedies; say which it was.
+    truncated = ("EOF while parsing" in str(last_error)
+                 or (raw and not raw.rstrip().endswith(("}", "]"))))
+    hint = ("response was truncated before the JSON closed: raise the step-7 output budget "
+            "or shorten the context" if truncated
+            else "the model returned content that is not schema-valid")
     raise Step7ParseError(
-        f"Step 7 structured JSON validation failed after {max_attempts} attempts: {last_error}",
+        f"Step 7 structured JSON validation failed after {max_attempts} attempts [{hint}]: "
+        f"{last_error}",
         raw_response=raw,
     ) from last_error
 

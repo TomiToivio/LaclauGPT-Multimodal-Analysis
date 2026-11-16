@@ -110,6 +110,52 @@ def _output_path(input_path: Path) -> Path:
     return Path(os.getenv("LACLAUGPT_OUTPUT_CSV") or input_path)
 
 
+
+def extract_with_retries(ollama, *, model, evidence, base_budget, max_attempts, validate,
+                         system_prompt: str, schema: dict):
+    """Ask for structured SNA output, retrying with a larger budget before giving up (#405).
+
+    The budget doubles per attempt, and the final exception names truncation, because a budget
+    problem and a malformed model answer have different remedies.
+    """
+    last_error: Exception | None = None
+    last_reason = ""
+    raw = ""
+    for attempt in range(max(1, max_attempts)):
+        budget = max(1, base_budget) * (2 ** attempt)
+        response = ollama.chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": evidence},
+            ],
+            format=schema,
+            think=False,
+            options={"temperature": 0.0, "num_ctx": 8192, "num_predict": budget},
+        )
+        raw = (response.get("message") or {}).get("content") or ""
+        last_reason = str(response.get("done_reason") or "")
+        try:
+            return validate(raw)
+        except Exception as exc:  # noqa: BLE001 - any invalid answer is retryable
+            last_error = exc
+            LOG.warning(
+                "Step 8 invalid structured response attempt=%s/%s num_predict=%s "
+                "response_chars=%s done_reason=%s error=%s",
+                attempt + 1, max_attempts, budget, len(raw), last_reason, exc,
+            )
+    truncated = last_reason == "length" or "EOF while parsing" in str(last_error)
+    hint = (
+        "response was truncated before the JSON closed (done_reason=length): raise "
+        "LACLAUGPT_STEP8_NUM_PREDICT or shorten the evidence context"
+        if truncated
+        else "the model returned content that is not schema-valid"
+    )
+    raise ValueError(
+        f"Step 8 structured JSON validation failed after {max_attempts} attempts "
+        f"[{hint}]: {last_error}"
+    ) from last_error
+
 def _enrich_edges(edges, row) -> list[dict]:
     lookup = resolution_lookup(row.get("ep24_entity_resolution_json"))
     enriched: list[dict] = []
@@ -379,16 +425,18 @@ def run_language(lang: str) -> Path | None:
             continue
 
         try:
-            response = ollama.chat(
+            # #405: step 8 had no output budget and no retry, so a truncated response became a
+            # permanent row error (one real Finland row: "Invalid JSON: EOF").
+            extracted = extract_with_retries(
+                ollama,
                 model=model,
-                messages=[
-                    {"role": "system", "content": EXTRACTION_SYSTEM},
-                    {"role": "user", "content": evidence},
-                ],
-                format=SNAResult.model_json_schema(),
-                options={"temperature": 0.0, "num_ctx": 8192},
+                evidence=evidence,
+                base_budget=int(os.getenv("LACLAUGPT_STEP8_NUM_PREDICT", "2048")),
+                max_attempts=max(1, int(os.getenv("LACLAUGPT_STEP8_PARSE_ATTEMPTS", "3"))),
+                validate=SNAResult.model_validate_json,
+                system_prompt=EXTRACTION_SYSTEM,
+                schema=SNAResult.model_json_schema(),
             )
-            extracted = SNAResult.model_validate_json(response["message"]["content"])
             raw_edges = _enrich_edges(_network_relation_gate(_grounded_edge_candidates(extracted.edges, evidence)), row)
             nodes, edges = graph_from_edges(raw_edges, row)
             # Issue #197: enrichment only supplies a canonical id when the mention
