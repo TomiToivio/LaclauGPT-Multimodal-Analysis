@@ -84,3 +84,26 @@ def test_step7_keeps_failed_json_retryable(monkeypatch):
         step7.analyze_context("Synthetic transcript")
     assert len(calls) == 3
     assert all(c["think"] is False for c in calls)
+
+def test_step7_length_retry_requests_compact_complete_json(monkeypatch):
+    calls = []
+
+    def chat(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return {"message": {"content": '{"analysis_markdown":"unfinished'}, "done_reason": "length"}
+        return {"message": {"content": '{"statements":[]}'}, "done_reason": "stop"}
+
+    monkeypatch.setitem(sys.modules, "ollama", SimpleNamespace(chat=chat))
+    monkeypatch.setattr(step7, "_models", lambda: FakeDNAResult)
+    monkeypatch.setattr(step7, "_model_metadata", lambda: {
+        "model": "qwen3:8b", "num_ctx": 16384, "num_predict": 4096
+    })
+    monkeypatch.setenv("LACLAUGPT_STEP7_PARSE_ATTEMPTS", "3")
+    _, parsed = step7.analyze_context("Source evidence that must remain available")
+    assert parsed == {"statements": []}
+    assert "RETRY:" not in calls[0]["messages"][0]["content"]
+    assert "RETRY:" in calls[1]["messages"][0]["content"]
+    assert "Preserve all distinct" in calls[1]["messages"][0]["content"]
+    assert calls[0]["messages"][1] == calls[1]["messages"][1]
+    assert calls[1]["think"] is False
