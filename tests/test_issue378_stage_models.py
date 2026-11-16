@@ -189,15 +189,28 @@ def test_unknown_profile_and_non_llm_stages_fail_closed(monkeypatch):
             ep24_models.stage_ollama_model(stage)
 
 
-@pytest.mark.parametrize("stage", (2, 4, 5, 6, 7, 8))
-def test_roihu_launcher_gets_only_ollama_model_name(monkeypatch, capsys, stage):
-    """Shell command substitution must never capture the human-readable model table."""
+def test_model_only_prints_exact_tag(monkeypatch, capsys):
     clear(monkeypatch)
-    expected = ep24_models.stage_model(stage).name
-    assert ep24_models.main(["--stage", str(stage), "--model-only"]) == 0
-    assert capsys.readouterr().out == expected + "\n"
+    for step, expected in ((5, "qwen3:4b"), (8, "qwen3:8b")):
+        assert ep24_models.main(["--stage", str(step), "--model-only"]) == 0
+        assert capsys.readouterr().out.strip() == expected
 
 
-def test_model_only_requires_exactly_one_stage(capsys):
+def test_model_only_preserves_stage_override(monkeypatch, capsys):
+    clear(monkeypatch)
+    monkeypatch.setenv("LACLAUGPT_EP24_MODEL_STEP_5", "existing-model:latest")
+    assert ep24_models.main(["--stage", "5", "--model-only"]) == 0
+    assert capsys.readouterr().out.strip() == "existing-model:latest"
+
+
+def test_model_only_rejects_non_ollama_step(monkeypatch):
+    clear(monkeypatch)
     with pytest.raises(SystemExit):
-        ep24_models.main(["--model-only"])
+        ep24_models.main(["--stage", "9", "--model-only"])
+
+
+def test_slurm_ollama_bootstrap_uses_tag_only_and_stage():
+    helper = (ROOT / "scripts/roihu/roihu_job_common.sh").read_text()
+    runner = (ROOT / "scripts/roihu/step_runner.sbatch").read_text()
+    assert '--stage "$1" --model-only' in helper
+    assert 'roihu_start_ollama "${STEP}"' in runner

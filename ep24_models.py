@@ -143,17 +143,22 @@ def main(argv: list[str] | None = None) -> int:
                         help="limit to a stage (repeatable)")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--model-only", action="store_true",
-                        help="print only the resolved model tag, suitable for shell command substitution")
+                        help="print the resolved Ollama model tag only")
     parser.add_argument("--check", metavar="AVAILABLE_TXT",
                         help="file with one available Ollama tag per line; exits 1 on a gap")
     args = parser.parse_args(argv)
 
-    specs = describe(tuple(args.stage))
     if args.model_only:
-        if len(specs) != 1:
-            parser.error("--model-only requires exactly one --stage")
-        print(specs[0]["model"])
-    elif args.json:
+        if args.json or args.check or len(args.stage) != 1:
+            parser.error("--model-only requires exactly one --stage and no --json/--check")
+        spec = stage_model(args.stage[0])
+        if spec.backend != "ollama":
+            parser.error("--model-only requires an Ollama-backed stage")
+        print(spec.name)
+        return 0
+
+    specs = describe(tuple(args.stage))
+    if args.json:
         print(json.dumps(specs, indent=2))
     else:
         for spec in specs:
