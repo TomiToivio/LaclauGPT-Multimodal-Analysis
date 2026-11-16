@@ -194,6 +194,10 @@ top-level module is missing from this file.
 | `ep24_schema.py` | Researcher-feed metadata helpers. |
 | `ep24_status_identity.py` | Identity arithmetic for the status tool, kept out of a script's import side effects (#379). |
 | `roihu_clean.py` | Non-destructive cleaning of legacy per-country dataframes (issue #35). |
+| `roihu_discourse_network.py` | Step 7 research implementation: Leifeld-style discourse network coding, prompt and source-grounding checks. `step_7_…` is its CLI compatibility entry point. |
+| `roihu_sna.py` | Step 8 research implementation: evidence-backed social network analysis and its prompt. `step_8_…` is its CLI compatibility entry point. |
+| `roihu_frames.py` | Pure row/document helpers shared by the Roihu stage implementations (#413): JSON-safe dataframe rows and bounded text. |
+| `roihu_frames.py` | Pure row/document helpers shared by the Roihu stage implementations (#413): JSON-safe dataframe rows and bounded text. |
 | `step_0_roihu_import.py` | Step 0: seed the Mongo dataframe from private canonical country CSVs. |
 | `puhti_frame.py` | Historical step 2 implementation (CSC Puhti). Reference only — paired with `roihu_frame.py` by `tests/test_legacy_safety.py`. |
 | `puhti_preprocess.py` | Historical step 1 implementation (CSC Puhti). Reference only. |
