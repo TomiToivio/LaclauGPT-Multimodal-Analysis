@@ -16,7 +16,7 @@ import sqlite3
 import sys
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -396,7 +396,7 @@ def export(args: argparse.Namespace) -> dict:
             # expose the same deterministic graph as .ttl for RDF tooling.
             shutil.copyfile(output / "graph.nt", output / "graph.ttl")
         manifest = {"status": "complete-with-warnings" if warnings_count else "complete",
-                    "stage": VERSION, "run_id": run_id, "completed_at": datetime.now(UTC).isoformat(),
+                    "stage": VERSION, "run_id": run_id, "completed_at": datetime.now(timezone.utc).isoformat(),
                     "source": str(source), "source_sha256": file_hash.hexdigest(),
                     "code_sha256": code_hash, "project": args.project, "dataset_id": args.dataset_id,
                     "base_uri": args.base_uri, "rows": count, "warnings": warnings_count,
@@ -414,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(os.environ.get("LACLAUGPT_MULTIMODAL_PRIVATE_ROOT", "."))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=root / "ep24_fi.csv")
-    parser.add_argument("--output-dir", type=Path, default=root / "rdf" / datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ"))
+    parser.add_argument("--output-dir", type=Path, default=root / "rdf" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     parser.add_argument("--checkpoint", type=Path, default=root / "database" / "rdf.sqlite3")
     parser.add_argument("--project", default="ep24")
     parser.add_argument("--dataset-id", default=None, help="Stable corpus name; defaults to input file stem")
