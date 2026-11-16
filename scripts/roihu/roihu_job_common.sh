@@ -100,7 +100,7 @@ roihu_diagnostics() {
 roihu_start_ollama() {
   local model
   if [[ -n "${1:-}" ]]; then
-    model="$(python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_models.py" --stage "$1")" || return 2
+    model="$(python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_models.py" --stage "$1" --model-only)" || return 2
   else
     model="${LACLAUGPT_MULTIMODAL_MODEL:-qwen3.8:27b}"
   fi
