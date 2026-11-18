@@ -28,8 +28,8 @@ constant (Steps 2, 3, 5).
 | 3 | 4 summary | `get_llama_summary_system_prompt()` + `get_llama_summary_user_prompt()` | **none** | free Markdown | 20,000 | 2 (empty/incomplete) |
 | 4 | 5 postprocess | `get_system_prompt()` + `build_postprocess_prompt()` | **none** | `PostprocessResult` | 12,000 (own cap) | none |
 | 5 | 6 discourse | `SYSTEM_PROMPT` + retry suffix | `PROMPT_VERSION` | `EP24DiscourseAnalysis` | 28,000 | 3 |
-| 6 | 7 DNA | `SYSTEM_PROMPT` + retry suffix | `PROMPT_VERSION` | `DNAResult` | 20,000 | 3 |
-| 7 | 8 SNA | `EXTRACTION_SYSTEM` | `PROMPT_VERSION` | `SNAResult` | 12,000 | 3 |
+| 6 | 7 DNA | `roihu_discourse_network.SYSTEM_PROMPT` + retry suffix | `PROMPT_VERSION` | `DNAResult` | 20,000 | 3 |
+| 7 | 8 SNA | `roihu_sna.EXTRACTION_SYSTEM` | `PROMPT_VERSION` | `SNAResult` | 12,000 | 3 |
 | 8 | enrichment (between 5 and 6) | `ollama_adjudicator()` — fixed system line + JSON payload | **none** | `{"entity_id": str}` | payload only | none |
 | 9 | 2 legacy | `get_analysis()` | none | free text | n/a | none |
 | 10 | 4 legacy | `get_llama_summary_system_prompt()` | none | free Markdown | n/a | none |
@@ -149,8 +149,9 @@ not part of the numbered chain: `roihu_enrich.py` runs it only when
 
 ### P6 — Step 7, Discourse Network Analysis
 
-- **Where:** `step_7_roihu_discourse_network_analysis.py`, `SYSTEM_PROMPT` (line 101, 4,376
-  characters) plus a `RETRY:` instruction.
+- **Where:** `roihu_discourse_network.py`, `SYSTEM_PROMPT` (line 101, 4,376 characters) plus a
+  `RETRY:` instruction. Since #420, `step_7_roihu_discourse_network_analysis.py` is the CLI
+  compatibility entry point that Slurm invokes and contains no prompt.
 - **Version:** `PROMPT_VERSION = "ep24-dna-leifeld-v4-bounded-json"`.
 - **Task:** code one statement per actor × concept × stance, Leifeld-style, with an evidence
   quote, the fields it came from, confidence, uncertainty and counter-evidence.
@@ -170,8 +171,9 @@ not part of the numbered chain: `roihu_enrich.py` runs it only when
 
 ### P7 — Step 8, Social Network Analysis extraction
 
-- **Where:** `step_8_roihu_social_network_analysis.py`, `EXTRACTION_SYSTEM` (line 45, 2,281
-  characters).
+- **Where:** `roihu_sna.py`, `EXTRACTION_SYSTEM` (line 45, 2,281 characters). Since #420,
+  `step_8_roihu_social_network_analysis.py` is the CLI compatibility entry point and contains no
+  prompt.
 - **Version:** `PROMPT_VERSION = "ep24-sna-extraction/4.0-textbook-descriptive"`; the graph
   schema carries its own `SNA_SCHEMA_VERSION = "ep24-sna/1.0"`.
 - **Task:** extract only explicit, evidenced actor-to-actor relations from the record — not a
@@ -257,3 +259,4 @@ the exact text.
 | Date | Stage | Version | Change |
 |---|---|---|---|
 | 2026-11-16 | — | — | Catalogue created; all versions as found on `main` at `7a03afc`. |
+| 2026-11-16 | 7, 8 | unchanged | #420 extracted the stage bodies into `roihu_discourse_network.py` and `roihu_sna.py`. Prompt text, versions and budgets are unchanged; only the locations in this catalogue moved, and the `step_7_*` / `step_8_*` files became CLI entry points. |
