@@ -79,7 +79,7 @@ The initial tree review confirms nine numbered entry points, compatibility modul
 | Candidate for further review | Why inspect it | Required evidence before cleanup |
 | --- | --- | --- |
 | `ep24_sna.py`, `ep24_sna_aggregate.py`, `ep24_graph_aggregate.py` | Overlapping-sounding graph responsibilities | Compare imports and callers, semantic purpose, outputs and graph tests. Do not merge merely because names overlap. |
-| `ep24_cleaner.py`, `ep24_legacy_clean.py`, `roihu_clean.py` | Multiple cleaning generations | Check dataset-specific meaning, CLI workflows, provenance and regression fixtures. |
+| `ep24_cleaner.py`, `roihu_clean.py` | Two maintained cleaners, two jobs (#413 option C) | Schema-workbook path vs code-driven audit-parity path; see `EP24_LEGACY_CLEANING.md`. |
 | `ep24_mongo_export.py`, `ep24_mongo_dashboard_export.py`, `scripts/ep24/export_mongo_results.py` | Multiple export surfaces | Inspect output consumers and private dashboard contracts before sharing helpers. |
 | `roihu_memory.py`, `ep24_memory.py`, `roihu_codebooks.py` | Similar-sounding persistence/config concepts | Distinguish memory store from codebook semantics, private boundaries and runtime responsibilities. |
 | `scripts/roihu/run_step_*.sh`, `submit_step_*.sh`, `setup_step_*.sh` | Many near-identical short wrappers | Check dispatch and production script invocation; keep backward-compatible filenames. |

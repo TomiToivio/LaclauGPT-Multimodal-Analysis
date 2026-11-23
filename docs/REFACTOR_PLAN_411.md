@@ -89,6 +89,20 @@ what the model sees.
 `cyrillic_hygiene.py` share `_iter_labels` and `_candidate_files` exactly). They are not part of the
 pipeline, but they are what an operator actually runs, so they belong in the map and in the plan.
 
+## What has already landed since this audit was written
+
+- **#415** — a researcher guide on `main`. This branch merges with it rather than replacing it; the added
+  sections are the appends table, the judgement-kind taxonomy, the provenance triage, the challenge table
+  and the bounded-run caveat.
+- **#420, #422, #423** — approved orphan removal, a canonical cleaner, and the Step 7/8 extraction: plan
+  items 4 and 5 are done.
+- **#421** — a prompt catalogue with versions, budgets and schemas: plan item 8, delivered early.
+- **#424** — the map regenerated after those removals, which is why the committed map changed under this
+  document.
+
+What remains from the plan is therefore items 2, 3, 6, 7, 9 and 10, and the map is the live record of the
+rest.
+
 ## The plan, smallest first
 
 Each item is one PR, and each states what it does **not** change. Nothing here alters prompts, codebooks,

@@ -62,6 +62,7 @@ from ep24_models import stage_model
 from ep24_pipeline import ensure_columns, load_cumulative_csv, write_cumulative_csv
 from ep24_redis import RedisCoordinator
 from ep24_schema import stable_source_id
+from roihu_frames import clean_document as _clean_document
 
 LOG = logging.getLogger("ep24.step6")
 
@@ -258,10 +259,6 @@ def _json_text(value: Any) -> str:
     return "" if text.casefold() == "nan" else text
 
 
-def _bounded(value: str, limit: int) -> tuple[str, bool]:
-    if len(value) <= limit:
-        return value, False
-    return value[:limit], True
 
 
 def _external_context(row: pd.Series, column: str, heading: str, role: str) -> str:
@@ -429,16 +426,6 @@ def compatibility_columns(result: EP24DiscourseAnalysis) -> tuple[str, str]:
     return "\n".join(us_lines), "\n".join(frontier_lines)
 
 
-def _clean_document(row: pd.Series) -> dict[str, Any]:
-    doc: dict[str, Any] = {}
-    for key, value in row.to_dict().items():
-        try:
-            if pd.isna(value):
-                value = None
-        except (TypeError, ValueError):
-            pass
-        doc[str(key)] = value
-    return doc
 
 
 def _country(value: str | None) -> str:

@@ -573,7 +573,7 @@ def test_memory_retrieval_does_not_become_statement_evidence(tmp_path, monkeypat
 
 def test_step_7_help_works_without_runtime_dependencies():
     """#152 contract: --help must not import ollama/pydantic at module level."""
-    source = (ROOT / contract.stage(7).module).read_text(encoding="utf-8")
+    source = (ROOT / "roihu_discourse_network.py").read_text(encoding="utf-8")
     head = source.split("def _models", 1)[0]
     # A bare `import ollama` / `from pydantic import ...` at module level would
     # run during --help and break the minimal-environment contract.

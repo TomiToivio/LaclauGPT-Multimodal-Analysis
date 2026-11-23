@@ -90,6 +90,61 @@ Before declaring a refactor behavior-preserving, compare stage schemas, prompt f
 - **Checkpoint:** Durable intermediate state used for inspection or safe resumption.
 - **Prompt fingerprint:** Reproducibility metadata identifying the effective model-visible instructions/configuration; see its concrete implementation for scope.
 
+## Which stage appends what
+
+The research questions above say *why* each stage exists; this table says *which columns it owns*, from
+`ep24_stage_contract.py`. Everything else in the row is carried forward untouched.
+
+| step | appends (first few) |
+| ---: | --- |
+| 1 preprocess | `frame_file`, `frame_timestamp_seconds`, `ocr_1`, `ocr_backend`, `ocr_model` |
+| 2 frame | `frame_analysis_1`, `frame_analysis_status`, `frame_analysis_context_sha256`, `frame_quality_status` |
+| 3 video | `vllm_video_model`, `vllm_video_status`, `vllm_video_analysis`, `vllm_video_error` |
+| 4 summary | `summary_analysis`, `summary_summary_md`, `summary_quality_status`, `processing_status` |
+| 5 postprocess | `postprocess_entities`, `postprocess_themes`, `positive`, `neutral`, `negative` |
+| 6 discourse | `formula_of_populism_analysis`, `formula_of_populism_us`, `formula_of_populism_frontier`, `laclau_structured_json` |
+| 7 DNA | `dna_analysis_markdown`, `dna_statements_json`, `dna_prompt_version`, `dna_context_sha256` |
+| 8 SNA | `sna_analysis_markdown`, `sna_edges_json` |
+| 9 RDF | *(none — RDF is emitted, not appended)* |
+
+## What kind of judgement is in that column
+
+Three kinds of judgement end up in one table, and the column names tell you which:
+
+| kind | how to recognise it | who decides | can it be wrong interpretively? |
+| --- | --- | --- | --- |
+| **human-coded** | `political_preference`, `entities`, `themes`, `researcher_note` | the researcher, outside the pipeline | no — it is the reference |
+| **model-generated** | `frame_analysis_*`, `summary_*`, `vllm_video_*`, `formula_of_populism_*`, `laclau_*`, `dna_*`, `sna_*` | an LLM, from a prompt you can read in that stage | yes |
+| **deterministic** | `*_quality_status`, `*_quality_reason`, `*_context_sha256`, RDF output, graph metrics | code and thresholds | not the computation — but the **threshold choice** is methodological |
+
+The quality gate (`laclaugpt_quality.py`) is the clearest case of the third row: it returns
+`OK`/`REPROCESS`/`DELETE` for steps 2–5 by rules, and those rules decide which rows reach the next stage.
+When a finding looks like an artefact, the gate is one of the first places to look.
+
+## Where to challenge a decision
+
+| question | look at |
+| --- | --- |
+| Why does this row carry a coding I disagree with? | its `*_structured_json` and evidence spans, then the stage prompt |
+| Why was this row dropped? | `*_quality_status` / `*_quality_reason`, then `laclaugpt_quality.py` |
+| Why did this row never run? | `ep24_stage_state.py`, `ep24_eligibility.py` |
+| Did the model see the same thing last run? | the `*_context_sha256` columns: equal hash, equal context |
+| Is this an artefact of the sample? | the arena/eligibility columns and the coverage audits under `scripts/ep24/` |
+| Which code produced this column? | `ep24_stage_contract.py`, or the generated [`REPO_MAP.md`](REPO_MAP.md) |
+
+## Running one stage by hand
+
+Every numbered step shares the same CLI contract (`ep24_cli.configure_step_cli`), so these are
+interchangeable across stages:
+
+```bash
+python step_6_roihu_discourse_analysis.py --help
+python step_6_roihu_discourse_analysis.py --limit 5     # bounded run over five eligible rows
+```
+
+`--limit` is for inspection, not for analysis: a bounded run is a debugging aid and its output must not
+be quoted as a corpus result. Resume is safe by construction — stages are additive and idempotent over
+their own columns, with atomic checkpoints from `ep24_backups.py`.
 ## Safe future simplification (issue #411)
 
 The current tree has multiple operational wrappers and historically accumulated reports. **Similarity of names is not proof of redundant behavior.** Audit invocation references, field contracts, Slurm scripts, tests, publication dependencies and private workflows before moving or consolidating files. Keep numbered entry points and compatibility implementations until a tested migration is explicitly approved.
