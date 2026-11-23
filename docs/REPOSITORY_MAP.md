@@ -104,6 +104,7 @@ Two conventions matter when reading the code:
 | --- | --- |
 | `ep24_settings.py` | Loads private runtime settings without logging secrets. |
 | `ep24_logging.py` | One log directory and one filename convention for every step (the one the steps use). |
+| `ep24_logs.py` | The orchestrator's log-path helper: `log_path`, `error_path`, `slurm_paths`, `configure_logging`. Used by `ep24_stage_orchestrator.py`; the step modules use `ep24_logging.py`. |
 | `ep24_backups.py` | Atomic CSV/SQLite/manifest checkpoints for cumulative frames. |
 | `ep24_redis.py` | Optional Redis coordination; MongoDB remains the durable source of truth. |
 | `ep24_result_reporting.py` | Human-readable, private per-stage reporting. |
