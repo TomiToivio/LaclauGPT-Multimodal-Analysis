@@ -24,6 +24,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 STEP8 = ROOT / "roihu_sna.py"
+# Test the extracted implementation; the numbered step remains the CLI wrapper.
 
 
 def _load_step8() -> Any:

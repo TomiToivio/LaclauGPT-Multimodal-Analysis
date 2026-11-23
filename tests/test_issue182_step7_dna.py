@@ -491,6 +491,7 @@ def test_cumulative_write_preserves_every_incoming_column():
 def test_stage_contract_column_check_finds_every_declared_dna_column_written():
     """Mirrors tests/test_ep24_stage_contract.py's written-column check."""
     source = (ROOT / "roihu_discourse_network.py").read_text(encoding="utf-8")
+    # The stage contract names the stable CLI; writes live in the extracted module.
     missing = [column for column in dna.DNA_COLUMNS if column not in source]
     assert not missing, f"declared but not written in the module: {missing}"
 

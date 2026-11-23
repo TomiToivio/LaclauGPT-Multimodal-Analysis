@@ -62,6 +62,8 @@ Two conventions matter when reading the code:
 | `roihu_postprocess.py` | 5 | Structured entity/theme/sentiment extraction, kept separate from immutable human columns. |
 | `roihu_populism.py` | 6 | Laclau/Mouffe/Palonen discourse analysis: evidence-first, abstention-capable. |
 | `roihu_enrich.py` | — | Additive codebook/memory enrichment between steps 5 and 6. |
+| `roihu_discourse_network.py` | 7 | Active Step 7 implementation: prompt, evidence/context handling, DNA columns, and resumable writes. |
+| `roihu_sna.py` | 8 | Active Step 8 implementation: evidence-backed relation extraction, validation, and resumable writes. |
 | `ep24_dna.py` | 7 | Leifeld DNA/rDNA coding and compatibility layer. |
 | `ep24_sna.py`, `ep24_sna_aggregate.py` | 8 | Deterministic social-network construction, persistence and cross-video aggregation. |
 | `roihu_rdf.py`, `roihu_csv_rdf.py` | 9 | Deterministic RDF/knowledge-graph projection of the finished dataframe. |
@@ -102,7 +104,7 @@ Two conventions matter when reading the code:
 | --- | --- |
 | `ep24_settings.py` | Loads private runtime settings without logging secrets. |
 | `ep24_logging.py` | One log directory and one filename convention for every step (the one the steps use). |
-| `ep24_logs.py` | Older implementation of the same convention, still used by the orchestrator. See `AUDIT_411.md` — it is a consolidation candidate, not a second convention. |
+| `ep24_logs.py` | The orchestrator's log-path helper: `log_path`, `error_path`, `slurm_paths`, `configure_logging`. Used by `ep24_stage_orchestrator.py`; the step modules use `ep24_logging.py`. |
 | `ep24_backups.py` | Atomic CSV/SQLite/manifest checkpoints for cumulative frames. |
 | `ep24_redis.py` | Optional Redis coordination; MongoDB remains the durable source of truth. |
 | `ep24_result_reporting.py` | Human-readable, private per-stage reporting. |
