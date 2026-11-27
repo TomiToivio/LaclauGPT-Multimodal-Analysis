@@ -47,7 +47,7 @@ cd "${LACLAUGPT_MULTIMODAL_PRIVATE_ROOT}"
 source "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/scripts/roihu/lib_roihu_diagnostics.sh"
 roihu_diagnostics 3
 
-srun --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_stage_orchestrator.py" \
+srun --export=ALL,RCLONE_BIN="${RCLONE_BIN}" --ntasks=1 python3 "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/ep24_stage_orchestrator.py" \
   --step 3 \
   --script "${LACLAUGPT_MULTIMODAL_PUBLIC_ROOT}/step_3_roihu_video.py" \
   "$@"
